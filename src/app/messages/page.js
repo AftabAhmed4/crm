@@ -1,24 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 "use client";
 import { useRouter } from "next/navigation";
 import React, {
@@ -121,9 +102,11 @@ export default function MessagesDashboard() {
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const unreadCount = conversations.filter(
-  (conversation) => conversation.unreadCount > 0
-).length;
+const unreadCount = conversations.reduce(
+  (total, conversation) =>
+    total + Number(conversation.unread_count || 0),
+  0
+);
 
   /* ==================================================
      CURRENT TIME
@@ -761,22 +744,23 @@ useEffect(() => {
   const refreshMessages = async () => {
     try {
       await loadConversations();
-
-      if (selectedChat) {
-        await loadMessages(selectedChat);
-      }
     } catch (error) {
-      console.error("Auto refresh messages error:", error);
+      console.error(
+        "Auto refresh messages error:",
+        error
+      );
     }
   };
 
-  const interval = setInterval(() => {
-    refreshMessages();
-  }, 5000);
+  const interval = setInterval(
+    refreshMessages,
+    5000
+  );
 
-  return () => clearInterval(interval);
-}, [selectedChat?.id, currentUser?.id]);
-
+  return () => {
+    clearInterval(interval);
+  };
+}, [currentUser?.id]);
 // LOADER
 // if (loadingConversations) {
 //   return (
@@ -815,294 +799,679 @@ useEffect(() => {
   ================================================== */
 
 const handleSelectChat = async (chat) => {
+  if (!chat) return;
+
+  console.log("=================================");
+  console.log("SELECT CHAT");
+  console.log("=================================");
+  console.log("Selected Chat:", chat);
+  console.log("Chat ID:", chat.id);
+  console.log("Conversation ID:", chat.conversationId);
+  console.log("User ID:", chat.user_id || chat.userId);
+
   setSelectedChat(chat);
   setShowMobileChat(true);
 
-  // Clear unread count locally
+  /*
+  ==================================================
+  CLEAR UNREAD LOCALLY IMMEDIATELY
+  ==================================================
+  */
+
   setConversations((prev) =>
-    prev.map((item) =>
-      item.id === chat.id
-        ? {
-            ...item,
-            unread_count: 0,
-          }
-        : item
-    )
+    prev.map((item) => {
+      const sameConversation =
+        Number(item.id) > 0 &&
+        Number(chat.id) > 0 &&
+        Number(item.id) === Number(chat.id);
+
+      const sameUser =
+        Number(item.user_id || item.userId) > 0 &&
+        Number(chat.user_id || chat.userId) > 0 &&
+        Number(item.user_id || item.userId) ===
+          Number(chat.user_id || chat.userId);
+
+      if (sameConversation || sameUser) {
+        return {
+          ...item,
+          unread_count: 0,
+        };
+      }
+
+      return item;
+    })
   );
 
-  if (chat.id) {
+  /*
+  ==================================================
+  MARK MESSAGES AS READ
+  ==================================================
+  */
+
+  const conversationId = Number(
+    chat.conversationId ??
+    chat.conversation_id ??
+    chat.id
+  );
+
+  if (
+    Number.isInteger(conversationId) &&
+    conversationId > 0
+  ) {
     try {
-      await fetch("/api/message/read", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conversationId: chat.id,
-        }),
-      });
+      console.log(
+        "MARKING READ:",
+        conversationId
+      );
+
+      const response = await fetch(
+        "/api/message/read",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+          body: JSON.stringify({
+            conversationId,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      console.log(
+        "================================="
+      );
+      console.log(
+        "MARK READ RESPONSE"
+      );
+      console.log(
+        "================================="
+      );
+      console.log(
+        "Status:",
+        response.status
+      );
+      console.log(
+        "Response:",
+        data
+      );
+
+      if (!response.ok || !data?.success) {
+        console.error(
+          "Mark read failed:",
+          data?.message
+        );
+      } else {
+        /*
+        ==========================================
+        FORCE LOCAL UNREAD = 0
+        ==========================================
+        */
+
+        setConversations((prev) =>
+          prev.map((item) => {
+            const sameConversation =
+              Number(item.id) ===
+              conversationId;
+
+            if (sameConversation) {
+              return {
+                ...item,
+                unread_count: 0,
+              };
+            }
+
+            return item;
+          })
+        );
+      }
     } catch (error) {
-      console.error("Mark Messages Read Error:", error);
+      console.error(
+        "Mark Messages Read Error:",
+        error
+      );
     }
   }
 
-  // your existing message loading code...
+  /*
+  ==================================================
+  LOAD MESSAGES
+  ==================================================
+  */
+
+  await loadMessages(chat);
 };
 
   /* ==================================================
      SEND TEXT MESSAGE
   ================================================== */
 
-  const handleSendMessage = async (e) => {
-    e?.preventDefault();
+ const handleSendMessage = async (e) => {
+  e?.preventDefault();
 
-    const text = inputMessage.trim();
+  const text = inputMessage.trim();
 
-    if (!text || sendingMessage) {
-      return;
-    }
+  if (!text || sendingMessage) {
+    return;
+  }
 
-    const currentUserId = Number(currentUser?.id);
+  const currentUserId = Number(currentUser?.id);
 
-    const rawConversationId =
-      selectedChat?.id ??
-      selectedChat?.conversationId ??
-      null;
+  /* ==================================================
+     GET CONVERSATION ID
+  ================================================== */
 
-    const rawTargetUserId =
-      selectedChat?.user_id ??
-      selectedChat?.userId ??
-      null;
+  const rawConversationId =
+    selectedChat?.conversationId ??
+    selectedChat?.conversation_id ??
+    selectedChat?.id ??
+    null;
 
-    let conversationId = null;
-    let targetUserId = null;
+  /* ==================================================
+     GET TARGET USER ID
+     Supports all common field names
+  ================================================== */
+
+  const rawTargetUserId =
+    selectedChat?.targetUserId ??
+    selectedChat?.target_user_id ??
+    selectedChat?.user_id ??
+    selectedChat?.userId ??
+    selectedChat?.otherUserId ??
+    selectedChat?.other_user_id ??
+    null;
+
+  let conversationId = null;
+  let targetUserId = null;
+
+  /* ==================================================
+     NORMALIZE CONVERSATION ID
+  ================================================== */
+
+  if (
+    rawConversationId !== null &&
+    rawConversationId !== undefined &&
+    rawConversationId !== ""
+  ) {
+    const numericConversationId = Number(rawConversationId);
 
     if (
-      rawConversationId !== null &&
-      rawConversationId !== undefined &&
-      rawConversationId !== ""
+      Number.isInteger(numericConversationId) &&
+      numericConversationId > 0
     ) {
-      const numericConversationId = Number(rawConversationId);
-
-      if (
-        Number.isInteger(numericConversationId) &&
-        numericConversationId > 0
-      ) {
-        conversationId = numericConversationId;
-      }
+      conversationId = numericConversationId;
     }
+  }
+
+  /* ==================================================
+     HANDLE TEMPORARY DIRECT CHAT IDs
+
+     Example:
+     direct-5
+     direct-2
+  ================================================== */
+
+  if (
+    typeof rawConversationId === "string" &&
+    rawConversationId.startsWith("direct-")
+  ) {
+    conversationId = null;
+  }
+
+  /* ==================================================
+     NORMALIZE TARGET USER ID
+  ================================================== */
+
+  if (
+    rawTargetUserId !== null &&
+    rawTargetUserId !== undefined &&
+    rawTargetUserId !== ""
+  ) {
+    const numericTargetUserId = Number(rawTargetUserId);
 
     if (
-      typeof rawConversationId === "string" &&
-      rawConversationId.startsWith("direct-")
+      Number.isInteger(numericTargetUserId) &&
+      numericTargetUserId > 0
     ) {
-      conversationId = null;
+      targetUserId = numericTargetUserId;
+    }
+  }
+
+  /* ==================================================
+     DEBUG
+  ================================================== */
+
+  console.log("=================================");
+  console.log("SEND MESSAGE DEBUG");
+  console.log("=================================");
+
+  console.log("Current User ID:", currentUserId);
+  console.log("Selected Chat:", selectedChat);
+  console.log("Raw Conversation ID:", rawConversationId);
+  console.log("Raw Target User ID:", rawTargetUserId);
+  console.log("Final Conversation ID:", conversationId);
+  console.log("Final Target User ID:", targetUserId);
+
+  /* ==================================================
+     VALIDATION
+  ================================================== */
+
+  if (!conversationId && !targetUserId) {
+    alert("No conversation or target user selected");
+    return;
+  }
+
+  if (
+    targetUserId &&
+    targetUserId === currentUserId
+  ) {
+    alert("You cannot send a message to yourself");
+    return;
+  }
+
+  try {
+    setSendingMessage(true);
+
+    /* ==================================================
+       BUILD REQUEST BODY
+    ================================================== */
+
+    const body = {
+      text,
+      msgType: "text",
+    };
+
+    /*
+     IMPORTANT:
+     Send BOTH IDs when available.
+
+     targetUserId tells the API exactly who the
+     message is intended for.
+
+     conversationId is still sent when we have it.
+    */
+
+    if (conversationId) {
+      body.conversationId = conversationId;
     }
 
-    if (
-      rawTargetUserId !== null &&
-      rawTargetUserId !== undefined &&
-      rawTargetUserId !== ""
-    ) {
-      const numericTargetUserId = Number(rawTargetUserId);
-
-      if (
-        Number.isInteger(numericTargetUserId) &&
-        numericTargetUserId > 0
-      ) {
-        targetUserId = numericTargetUserId;
-      }
+    if (targetUserId) {
+      body.targetUserId = targetUserId;
     }
 
-    console.log("SEND MESSAGE DEBUG:", {
-      currentUserId,
-      selectedChat,
-      conversationId,
-      targetUserId,
+    console.log("=================================");
+    console.log("POST /api/messages BODY");
+    console.log("=================================");
+    console.log(body);
+
+    /* ==================================================
+       SEND MESSAGE
+    ================================================== */
+
+    const response = await fetch("/api/messages", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     });
 
-    if (!conversationId && !targetUserId) {
-      alert("No conversation or target user selected");
-      return;
-    }
-
-    if (
-      targetUserId &&
-      targetUserId === currentUserId
-    ) {
-      alert("You cannot send a message to yourself");
-      return;
-    }
+    let data = null;
 
     try {
-      setSendingMessage(true);
-
-      const body = {
-        text,
-        msgType: "text",
-      };
-
-      if (conversationId) {
-        body.conversationId = conversationId;
-      }
-
-      if (!conversationId && targetUserId) {
-        body.targetUserId = targetUserId;
-      }
-
-      console.log("POST /api/messages BODY:", body);
-
-      const response = await fetch("/api/messages", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data = await response.json();
-
-      console.log(
-        "POST /api/messages RESPONSE:",
-        data
+      data = await response.json();
+    } catch (jsonError) {
+      console.error(
+        "Invalid JSON response:",
+        jsonError
       );
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message || "Failed to send message"
-        );
-      }
-
-      const realConversationId = Number(
-        data.conversationId
+      throw new Error(
+        `Server returned invalid response (${response.status})`
       );
+    }
 
-      const apiMessage = data.data;
+    console.log("=================================");
+    console.log("POST /api/messages RESPONSE");
+    console.log("=================================");
+    console.log(data);
 
-      if (
-        !Number.isInteger(realConversationId) ||
-        realConversationId <= 0 ||
-        !apiMessage
-      ) {
-        throw new Error(
-          "API did not return a valid conversation/message"
-        );
-      }
+    /* ==================================================
+       API ERROR
+    ================================================== */
 
-      const newMessage = {
-        id: Number(apiMessage.id),
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.message ||
+          `Failed to send message (${response.status})`
+      );
+    }
 
-        conversation_id: realConversationId,
+    /* ==================================================
+       GET REAL CONVERSATION ID
+    ================================================== */
 
-        sender:
-          Number(apiMessage.sender_id) === currentUserId
-            ? "me"
-            : "them",
+    const realConversationId = Number(
+      data.conversationId
+    );
 
-        senderId: Number(apiMessage.sender_id),
+    const apiMessage = data.data;
 
-        senderName:
-          apiMessage.sender_name ||
-          currentUser?.name ||
-          "You",
-
-        senderEmail:
-          apiMessage.sender_email ||
-          currentUser?.email ||
-          "",
-
-        text: apiMessage.text || text,
-
-        time: apiMessage.created_at
-          ? new Date(
-              apiMessage.created_at
-            ).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : getCurrentTime(),
-
-        type: apiMessage.msg_type || "text",
-
-        fileName: apiMessage.file_name || null,
-        fileSize: apiMessage.file_size || null,
-        fileUrl: apiMessage.file_url || null,
-
-        created_at: apiMessage.created_at || null,
-      };
-
-      /* ==================================================
-         UPDATE SELECTED CHAT
-      ================================================== */
-
-      setSelectedChat((current) => {
-        if (!current) {
-          return current;
-        }
-
-        return {
-          ...current,
-
-          id: realConversationId,
-          conversationId: realConversationId,
-
-          messages: [
-            ...(current.messages || []),
-            newMessage,
-          ],
-
-          lastMsg: text,
-          last_msg: text,
-
-          last_msg_time:
-            apiMessage.created_at || null,
-
-          time: newMessage.time,
-        };
-      });
-
-      /* ==================================================
-         UPDATE SIDEBAR
-      ================================================== */
-
-setConversations((prev) =>
-  prev.map((chat) => {
     if (
-      chat.id === newMessage.conversation_id &&
-      selectedChat?.id !== newMessage.conversation_id
+      !Number.isInteger(realConversationId) ||
+      realConversationId <= 0
     ) {
-      return {
-        ...chat,
-        unread_count: Number(chat.unread_count || 0) + 1,
-        lastMsg: newMessage.text || "",
-        time: new Date().toLocaleTimeString([], {
+      throw new Error(
+        "API did not return a valid conversation ID"
+      );
+    }
+
+    if (!apiMessage) {
+      throw new Error(
+        "API did not return the sent message"
+      );
+    }
+
+    /* ==================================================
+       CREATE FRONTEND MESSAGE OBJECT
+    ================================================== */
+
+    const senderId = Number(
+      apiMessage.sender_id
+    );
+
+    const messageCreatedAt =
+      apiMessage.created_at || null;
+
+    const messageTime = messageCreatedAt
+      ? new Date(
+          messageCreatedAt
+        ).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
-        }),
+        })
+      : getCurrentTime();
+
+    const newMessage = {
+      id: Number(apiMessage.id),
+
+      conversation_id: realConversationId,
+
+      sender:
+        senderId === currentUserId
+          ? "me"
+          : "them",
+
+      senderId,
+
+      senderName:
+        apiMessage.sender_name ||
+        currentUser?.name ||
+        "You",
+
+      senderEmail:
+        apiMessage.sender_email ||
+        currentUser?.email ||
+        "",
+
+      text:
+        apiMessage.text ||
+        text,
+
+      time: messageTime,
+
+      type:
+        apiMessage.msg_type ||
+        "text",
+
+      fileName:
+        apiMessage.file_name ||
+        null,
+
+      fileSize:
+        apiMessage.file_size ||
+        null,
+
+      fileUrl:
+        apiMessage.file_url ||
+        null,
+
+      created_at:
+        messageCreatedAt,
+    };
+
+    /* ==================================================
+       UPDATE SELECTED CHAT
+    ================================================== */
+
+    setSelectedChat((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+
+        /*
+         * Replace temporary/stale ID with real DB ID
+         */
+        id: realConversationId,
+
+        conversationId:
+          realConversationId,
+
+        conversation_id:
+          realConversationId,
+
+        /*
+         * Preserve target user
+         */
+        user_id:
+          targetUserId ||
+          current.user_id ||
+          null,
+
+        userId:
+          targetUserId ||
+          current.userId ||
+          null,
+
+        targetUserId:
+          targetUserId ||
+          current.targetUserId ||
+          null,
+
+        messages: [
+          ...(current.messages || []),
+          newMessage,
+        ],
+
+        lastMsg:
+          newMessage.text,
+
+        last_msg:
+          newMessage.text,
+
+        last_msg_time:
+          messageCreatedAt,
+
+        time:
+          messageTime,
       };
-    }
+    });
 
-    return chat;
-  })
-);
+    /* ==================================================
+       UPDATE SIDEBAR
+    ================================================== */
 
-      setInputMessage("");
-    } catch (error) {
-      console.error(
-        "Send Message Error:",
-        error
-      );
+    setConversations((prev) => {
+      const realId =
+        Number(realConversationId);
 
-      alert(
-        error.message ||
-          "Message send failed"
-      );
-    } finally {
-      setSendingMessage(false);
-    }
-  };
+      const existingChatIndex =
+        prev.findIndex(
+          (chat) =>
+            Number(
+              chat.id ??
+              chat.conversationId ??
+              chat.conversation_id
+            ) === realId
+        );
+
+      /*
+       * Existing conversation
+       */
+
+      if (existingChatIndex !== -1) {
+        return prev.map((chat, index) => {
+          if (index !== existingChatIndex) {
+            return chat;
+          }
+
+          const selectedConversationId =
+            Number(
+              selectedChat?.id ??
+              selectedChat?.conversationId ??
+              selectedChat?.conversation_id ??
+              0
+            );
+
+          const isSelected =
+            selectedConversationId === realId;
+
+          return {
+            ...chat,
+
+            id: realId,
+
+            conversationId:
+              realId,
+
+            conversation_id:
+              realId,
+
+            lastMsg:
+              newMessage.text || "",
+
+            last_msg:
+              newMessage.text || "",
+
+            last_msg_time:
+              messageCreatedAt,
+
+            time:
+              messageTime,
+
+            unread_count:
+              isSelected
+                ? Number(
+                    chat.unread_count || 0
+                  )
+                : Number(
+                    chat.unread_count || 0
+                  ) + 1,
+          };
+        });
+      }
+
+      /*
+       * If this is a newly created conversation,
+       * add it to the sidebar.
+       */
+
+      return [
+        {
+          id: realId,
+
+          conversationId:
+            realId,
+
+          conversation_id:
+            realId,
+
+          user_id:
+            targetUserId || null,
+
+          userId:
+            targetUserId || null,
+
+          targetUserId:
+            targetUserId || null,
+
+          name:
+            selectedChat?.name ||
+            selectedChat?.user_name ||
+            selectedChat?.username ||
+            "User",
+
+          email:
+            selectedChat?.email ||
+            selectedChat?.user_email ||
+            "",
+
+          lastMsg:
+            newMessage.text || "",
+
+          last_msg:
+            newMessage.text || "",
+
+          last_msg_time:
+            messageCreatedAt,
+
+          time:
+            messageTime,
+
+          unread_count: 0,
+
+          messages: [newMessage],
+        },
+
+        ...prev,
+      ];
+    });
+
+    /* ==================================================
+       CLEAR INPUT
+    ================================================== */
+
+    setInputMessage("");
+
+    console.log(
+      "Message sent successfully:",
+      {
+        conversationId:
+          realConversationId,
+        targetUserId,
+        messageId:
+          newMessage.id,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "================================="
+    );
+
+    console.error(
+      "SEND MESSAGE ERROR:",
+      error
+    );
+
+    console.error(
+      "================================="
+    );
+
+    alert(
+      error?.message ||
+        "Message send failed"
+    );
+  } finally {
+    setSendingMessage(false);
+  }
+};
 
   /* ==================================================
      FILE UPLOAD
@@ -2974,46 +3343,49 @@ return (
                 onSubmit={handleSendMessage}
                 className="bg-white border border-slate-200 rounded-xl p-2 focus-within:border-emerald-500 shadow-sm"
               >
+<div className="flex items-center gap-2">
 
-                <div className="flex items-center gap-2">
+  <textarea
+    placeholder="Type a message..."
+    value={inputMessage}
+    onChange={(e) => {
+      setInputMessage(e.target.value);
+    }}
+    onKeyDown={(e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
 
-                  <input
-                    type="text"
-                    placeholder="Type a message..."
-                    value={inputMessage}
-                    onChange={(e) =>
-                      setInputMessage(
-                        e.target.value
-                      )
-                    }
-                    disabled={sendingMessage}
-                    className="flex-1 min-w-0 bg-transparent text-xs px-2 py-2 outline-none text-slate-700"
-                  />
+        if (
+          !sendingMessage &&
+          inputMessage.trim()
+        ) {
+          handleSendMessage(e);
+        }
+      }
 
+      // Shift + Enter = normal new line
+    }}
+    disabled={sendingMessage}
+    rows={1}
+    className="flex-1 min-w-0 bg-transparent text-xs px-2 py-2 outline-none text-slate-700 resize-none max-h-24 overflow-y-auto"
+  />
 
-                  <button
-                    type="submit"
-                    disabled={
-                      sendingMessage ||
-                      !inputMessage.trim()
-                    }
-                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                  >
+  <button
+    type="submit"
+    disabled={
+      sendingMessage ||
+      !inputMessage.trim()
+    }
+    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+  >
+    {sendingMessage ? (
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+    ) : (
+      <Send className="w-3.5 h-3.5" />
+    )}
+  </button>
 
-                    {sendingMessage ? (
-
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-
-                    ) : (
-
-                      <Send className="w-3.5 h-3.5" />
-
-                    )}
-
-                  </button>
-
-                </div>
-
+</div>
 
                 <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-100">
 

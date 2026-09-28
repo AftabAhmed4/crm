@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import db from "../../../lib/db";
 
+export const runtime = "nodejs";
+
 /*
 ==================================================
 GET CURRENT USER
@@ -21,8 +23,8 @@ function getCurrentUser(request) {
     );
 
     const id =
-      decoded.id ||
-      decoded._id ||
+      decoded.id ??
+      decoded._id ??
       decoded.userId;
 
     const numericId = Number(id);
@@ -36,16 +38,48 @@ function getCurrentUser(request) {
 
     return {
       id: numericId,
-      name: decoded.name || "",
-      email: decoded.email || "",
+
+      name:
+        decoded.name ||
+        decoded.username ||
+        "",
+
+      email:
+        decoded.email ||
+        "",
+
       role: String(
         decoded.role || "user"
-      ).toLowerCase(),
+      )
+        .trim()
+        .toLowerCase(),
     };
   } catch (error) {
-    console.error("JWT ERROR:", error);
+    console.error(
+      "JWT ERROR:",
+      error
+    );
+
     return null;
   }
+}
+
+/*
+==================================================
+ADMIN CHECK
+==================================================
+*/
+function isAdmin(user) {
+  const role = String(
+    user?.role || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    role === "admin" ||
+    role === "administrator"
+  );
 }
 
 /*
@@ -53,20 +87,29 @@ function getCurrentUser(request) {
 GET
 ==================================================
 
-Open in browser:
+GET:
 
-http://localhost:3000/api/message/read
+/api/message/read
 
-Or specific conversation:
+Returns all unread conversation counts.
 
-http://localhost:3000/api/message/read?conversationId=13
+Specific:
 
-This ONLY CHECKS DATA.
-It does NOT mark messages as read.
+/api/message/read?conversationId=13
+
+Returns unread messages for conversation.
+
+IMPORTANT:
+
+GET does NOT mark messages as read.
 ==================================================
 */
 export async function GET(request) {
   try {
+    /* ==============================================
+       AUTH
+    ============================================== */
+
     const currentUser =
       getCurrentUser(request);
 
@@ -90,11 +133,12 @@ export async function GET(request) {
         "conversationId"
       );
 
-    /*
-    ==================================================
-    SPECIFIC CONVERSATION
-    ==================================================
-    */
+    const admin =
+      isAdmin(currentUser);
+
+    /* ==============================================
+       SPECIFIC CONVERSATION
+    ============================================== */
 
     if (conversationIdParam) {
       const conversationId =
@@ -120,9 +164,44 @@ export async function GET(request) {
         );
       }
 
-      /*
-      CHECK MEMBERSHIP
-      */
+      /* ============================================
+         CHECK CONVERSATION EXISTS
+      ============================================ */
+
+      const [conversationRows] =
+        await db.query(
+          `
+          SELECT
+            id,
+            type,
+            created_by,
+            created_at,
+            updated_at
+          FROM conversations
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [conversationId]
+        );
+
+      if (
+        conversationRows.length === 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Conversation not found",
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      /* ============================================
+         CHECK MEMBERSHIP
+      ============================================ */
 
       const [memberRows] =
         await db.query(
@@ -144,16 +223,15 @@ export async function GET(request) {
         );
 
       /*
-      ADMIN CAN CHECK ANY CONVERSATION
-      */
-
-      const isAdmin =
-        currentUser.role ===
-        "admin";
+       * Normal users must be members.
+       *
+       * Admins can inspect conversations
+       * without being members.
+       */
 
       if (
         memberRows.length === 0 &&
-        !isAdmin
+        !admin
       ) {
         return NextResponse.json(
           {
@@ -167,9 +245,9 @@ export async function GET(request) {
         );
       }
 
-      /*
-      GET UNREAD MESSAGES
-      */
+      /* ============================================
+         GET UNREAD RECEIVED MESSAGES
+      ============================================ */
 
       const [messages] =
         await db.query(
@@ -222,6 +300,8 @@ export async function GET(request) {
           role: currentUser.role,
         },
 
+        isAdmin: admin,
+
         conversationId,
 
         unread_count:
@@ -232,47 +312,98 @@ export async function GET(request) {
       });
     }
 
-    /*
-    ==================================================
-    ALL CONVERSATIONS UNREAD COUNT
-    ==================================================
-    */
+    /* ==============================================
+       ALL CONVERSATIONS UNREAD COUNTS
+    ============================================== */
 
-    const [rows] =
-      await db.query(
-        `
-        SELECT
-          m.conversation_id,
-
-          COUNT(*) AS unread_count
-
-        FROM messages m
-
-        INNER JOIN conversation_members cm
-          ON cm.conversation_id =
-             m.conversation_id
-
-        WHERE cm.user_id = ?
-
-          AND m.sender_id != ?
-
-          AND m.is_read = 0
-
-        GROUP BY
-          m.conversation_id
-
-        ORDER BY
-          m.conversation_id DESC
-        `,
-        [
-          currentUser.id,
-          currentUser.id,
-        ]
-      );
+    let rows;
 
     /*
-    FORMAT DATA
-    */
+     * NORMAL USER
+     *
+     * Only conversations where user
+     * is actually a member.
+     */
+
+    if (!admin) {
+      const [normalRows] =
+        await db.query(
+          `
+          SELECT
+            m.conversation_id,
+
+            COUNT(*) AS unread_count
+
+          FROM messages m
+
+          INNER JOIN conversation_members cm
+            ON cm.conversation_id =
+               m.conversation_id
+
+          WHERE cm.user_id = ?
+
+            AND m.sender_id != ?
+
+            AND m.is_read = 0
+
+          GROUP BY
+            m.conversation_id
+
+          ORDER BY
+            m.conversation_id DESC
+          `,
+          [
+            currentUser.id,
+            currentUser.id,
+          ]
+        );
+
+      rows = normalRows;
+    } else {
+      /*
+       * ADMIN
+       *
+       * Admin can see conversations even when
+       * admin is not a member.
+       *
+       * BUT we still only count messages sent
+       * by someone other than this admin.
+       */
+
+      const [adminRows] =
+        await db.query(
+          `
+          SELECT
+            m.conversation_id,
+
+            COUNT(*) AS unread_count
+
+          FROM messages m
+
+          INNER JOIN conversations c
+            ON c.id = m.conversation_id
+
+          WHERE m.sender_id != ?
+
+            AND m.is_read = 0
+
+          GROUP BY
+            m.conversation_id
+
+          ORDER BY
+            m.conversation_id DESC
+          `,
+          [
+            currentUser.id,
+          ]
+        );
+
+      rows = adminRows;
+    }
+
+    /* ==============================================
+       FORMAT
+    ============================================== */
 
     const unread =
       rows.map((row) => ({
@@ -287,9 +418,9 @@ export async function GET(request) {
           ),
       }));
 
-    /*
-    TOTAL UNREAD
-    */
+    /* ==============================================
+       TOTAL UNREAD
+    ============================================== */
 
     const totalUnread =
       unread.reduce(
@@ -298,6 +429,10 @@ export async function GET(request) {
           item.unread_count,
         0
       );
+
+    /* ==============================================
+       RESPONSE
+    ============================================== */
 
     return NextResponse.json({
       success: true,
@@ -308,6 +443,8 @@ export async function GET(request) {
         email: currentUser.email,
         role: currentUser.role,
       },
+
+      isAdmin: admin,
 
       total_unread:
         totalUnread,
@@ -325,7 +462,7 @@ export async function GET(request) {
       {
         success: false,
         message:
-          error.message ||
+          error?.message ||
           "Failed to get unread messages",
       },
       {
@@ -340,7 +477,9 @@ export async function GET(request) {
 POST
 ==================================================
 
-POST /api/message/read
+POST:
+
+/api/message/read
 
 Body:
 
@@ -348,11 +487,15 @@ Body:
   "conversationId": 13
 }
 
-This marks received messages as read.
+Marks received messages as read.
 ==================================================
 */
 export async function POST(request) {
   try {
+    /* ==============================================
+       AUTH
+    ============================================== */
+
     const currentUser =
       getCurrentUser(request);
 
@@ -371,16 +514,16 @@ export async function POST(request) {
     const body =
       await request.json();
 
-    const numericConversationId =
+    const conversationId =
       Number(
-        body.conversationId
+        body?.conversationId
       );
 
     if (
       !Number.isInteger(
-        numericConversationId
+        conversationId
       ) ||
-      numericConversationId <= 0
+      conversationId <= 0
     ) {
       return NextResponse.json(
         {
@@ -394,30 +537,75 @@ export async function POST(request) {
       );
     }
 
-    /*
-    ==================================================
-    CHECK MEMBERSHIP
-    ==================================================
-    */
+    /* ==============================================
+       CHECK CONVERSATION EXISTS
+    ============================================== */
+
+    const [conversationRows] =
+      await db.query(
+        `
+        SELECT
+          id,
+          type,
+          created_by
+        FROM conversations
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [conversationId]
+      );
+
+    if (
+      conversationRows.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Conversation not found",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    /* ==============================================
+       CHECK MEMBERSHIP
+    ============================================== */
 
     const [memberRows] =
       await db.query(
         `
         SELECT
-          id
+          id,
+          conversation_id,
+          user_id,
+          role
         FROM conversation_members
         WHERE conversation_id = ?
           AND user_id = ?
         LIMIT 1
         `,
         [
-          numericConversationId,
+          conversationId,
           currentUser.id,
         ]
       );
 
+    const admin =
+      isAdmin(currentUser);
+
+    /*
+     * IMPORTANT:
+     *
+     * Admin can READ/inspect any conversation.
+     * Therefore admin can also mark messages read.
+     */
+
     if (
-      memberRows.length === 0
+      memberRows.length === 0 &&
+      !admin
     ) {
       return NextResponse.json(
         {
@@ -431,11 +619,9 @@ export async function POST(request) {
       );
     }
 
-    /*
-    ==================================================
-    MARK RECEIVED MESSAGES READ
-    ==================================================
-    */
+    /* ==============================================
+       MARK RECEIVED MESSAGES AS READ
+    ============================================== */
 
     const [result] =
       await db.query(
@@ -451,10 +637,14 @@ export async function POST(request) {
           AND is_read = 0
         `,
         [
-          numericConversationId,
+          conversationId,
           currentUser.id,
         ]
       );
+
+    /* ==============================================
+       RESPONSE
+    ============================================== */
 
     return NextResponse.json({
       success: true,
@@ -462,11 +652,21 @@ export async function POST(request) {
       message:
         "Messages marked as read",
 
-      conversationId:
-        numericConversationId,
+      conversationId,
 
       marked_read:
-        result.affectedRows || 0,
+        Number(
+          result?.affectedRows || 0
+        ),
+
+      currentUser: {
+        id: currentUser.id,
+        name: currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role,
+      },
+
+      isAdmin: admin,
     });
   } catch (error) {
     console.error(
@@ -478,7 +678,7 @@ export async function POST(request) {
       {
         success: false,
         message:
-          error.message ||
+          error?.message ||
           "Failed to mark messages as read",
       },
       {
