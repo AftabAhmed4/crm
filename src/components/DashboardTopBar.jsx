@@ -1,8 +1,8 @@
-
 "use client";
 
 import {
   Bell,
+  MessageCircle,
   Calendar,
   ChevronDown,
   Clock3,
@@ -37,9 +37,7 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [currentUser, setCurrentUser] = useState(null);
-
   const [loading, setLoading] = useState(true);
-
   const [imageError, setImageError] = useState(false);
 
   // ============================================================
@@ -47,9 +45,7 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [status, setStatus] = useState("Active");
-
   const [statusStartedAt, setStatusStartedAt] = useState(null);
-
   const [statusDropdownOpen, setStatusDropdownOpen] =
     useState(false);
 
@@ -58,14 +54,10 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [timerOpen, setTimerOpen] = useState(false);
-
   const [timerStatus, setTimerStatus] = useState(null);
-
   const [timerSeconds, setTimerSeconds] = useState(0);
 
   /*
-    IMPORTANT
-
     true  = new break just started
     false = existing break restored from backend
   */
@@ -76,7 +68,6 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [notifications, setNotifications] = useState([]);
-
   const [notificationOpen, setNotificationOpen] =
     useState(false);
 
@@ -86,18 +77,13 @@ export default function DashboardTopBar({
   // OFFICE CLOSING
   // ============================================================
 
-  const [officeClosingWarning, setOfficeClosingWarning] =
-    useState(false);
+const [officeClosingWarning, setOfficeClosingWarning] = useState(false);
+const [officeClosed, setOfficeClosed] = useState(false);
 
-  const [officeClosed, setOfficeClosed] =
-    useState(false);
+const officeClosingNotificationSent = useRef({});
 
   // ============================================================
   // LOGIN DETAILS
-  //
-  // IMPORTANT:
-  // Do NOT use new Date() inside useState initializer.
-  // That causes hydration mismatch.
   // ============================================================
 
   const [loginDetails, setLoginDetails] = useState({
@@ -184,27 +170,25 @@ export default function DashboardTopBar({
     String(currentUser?.role || "").toLowerCase() ===
     "admin";
 
-const visibleStatusOptions = useMemo(() => {
-  // ADMIN → sab statuses
-  if (isAdmin) {
-    return statusOptions;
-  }
+  const visibleStatusOptions = useMemo(() => {
+    // ADMIN → all statuses
+    if (isAdmin) {
+      return statusOptions;
+    }
 
-  // NORMAL USER → sirf ye 3 breaks + Active
-  return statusOptions.filter((item) =>
-    [
-      "Active",
-      "Namaz Break",
-      "Lunch Break",
-      "Short Break",
-    ].includes(item.value)
-  );
-}, [statusOptions, isAdmin]);
+    // NORMAL USER → only Active + 3 breaks
+    return statusOptions.filter((item) =>
+      [
+        "Active",
+        "Namaz Break",
+        "Lunch Break",
+        "Short Break",
+      ].includes(item.value)
+    );
+  }, [statusOptions, isAdmin]);
 
   // ============================================================
   // LOGIN CLOCK
-  //
-  // Client-side only to avoid hydration mismatch.
   // ============================================================
 
   useEffect(() => {
@@ -283,9 +267,7 @@ const visibleStatusOptions = useMemo(() => {
 
       const value = String(startedAt).trim();
 
-      /*
-        ISO / timezone-aware date
-      */
+      // ISO / timezone-aware date
       if (
         value.includes("T") ||
         value.includes("Z") ||
@@ -293,11 +275,8 @@ const visibleStatusOptions = useMemo(() => {
       ) {
         startDate = new Date(value);
       } else {
-        /*
-          MySQL format:
-
-          2026-09-22 08:30:15
-        */
+        // MySQL:
+        // 2026-09-22 08:30:15
 
         const match = value.match(
           /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/
@@ -449,7 +428,7 @@ const visibleStatusOptions = useMemo(() => {
   }, []);
 
   // ============================================================
-  // RESTORE STATUS AFTER PAGE REFRESH
+  // RESTORE STATUS
   // ============================================================
 
   useEffect(() => {
@@ -475,10 +454,7 @@ const visibleStatusOptions = useMemo(() => {
 
         setStatus(currentStatus);
 
-        // ======================================================
         // ACTIVE
-        // ======================================================
-
         if (currentStatus === "Active") {
           setTimerOpen(false);
           setTimerStatus(null);
@@ -489,10 +465,7 @@ const visibleStatusOptions = useMemo(() => {
           return;
         }
 
-        // ======================================================
-        // EXISTING ACTIVE BREAK
-        // ======================================================
-
+        // EXISTING BREAK
         const startedAt =
           data?.status_started_at || null;
 
@@ -500,21 +473,10 @@ const visibleStatusOptions = useMemo(() => {
 
         setStatusStartedAt(startedAt);
 
-        /*
-          Refresh ke baad existing break hai.
-
-          Isliye backend start time se elapsed calculate hoga.
-        */
-
         const elapsed =
           calculateElapsedTime(startedAt);
 
         setTimerSeconds(elapsed);
-
-        /*
-          IMPORTANT:
-          This is NOT a newly started break.
-        */
 
         setIsNewTimer(false);
 
@@ -533,13 +495,7 @@ const visibleStatusOptions = useMemo(() => {
   }, []);
 
   // ============================================================
-  // ⭐ TIMER EFFECT
-  //
-  // NEW BREAK:
-  // 00:00:00 -> 00:00:01 -> 00:00:02
-  //
-  // EXISTING BREAK:
-  // status_started_at -> actual elapsed
+  // TIMER EFFECT
   // ============================================================
 
   useEffect(() => {
@@ -547,10 +503,7 @@ const visibleStatusOptions = useMemo(() => {
       return;
     }
 
-    // ==========================================================
     // NEW BREAK
-    // ==========================================================
-
     if (isNewTimer) {
       const interval = setInterval(() => {
         setTimerSeconds(
@@ -563,10 +516,7 @@ const visibleStatusOptions = useMemo(() => {
       };
     }
 
-    // ==========================================================
     // EXISTING BREAK
-    // ==========================================================
-
     if (statusStartedAt) {
       const updateTimer = () => {
         setTimerSeconds(
@@ -595,7 +545,7 @@ const visibleStatusOptions = useMemo(() => {
   ]);
 
   // ============================================================
-  // ⭐ CHANGE STATUS
+  // CHANGE STATUS
   // ============================================================
 
   const handleStatusChange = async (
@@ -610,7 +560,6 @@ const visibleStatusOptions = useMemo(() => {
       return;
     }
 
-    // Save old state
     const previousStatus = status;
 
     const previousTimerStatus =
@@ -662,10 +611,7 @@ const visibleStatusOptions = useMemo(() => {
         return;
       }
 
-      // ========================================================
       // ACTIVE
-      // ========================================================
-
       if (newStatus === "Active") {
         setStatus("Active");
 
@@ -675,7 +621,6 @@ const visibleStatusOptions = useMemo(() => {
 
         setStatusStartedAt(null);
 
-        // Reset timer
         setTimerSeconds(0);
 
         setIsNewTimer(false);
@@ -685,45 +630,21 @@ const visibleStatusOptions = useMemo(() => {
         return;
       }
 
-      // ========================================================
-      // ⭐ NEW BREAK
-      // ========================================================
+      // NEW BREAK
 
       setStatus(newStatus);
 
       setTimerStatus(newStatus);
 
-      /*
-        ⭐ VERY IMPORTANT ⭐
-
-        Every new break ALWAYS starts at 0.
-
-        Backend ka old elapsed time yahan
-        calculate nahi karna.
-      */
-
       setTimerSeconds(0);
 
-      /*
-        Mark this timer as NEW.
-
-        Timer effect ab:
-        0 -> 1 -> 2 -> 3...
-      */
-
       setIsNewTimer(true);
-
-      /*
-        Backend se newly created start time save
-        kar rahe hain so refresh ke baad restore ho sake.
-      */
 
       setStatusStartedAt(
         data?.status_started_at ||
           null
       );
 
-      // Open timer modal
       setTimerOpen(true);
 
       setStatusDropdownOpen(false);
@@ -733,7 +654,6 @@ const visibleStatusOptions = useMemo(() => {
         error
       );
 
-      // Restore previous state
       setStatus(previousStatus);
 
       setTimerStatus(
@@ -825,31 +745,27 @@ const visibleStatusOptions = useMemo(() => {
   // ============================================================
 
   const formatNotificationTime = (
-    value
+    dateValue
   ) => {
-    if (!value) {
+    if (!dateValue) return "";
+
+    const date = new Date(dateValue);
+
+    if (Number.isNaN(date.getTime())) {
       return "";
     }
 
-    try {
-      const date = new Date(value);
-
-      if (Number.isNaN(date.getTime())) {
-        return "";
+    return date.toLocaleString(
+      "en-US",
+      {
+        timeZone:
+          CALIFORNIA_TIMEZONE,
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       }
-
-      return date.toLocaleString(
-        "en-US",
-        {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      );
-    } catch {
-      return "";
-    }
+    );
   };
 
   // ============================================================
@@ -863,95 +779,189 @@ const visibleStatusOptions = useMemo(() => {
       notification?.type || ""
     ).toLowerCase();
 
-    if (type.includes("break")) {
-      return <Clock3 size={17} />;
-    }
-
-    if (type.includes("call")) {
-      return <Phone size={17} />;
-    }
-
-    if (type.includes("user")) {
-      return <User size={17} />;
-    }
-
-    if (type.includes("alert")) {
+    if (type === "message") {
       return (
-        <AlertCircle size={17} />
+        <MessageCircle
+          className="w-4 h-4"
+        />
       );
     }
 
-    return <Bell size={17} />;
+    if (type === "call") {
+      return (
+        <Phone
+          className="w-4 h-4"
+        />
+      );
+    }
+
+    if (type === "task") {
+      return (
+        <BriefcaseBusiness
+          className="w-4 h-4"
+        />
+      );
+    }
+
+    if (type === "break") {
+      return (
+        <Coffee
+          className="w-4 h-4"
+        />
+      );
+    }
+
+    return (
+      <Bell className="w-4 h-4" />
+    );
   };
 
   // ============================================================
-  // MARK NOTIFICATION READ
+  // NORMALIZE NOTIFICATION
+  // ============================================================
+
+  const normalizeNotification = (
+    item
+  ) => {
+    return {
+      ...item,
+
+      id: item?.id,
+
+      is_read: Number(
+        item?.is_read || 0
+      ),
+
+      read:
+        Number(
+          item?.is_read || 0
+        ) === 1,
+    };
+  };
+
+  // ============================================================
+  // MARK ONE NOTIFICATION READ
   // ============================================================
 
   const markNotificationRead = async (
     notificationId
   ) => {
+    if (!notificationId) {
+      return;
+    }
+
     try {
-      await fetch(
-        `/api/notifications/${notificationId}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            read: true,
-          }),
-        }
+      const response =
+        await fetch(
+          "/api/notifications",
+          {
+            method: "PATCH",
+            credentials:
+              "include",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              id: notificationId,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data?.success
+      ) {
+        console.error(
+          "Mark notification read failed:",
+          data
+        );
+
+        return;
+      }
+
+      setNotifications(
+        (previous) =>
+          previous.map(
+            (item) =>
+              Number(item.id) ===
+              Number(
+                notificationId
+              )
+                ? {
+                    ...item,
+                    is_read: 1,
+                    read: true,
+                  }
+                : item
+          )
       );
     } catch (error) {
       console.error(
-        "Notification read error:",
+        "Mark notification read error:",
         error
       );
     }
-
-    setNotifications((previous) =>
-      previous.map((item) =>
-        item.id === notificationId
-          ? {
-              ...item,
-              read: true,
-            }
-          : item
-      )
-    );
   };
 
   // ============================================================
-  // MARK ALL NOTIFICATIONS READ
+  // MARK ALL READ
   // ============================================================
 
   const markAllNotificationsRead =
     async () => {
       try {
-        await fetch(
-          "/api/notifications/read-all",
-          {
-            method: "PUT",
-            credentials: "include",
-          }
+        const response =
+          await fetch(
+            "/api/notifications",
+            {
+              method: "PATCH",
+              credentials:
+                "include",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                all: true,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data?.success
+        ) {
+          console.error(
+            "Mark all notifications read failed:",
+            data
+          );
+
+          return;
+        }
+
+        setNotifications(
+          (previous) =>
+            previous.map(
+              (item) => ({
+                ...item,
+                is_read: 1,
+                read: true,
+              })
+            )
         );
       } catch (error) {
         console.error(
-          "Read all notification error:",
+          "Mark all notifications read error:",
           error
         );
       }
-
-      setNotifications((previous) =>
-        previous.map((item) => ({
-          ...item,
-          read: true,
-        }))
-      );
     };
 
   // ============================================================
@@ -961,42 +971,74 @@ const visibleStatusOptions = useMemo(() => {
   const fetchNotifications =
     async () => {
       try {
-        const response = await fetch(
-          "/api/notifications",
-          {
-            credentials: "include",
-            cache: "no-store",
-          }
-        );
+        const response =
+          await fetch(
+            "/api/notifications?unread=true&limit=100",
+            {
+              method: "GET",
+              credentials:
+                "include",
+              cache: "no-store",
+              headers: {
+                "Cache-Control":
+                  "no-cache",
+              },
+            }
+          );
 
         if (!response.ok) {
+          console.error(
+            "Notifications API failed:",
+            response.status
+          );
+
           return;
         }
 
         const data =
           await response.json();
 
-        const list = Array.isArray(data)
-          ? data
-          : data?.notifications ||
-            [];
+        if (!data?.success) {
+          console.error(
+            "Notifications API error:",
+            data
+          );
 
-        setNotifications(list);
+          return;
+        }
+
+        const notificationList =
+          Array.isArray(
+            data?.notifications
+          )
+            ? data.notifications
+            : [];
+
+        setNotifications(
+          notificationList.map(
+            normalizeNotification
+          )
+        );
       } catch (error) {
         console.error(
-          "Notifications error:",
+          "Fetch notifications error:",
           error
         );
       }
     };
 
+  // ============================================================
+  // NOTIFICATION POLLING
+  // ============================================================
+
   useEffect(() => {
     fetchNotifications();
 
-    const interval = setInterval(
-      fetchNotifications,
-      15000
-    );
+    const interval =
+      setInterval(
+        fetchNotifications,
+        5000
+      );
 
     return () =>
       clearInterval(interval);
@@ -1016,7 +1058,9 @@ const visibleStatusOptions = useMemo(() => {
           event.target
         )
       ) {
-        setNotificationOpen(false);
+        setNotificationOpen(
+          false
+        );
       }
     };
 
@@ -1033,31 +1077,177 @@ const visibleStatusOptions = useMemo(() => {
     };
   }, []);
 
+
+
+
+
+
+
+
+
+
+  // ===================== offtime notifaction =========================
+
+
+  useEffect(() => {
+  if (!currentUser?.id) return;
+
+  const checkOfficeClosing = async () => {
+    try {
+      const now = new Date();
+
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: CALIFORNIA_TIMEZONE,
+        weekday: "short",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(now);
+
+      const getPart = (type) =>
+        parts.find((part) => part.type === type)?.value;
+
+      const weekday = getPart("weekday");
+      const year = getPart("year");
+      const month = getPart("month");
+      const day = getPart("day");
+      const hour = Number(getPart("hour"));
+      const minute = Number(getPart("minute"));
+
+      // Saturday / Sunday = OFF
+      if (weekday === "Sat" || weekday === "Sun") {
+        setOfficeClosingWarning(false);
+        setOfficeClosed(false);
+        return;
+      }
+
+      const californiaDate = `${year}-${month}-${day}`;
+
+      const currentMinutes = hour * 60 + minute;
+
+      // Office timing
+      const OFFICE_CLOSE_MINUTES = 17 * 60; // 5:00 PM
+      const WARNING_MINUTES = 16 * 60 + 55; // 4:55 PM
+
+      // 4:55 PM - 4:59 PM
+      if (
+        currentMinutes >= WARNING_MINUTES &&
+        currentMinutes < OFFICE_CLOSE_MINUTES
+      ) {
+        setOfficeClosingWarning(true);
+        setOfficeClosed(false);
+
+        const notificationKey = `office-closing-${currentUser.id}-${californiaDate}`;
+
+        // Already sent today
+        if (officeClosingNotificationSent.current[notificationKey]) {
+          return;
+        }
+
+        // Check browser storage so refresh does not create duplicate
+        const storageKey = "crm_office_closing_notifications";
+
+        let sentNotifications = {};
+
+        try {
+          sentNotifications =
+            JSON.parse(localStorage.getItem(storageKey)) || {};
+        } catch {
+          sentNotifications = {};
+        }
+
+        if (sentNotifications[notificationKey]) {
+          officeClosingNotificationSent.current[notificationKey] = true;
+          return;
+        }
+
+        // Create notification
+        const response = await fetch("/api/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            user_id: Number(currentUser.id),
+            title: "Office Closing Soon",
+            message:
+              "Office closing time is in 5 minutes. Please complete and save your pending work.",
+            type: "general",
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data?.success) {
+          officeClosingNotificationSent.current[notificationKey] = true;
+
+          sentNotifications[notificationKey] = true;
+
+          localStorage.setItem(
+            storageKey,
+            JSON.stringify(sentNotifications)
+          );
+
+          // Immediately refresh notification dropdown
+          await fetchNotifications();
+        }
+      } else if (currentMinutes >= OFFICE_CLOSE_MINUTES) {
+        // 5:00 PM ke baad
+        setOfficeClosingWarning(false);
+        setOfficeClosed(true);
+      } else {
+        // 4:55 PM se pehle
+        setOfficeClosingWarning(false);
+        setOfficeClosed(false);
+      }
+    } catch (error) {
+      console.error("Office closing check error:", error);
+    }
+  };
+
+  // First check immediately
+  checkOfficeClosing();
+
+  // Check every 10 seconds
+  const interval = setInterval(checkOfficeClosing, 10000);
+
+  return () => clearInterval(interval);
+}, [currentUser?.id]);
+
   // ============================================================
   // UNREAD COUNT
   // ============================================================
 
   const unreadCount =
     notifications.filter(
-      (item) => !item.read
+      (item) =>
+        Number(
+          item?.is_read || 0
+        ) === 0
     ).length;
 
   // ============================================================
   // PROFILE IMAGE
   // ============================================================
 
- const profileImage =
-  currentUser?.avatar ||
-  currentUser?.image ||
-  currentUser?.profilePic ||
-  currentUser?.avatarUrl ||
-  currentUser?.profile_picture ||
-  null;
+  const profileImage =
+    currentUser?.avatar ||
+    currentUser?.image ||
+    currentUser?.profilePic ||
+    currentUser?.avatarUrl ||
+    currentUser?.profile_picture ||
+    null;
 
   // ============================================================
   // USER NAME
   // ============================================================
-const userId = currentUser?.id || null;
+
+  const userId =
+    currentUser?.id || null;
+
   const userName =
     currentUser?.name ||
     currentUser?.full_name ||
@@ -1065,7 +1255,8 @@ const userId = currentUser?.id || null;
     "User";
 
   const userRole =
-    currentUser?.role || "Agent";
+    currentUser?.role ||
+    "Agent";
 
   // ============================================================
   // STATUS INFO
@@ -1073,7 +1264,8 @@ const userId = currentUser?.id || null;
 
   const currentStatusInfo =
     statusOptions.find(
-      (item) => item.value === status
+      (item) =>
+        item.value === status
     ) ||
     statusOptions[0];
 
@@ -1095,6 +1287,7 @@ const userId = currentUser?.id || null;
         <div className="flex min-h-[76px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
 
           {/* LEFT */}
+
           <div className="flex min-w-0 items-center gap-3">
 
             {onMenuClick && (
@@ -1119,6 +1312,7 @@ const userId = currentUser?.id || null;
           </div>
 
           {/* RIGHT */}
+
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
 
             {/* ==================================================
@@ -1133,6 +1327,7 @@ const userId = currentUser?.id || null;
               />
 
               <div className="leading-tight">
+
                 <div className="text-xs font-semibold text-gray-700">
                   {loginDetails.day}
                 </div>
@@ -1140,11 +1335,13 @@ const userId = currentUser?.id || null;
                 <div className="text-[11px] text-gray-500">
                   {loginDetails.date}
                 </div>
+
               </div>
 
               <div className="border-l border-gray-300 pl-3 text-xs font-semibold text-gray-700">
                 {loginDetails.time}
               </div>
+
             </div>
 
             {/* ==================================================
@@ -1155,6 +1352,7 @@ const userId = currentUser?.id || null;
               ref={notificationRef}
               className="relative"
             >
+
               <button
                 type="button"
                 onClick={() =>
@@ -1165,6 +1363,7 @@ const userId = currentUser?.id || null;
                 }
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50"
               >
+
                 <Bell size={19} />
 
                 {unreadCount > 0 && (
@@ -1174,13 +1373,18 @@ const userId = currentUser?.id || null;
                       : unreadCount}
                   </span>
                 )}
+
               </button>
 
               {notificationOpen && (
                 <div className="absolute right-0 top-12 z-50 w-[350px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
 
+                  {/* HEADER */}
+
                   <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+
                     <div>
+
                       <h3 className="text-sm font-bold text-gray-900">
                         Notifications
                       </h3>
@@ -1188,6 +1392,7 @@ const userId = currentUser?.id || null;
                       <p className="text-xs text-gray-500">
                         {unreadCount} unread
                       </p>
+
                     </div>
 
                     {unreadCount > 0 && (
@@ -1201,12 +1406,17 @@ const userId = currentUser?.id || null;
                         Mark all read
                       </button>
                     )}
+
                   </div>
 
+                  {/* LIST */}
+
                   <div className="max-h-[380px] overflow-y-auto">
+
                     {notifications.length ===
                     0 ? (
                       <div className="px-5 py-10 text-center">
+
                         <Bell
                           size={28}
                           className="mx-auto mb-2 text-gray-300"
@@ -1215,62 +1425,87 @@ const userId = currentUser?.id || null;
                         <p className="text-sm text-gray-500">
                           No notifications
                         </p>
+
                       </div>
                     ) : (
                       notifications.map(
-                        (notification) => (
-                          <button
-                            type="button"
-                            key={
-                              notification.id
-                            }
-                            onClick={() =>
-                              !notification.read &&
-                              markNotificationRead(
+                        (notification) => {
+                          const isUnread =
+                            Number(
+                              notification?.is_read ||
+                                0
+                            ) === 0;
+
+                          return (
+                            <button
+                              type="button"
+                              key={
                                 notification.id
-                              )
-                            }
-                            className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
-                              !notification.read
-                                ? "bg-red-50/40"
-                                : "bg-white"
-                            }`}
-                          >
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
-                              {getNotificationIcon(
-                                notification
-                              )}
-                            </div>
+                              }
+                              onClick={() => {
+                                if (
+                                  isUnread
+                                ) {
+                                  markNotificationRead(
+                                    notification.id
+                                  );
+                                }
+                              }}
+                              className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition hover:bg-gray-50 ${
+                                isUnread
+                                  ? "bg-red-50/40"
+                                  : "bg-white"
+                              }`}
+                            >
 
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-gray-800">
-                                {notification.title ||
-                                  "Notification"}
-                              </p>
+                              {/* ICON */}
 
-                              <p className="mt-1 line-clamp-2 text-xs text-gray-500">
-                                {notification.message ||
-                                  ""}
-                              </p>
-
-                              <p className="mt-1 text-[10px] text-gray-400">
-                                {formatNotificationTime(
-                                  notification.created_at ||
-                                    notification.createdAt
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
+                                {getNotificationIcon(
+                                  notification
                                 )}
-                              </p>
-                            </div>
+                              </div>
 
-                            {!notification.read && (
-                              <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#ec3737]" />
-                            )}
-                          </button>
-                        )
+                              {/* CONTENT */}
+
+                              <div className="min-w-0 flex-1">
+
+                                <p className="text-sm font-semibold text-gray-800">
+                                  {notification.title ||
+                                    "Notification"}
+                                </p>
+
+                                <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+                                  {notification.message ||
+                                    ""}
+                                </p>
+
+                                <p className="mt-1 text-[10px] text-gray-400">
+                                  {formatNotificationTime(
+                                    notification.created_at ||
+                                      notification.createdAt
+                                  )}
+                                </p>
+
+                              </div>
+
+                              {/* UNREAD DOT */}
+
+                              {isUnread && (
+                                <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#ec3737]" />
+                              )}
+
+                            </button>
+                          );
+                        }
                       )
                     )}
+
                   </div>
+
                 </div>
               )}
+
             </div>
 
             {/* ==================================================
@@ -1289,7 +1524,8 @@ const userId = currentUser?.id || null;
                 }
                 className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-1.5 transition hover:bg-gray-50 sm:px-3"
               >
-                {/* Avatar */}
+
+                {/* AVATAR */}
 
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100">
 
@@ -1300,7 +1536,9 @@ const userId = currentUser?.id || null;
                       alt={userName}
                       className="h-full w-full object-cover"
                       onError={() =>
-                        setImageError(true)
+                        setImageError(
+                          true
+                        )
                       }
                     />
                   ) : (
@@ -1309,21 +1547,26 @@ const userId = currentUser?.id || null;
                       className="text-gray-500"
                     />
                   )}
+
                 </div>
 
-          <div className="hidden min-w-0 text-left sm:block">
-  <div className="max-w-[120px] truncate text-xs font-bold text-gray-800">
-    {userName}
-  </div>
+                {/* USER INFO */}
 
-  <div className="text-[10px] capitalize text-gray-500">
-    {userRole}
-  </div>
+                <div className="hidden min-w-0 text-left sm:block">
 
-  <div className="text-[9px] text-gray-400">
-    ID: {userId || "—"}
-  </div>
-</div>
+                  <div className="max-w-[120px] truncate text-xs font-bold text-gray-800">
+                    {userName}
+                  </div>
+
+                  <div className="text-[10px] capitalize text-gray-500">
+                    {userRole}
+                  </div>
+
+                  <div className="text-[9px] text-gray-400">
+                    ID: {userId || "—"}
+                  </div>
+
+                </div>
 
                 <ChevronDown
                   size={16}
@@ -1333,6 +1576,7 @@ const userId = currentUser?.id || null;
                       : ""
                   }`}
                 />
+
               </button>
 
               {/* =================================================
@@ -1345,6 +1589,7 @@ const userId = currentUser?.id || null;
                   {/* USER HEADER */}
 
                   <div className="border-b border-gray-100 px-4 py-3">
+
                     <div className="flex items-center gap-3">
 
                       <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gray-100">
@@ -1371,9 +1616,11 @@ const userId = currentUser?.id || null;
                             className="text-gray-500"
                           />
                         )}
+
                       </div>
 
                       <div className="min-w-0">
+
                         <p className="truncate text-sm font-bold text-gray-900">
                           {userName}
                         </p>
@@ -1381,16 +1628,21 @@ const userId = currentUser?.id || null;
                         <p className="text-xs capitalize text-gray-500">
                           {userRole}
                         </p>
+
                       </div>
+
                     </div>
+
                   </div>
 
                   {/* STATUS TITLE */}
 
                   <div className="px-4 pb-2 pt-3">
+
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                       Availability Status
                     </p>
+
                   </div>
 
                   {/* STATUS OPTIONS */}
@@ -1430,6 +1682,7 @@ const userId = currentUser?.id || null;
                                 : ""
                             }`}
                           >
+
                             <div
                               className={`flex h-8 w-8 items-center justify-center rounded-lg ${item.bg} ${item.color}`}
                             >
@@ -1452,16 +1705,19 @@ const userId = currentUser?.id || null;
                                 className="text-green-600"
                               />
                             )}
+
                           </button>
                         );
                       }
                     )}
+
                   </div>
 
                   {/* LOGOUT */}
 
                   {onLogout && (
                     <div className="border-t border-gray-100 p-2">
+
                       <button
                         type="button"
                         onClick={() => {
@@ -1473,6 +1729,7 @@ const userId = currentUser?.id || null;
                         }}
                         className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-red-600 transition hover:bg-red-50"
                       >
+
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
                           <LogOut
                             size={16}
@@ -1482,18 +1739,24 @@ const userId = currentUser?.id || null;
                         <span className="text-sm font-semibold">
                           Logout
                         </span>
+
                       </button>
+
                     </div>
                   )}
+
                 </div>
               )}
+
             </div>
+
           </div>
+
         </div>
       </header>
 
       {/* ========================================================
-          ⭐ TIMER MODAL
+          TIMER MODAL
       ======================================================== */}
 
       {timerOpen &&
@@ -1509,6 +1772,7 @@ const userId = currentUser?.id || null;
               <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
 
                 <div>
+
                   <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
                     Current Status
                   </p>
@@ -1516,6 +1780,7 @@ const userId = currentUser?.id || null;
                   <h2 className="mt-1 text-xl font-bold text-gray-900">
                     {timerStatus}
                   </h2>
+
                 </div>
 
                 <div
@@ -1531,6 +1796,7 @@ const userId = currentUser?.id || null;
                     size={21}
                   />
                 </div>
+
               </div>
 
               {/* TIMER */}
@@ -1547,8 +1813,6 @@ const userId = currentUser?.id || null;
                   )}
                 </div>
 
-                {/* New timer indicator */}
-
                 {isNewTimer && (
                   <p className="mt-3 text-xs font-medium text-green-600">
                     Break started
@@ -1561,6 +1825,7 @@ const userId = currentUser?.id || null;
                       Break in progress
                     </p>
                   )}
+
               </div>
 
               {/* FOOTER */}
@@ -1575,19 +1840,24 @@ const userId = currentUser?.id || null;
                   }
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#ec3737] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#d92f2f] disabled:cursor-not-allowed disabled:opacity-60"
                 >
+
                   <Check size={17} />
 
                   {loading
                     ? "Updating..."
                     : "End Break"}
+
                 </button>
 
                 <p className="mt-3 text-center text-xs text-gray-400">
                   Your break timer will continue
                   while this status is active.
                 </p>
+
               </div>
+
             </div>
+
           </div>,
           document.body
         )}

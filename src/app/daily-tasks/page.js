@@ -46,14 +46,10 @@ import Loader from "@/components/Loader";
 
 const DB_NAME = "crm_daily_desk_db_v1";
 const DB_VERSION = 1;
-
 const SHEETS_STORE = "sheets";
 const META_STORE = "meta";
-
 const LEGACY_STORAGE_KEY = "crm_admin_daily_desk_state_v3";
-
 const PAGE_SIZE = 25;
-
 const ACCENT = "#ec3737";
 
 /* =========================================================
@@ -80,6 +76,7 @@ function findColumn(headers, aliases) {
 
   const normalizedAliases = aliases.map(normalizeHeader);
 
+  // Exact match first
   for (const alias of normalizedAliases) {
     const found = normalizedHeaders.find(
       (header) => header.normalized === alias
@@ -88,6 +85,7 @@ function findColumn(headers, aliases) {
     if (found) return found.original;
   }
 
+  // Partial match second
   for (const alias of normalizedAliases) {
     const found = normalizedHeaders.find(
       (header) =>
@@ -100,6 +98,10 @@ function findColumn(headers, aliases) {
 
   return null;
 }
+
+/* =========================================================
+   PHONE HELPERS
+========================================================= */
 
 function normalizePhone(value) {
   let phone = safeString(value);
@@ -136,12 +138,63 @@ function formatPhone(value) {
   return phone;
 }
 
+/* =========================================================
+   ACTUAL / SELECTED STATUS
+   IMPORTANT:
+   This function always tries to show the user's actual
+   selected call/result status first.
+========================================================= */
+
+function getActualStatus(record) {
+  if (!record || typeof record !== "object") {
+    return "";
+  }
+
+  const possibleStatuses = [
+    record.selected_status,
+    record.selectedStatus,
+    record.assignment_status,
+    record.result,
+    record.call_status,
+    record.disposition,
+    record.status,
+    record.task_status,
+  ];
+
+  for (const value of possibleStatuses) {
+    const status = safeString(value);
+
+    if (status) {
+      return status;
+    }
+  }
+
+  return "";
+}
+
+/* =========================================================
+   WORKFLOW STATUS NORMALIZER
+
+   This does NOT destroy custom statuses.
+
+   Example:
+   Completed -> Completed
+   Pending -> Pending
+   In Progress -> In Progress
+   Callback -> Callback
+   Follow Up -> Follow Up
+   No Answer -> No Answer
+   Voicemail -> Voicemail
+========================================================= */
+
 function normalizeStatus(value) {
   const status = safeString(value);
 
   if (!status) return "";
 
-  const normalized = status.toLowerCase();
+  const normalized = status
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
 
   if (
     normalized === "complete" ||
@@ -154,13 +207,12 @@ function normalizeStatus(value) {
   if (
     normalized === "pending" ||
     normalized === "new" ||
-    normalized === "not started"
+    normalized === "notstarted"
   ) {
     return "Pending";
   }
 
   if (
-    normalized === "in progress" ||
     normalized === "inprogress" ||
     normalized === "working"
   ) {
@@ -175,11 +227,33 @@ function normalizeStatus(value) {
     return "Cancelled";
   }
 
+  // IMPORTANT:
+  // Do not convert custom statuses.
   return status;
 }
 
+/* =========================================================
+   STATUS KEY
+
+   Used for reliable filtering.
+========================================================= */
+
+function getStatusKey(value) {
+  return safeString(value)
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+/* =========================================================
+   EXCEL DATE
+========================================================= */
+
 function excelDateToYMD(value) {
-  if (value === null || value === undefined || value === "") {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return "";
   }
 
@@ -188,11 +262,14 @@ function excelDateToYMD(value) {
     !Number.isNaN(value.getTime())
   ) {
     const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(
-      2,
-      "0"
-    );
-    const day = String(value.getDate()).padStart(2, "0");
+
+    const month = String(
+      value.getMonth() + 1
+    ).padStart(2, "0");
+
+    const day = String(
+      value.getDate()
+    ).padStart(2, "0");
 
     return `${year}-${month}-${day}`;
   }
@@ -209,9 +286,11 @@ function excelDateToYMD(value) {
 
     if (!Number.isNaN(date.getTime())) {
       const year = date.getUTCFullYear();
+
       const month = String(
         date.getUTCMonth() + 1
       ).padStart(2, "0");
+
       const day = String(
         date.getUTCDate()
       ).padStart(2, "0");
@@ -261,6 +340,10 @@ function excelDateToYMD(value) {
   return "";
 }
 
+/* =========================================================
+   CALIFORNIA DATE
+========================================================= */
+
 function getCaliforniaToday() {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -270,23 +353,36 @@ function getCaliforniaToday() {
       day: "2-digit",
     }).format(new Date());
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    return new Date()
+      .toISOString()
+      .slice(0, 10);
   }
 }
 
 function formatDate(date) {
   if (!date) return "—";
 
-  const parsed = new Date(`${date}T00:00:00`);
+  const parsed = new Date(
+    `${date}T00:00:00`
+  );
 
-  if (Number.isNaN(parsed.getTime())) return date;
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
 
-  return parsed.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return parsed.toLocaleDateString(
+    "en-US",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  );
 }
+
+/* =========================================================
+   SHEET HELPERS
+========================================================= */
 
 function createSheetId() {
   return `sheet_${Date.now()}_${Math.random()
@@ -317,6 +413,7 @@ function openDailyDeskDB() {
           "IndexedDB is not supported in this browser."
         )
       );
+
       return;
     }
 
@@ -328,16 +425,30 @@ function openDailyDeskDB() {
     request.onupgradeneeded = () => {
       const db = request.result;
 
-      if (!db.objectStoreNames.contains(SHEETS_STORE)) {
-        db.createObjectStore(SHEETS_STORE, {
-          keyPath: "id",
-        });
+      if (
+        !db.objectStoreNames.contains(
+          SHEETS_STORE
+        )
+      ) {
+        db.createObjectStore(
+          SHEETS_STORE,
+          {
+            keyPath: "id",
+          }
+        );
       }
 
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        db.createObjectStore(META_STORE, {
-          keyPath: "key",
-        });
+      if (
+        !db.objectStoreNames.contains(
+          META_STORE
+        )
+      ) {
+        db.createObjectStore(
+          META_STORE,
+          {
+            keyPath: "key",
+          }
+        );
       }
     };
 
@@ -360,25 +471,32 @@ async function getAllSheetsFromDB() {
       "readonly"
     );
 
-    const store = transaction.objectStore(
-      SHEETS_STORE
-    );
+    const store =
+      transaction.objectStore(
+        SHEETS_STORE
+      );
 
     const request = store.getAll();
 
     request.onsuccess = () => {
-      const rows = Array.isArray(request.result)
+      const rows = Array.isArray(
+        request.result
+      )
         ? request.result
         : [];
 
       db.close();
 
       rows.sort((a, b) => {
-        const aOrder = Number.isFinite(a.order)
+        const aOrder = Number.isFinite(
+          a.order
+        )
           ? a.order
           : 0;
 
-        const bOrder = Number.isFinite(b.order)
+        const bOrder = Number.isFinite(
+          b.order
+        )
           ? b.order
           : 0;
 
@@ -406,9 +524,10 @@ async function putSheetsToDB(sheets) {
       "readwrite"
     );
 
-    const store = transaction.objectStore(
-      SHEETS_STORE
-    );
+    const store =
+      transaction.objectStore(
+        SHEETS_STORE
+      );
 
     sheets.forEach((sheet) => {
       store.put(sheet);
@@ -465,9 +584,10 @@ async function replaceAllSheetsInDB(sheets) {
       "readwrite"
     );
 
-    const store = transaction.objectStore(
-      SHEETS_STORE
-    );
+    const store =
+      transaction.objectStore(
+        SHEETS_STORE
+      );
 
     store.clear();
 
@@ -521,9 +641,10 @@ async function getMetaFromDB(key) {
       "readonly"
     );
 
-    const request = transaction
-      .objectStore(META_STORE)
-      .get(key);
+    const request =
+      transaction
+        .objectStore(META_STORE)
+        .get(key);
 
     request.onsuccess = () => {
       db.close();
@@ -592,42 +713,56 @@ async function migrateLegacyStorageIfNeeded() {
       window.localStorage.removeItem(
         LEGACY_STORAGE_KEY
       );
+
       return null;
     }
 
     if (
       !legacy ||
-      !Array.isArray(legacy.excelSheets) ||
+      !Array.isArray(
+        legacy.excelSheets
+      ) ||
       legacy.excelSheets.length === 0
     ) {
       window.localStorage.removeItem(
         LEGACY_STORAGE_KEY
       );
+
       return null;
     }
 
     const migratedSheets =
       normalizeSheetNames(
-        legacy.excelSheets.map((sheet) => ({
-          ...sheet,
-          id: sheet.id || createSheetId(),
-        }))
+        legacy.excelSheets.map(
+          (sheet) => ({
+            ...sheet,
+            id:
+              sheet.id ||
+              createSheetId(),
+          })
+        )
       );
 
-    await putSheetsToDB(migratedSheets);
+    await putSheetsToDB(
+      migratedSheets
+    );
 
     await setMetaInDB({
       key: "page",
 
       selectedSheets:
-        Array.isArray(legacy.selectedSheets)
+        Array.isArray(
+          legacy.selectedSheets
+        )
           ? legacy.selectedSheets
           : migratedSheets.map(
               (sheet) => sheet.id
             ),
 
       selectedStaff:
-        Array.isArray(legacy.selectedStaff)
+        Array.isArray(
+          legacy.selectedStaff
+        )
           ? legacy.selectedStaff
           : [],
 
@@ -675,72 +810,88 @@ function processSheetRows(rawRows) {
     rawRows[0] || {}
   );
 
-  const businessNameColumn = findColumn(
-    headers,
-    [
+  /* -------------------------------------------------------
+     BASIC COLUMNS
+  ------------------------------------------------------- */
+
+  const businessNameColumn =
+    findColumn(headers, [
       "Business Name",
       "Business",
       "Company Name",
       "Company",
-    ]
-  );
+    ]);
 
-  const nameColumn = findColumn(
-    headers,
-    [
+  const nameColumn =
+    findColumn(headers, [
       "Name",
       "Customer Name",
       "Contact Name",
       "Full Name",
-    ]
-  );
+    ]);
 
-  const phoneColumn = findColumn(
-    headers,
-    [
+  const phoneColumn =
+    findColumn(headers, [
       "Phone Number",
       "Phone",
       "Phone No",
       "Phone #",
       "Telephone",
       "Mobile",
-    ]
-  );
+    ]);
 
-  const dateColumn = findColumn(
-    headers,
-    [
+  const dateColumn =
+    findColumn(headers, [
       "Date",
       "Task Date",
       "Due Date",
       "Call Date",
-    ]
-  );
+    ]);
 
-  const statusColumn = findColumn(
-    headers,
-    [
+  /* -------------------------------------------------------
+     IMPORTANT STATUS COLUMN
+
+     Priority:
+     1. Selected Status
+     2. SelectedStatus
+     3. Call Result
+     4. Result
+     5. Outcome
+     6. Call Status
+     7. Disposition
+     8. Status
+     9. Task Status
+  ------------------------------------------------------- */
+
+  const statusColumn =
+    findColumn(headers, [
+      "Selected Status",
+      "SelectedStatus",
+      "Call Result",
+      "Result",
+      "Outcome",
+      "Call Status",
+      "Disposition",
       "Status",
       "Task Status",
-    ]
-  );
+    ]);
 
-  const commentColumn = findColumn(
-    headers,
-    [
+  const commentColumn =
+    findColumn(headers, [
       "Comment",
       "Comments",
       "Note",
       "Notes",
       "Remark",
       "Remarks",
-    ]
-  );
+    ]);
 
   const missingColumns = [];
 
   if (!businessNameColumn) {
-    missingColumns.push("Business Name");
+    missingColumns.push(
+      "Business Name"
+    );
   }
 
   if (!nameColumn) {
@@ -748,7 +899,9 @@ function processSheetRows(rawRows) {
   }
 
   if (!phoneColumn) {
-    missingColumns.push("Phone Number");
+    missingColumns.push(
+      "Phone Number"
+    );
   }
 
   if (!dateColumn) {
@@ -770,35 +923,56 @@ function processSheetRows(rawRows) {
 
   const records = [];
   let invalidRows = 0;
-
   const seenPhones = new Set();
 
   rawRows.forEach((row) => {
-    const businessName = safeString(
-      row[businessNameColumn]
-    );
+    const businessName =
+      safeString(
+        row[businessNameColumn]
+      );
 
-    const name = safeString(
-      row[nameColumn]
-    );
+    const name =
+      safeString(row[nameColumn]);
 
-    const phone = normalizePhone(
-      row[phoneColumn]
-    );
+    const phone =
+      normalizePhone(
+        row[phoneColumn]
+      );
 
-    const digits = phoneDigits(phone);
+    const digits =
+      phoneDigits(phone);
 
-    const date = excelDateToYMD(
-      row[dateColumn]
-    );
+    const date =
+      excelDateToYMD(
+        row[dateColumn]
+      );
 
-    const status = normalizeStatus(
-      row[statusColumn]
-    );
+    /*
+      DO NOT use normalizeStatus here.
 
-    const comment = commentColumn
-      ? safeString(row[commentColumn])
-      : "";
+      We want the exact status from Excel:
+      Callback
+      Follow Up
+      No Answer
+      Voicemail
+      Completed
+      Pending
+      etc.
+    */
+    const rawStatus =
+      safeString(
+        row[statusColumn]
+      );
+
+    const selectedStatus =
+      rawStatus;
+
+    const comment =
+      commentColumn
+        ? safeString(
+            row[commentColumn]
+          )
+        : "";
 
     if (
       !businessName ||
@@ -806,7 +980,7 @@ function processSheetRows(rawRows) {
       !phone ||
       digits.length < 10 ||
       !date ||
-      !status
+      !rawStatus
     ) {
       invalidRows += 1;
       return;
@@ -821,12 +995,32 @@ function processSheetRows(rawRows) {
 
     records.push({
       taskId: null,
+
       businessName,
       name,
+
       phoneNumber: phone,
       phone,
+
       date,
-      status,
+
+      /*
+        EXACT ORIGINAL STATUS
+      */
+      status: selectedStatus,
+      selectedStatus: selectedStatus,
+      selected_status: selectedStatus,
+
+      /*
+        Optional generic workflow status.
+        This is kept separately and does not replace
+        the actual selected status.
+      */
+      taskStatus:
+        normalizeStatus(
+          selectedStatus
+        ),
+
       comment,
     });
   });
@@ -846,69 +1040,107 @@ function processSheetRows(rawRows) {
 export default function DailyDeskPage() {
   const router = useRouter();
 
-  const fileInputRef = useRef(null);
-  const saveMetaTimerRef = useRef(null);
+  const fileInputRef =
+    useRef(null);
 
-  const [file, setFile] = useState(null);
-  const [savedFileName, setSavedFileName] =
-    useState("");
+  const saveMetaTimerRef =
+    useRef(null);
 
-  const [excelSheets, setExcelSheets] =
+  const [file, setFile] =
+    useState(null);
+
+  const [
+    savedFileName,
+    setSavedFileName,
+  ] = useState("");
+
+  const [
+    excelSheets,
+    setExcelSheets,
+  ] = useState([]);
+
+  const [
+    selectedSheets,
+    setSelectedSheets,
+  ] = useState([]);
+
+  const [staff, setStaff] =
     useState([]);
 
-  const [selectedSheets, setSelectedSheets] =
-    useState([]);
+  const [
+    selectedStaff,
+    setSelectedStaff,
+  ] = useState([]);
 
-  const [staff, setStaff] = useState([]);
-  const [selectedStaff, setSelectedStaff] =
-    useState([]);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  const [sidebarOpen, setSidebarOpen] =
-    useState(false);
-
-  const [showLogoutModal, setShowLogoutModal] =
-    useState(false);
-
-  const [todayStr, setTodayStr] =
+  const [message, setMessage] =
     useState("");
 
-  const [selectedDate, setSelectedDate] =
-    useState("");
+  const [
+    isSubmitting,
+    setIsSubmitting,
+  ] = useState(false);
 
-  const [searchQuery, setSearchQuery] =
-    useState("");
+  const [
+    sidebarOpen,
+    setSidebarOpen,
+  ] = useState(false);
 
-  const [statusFilter, setStatusFilter] =
-    useState("all");
+  const [
+    showLogoutModal,
+    setShowLogoutModal,
+  ] = useState(false);
 
-  const [currentPage, setCurrentPage] =
-    useState(1);
+  const [
+    todayStr,
+    setTodayStr,
+  ] = useState("");
 
-  const [storageReady, setStorageReady] =
-    useState(false);
+  const [
+    selectedDate,
+    setSelectedDate,
+  ] = useState("");
 
-  const [storageError, setStorageError] =
-    useState("");
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState("");
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState("all");
+
+  const [
+    currentPage,
+    setCurrentPage,
+  ] = useState(1);
+
+  const [
+    storageReady,
+    setStorageReady,
+  ] = useState(false);
+
+  const [
+    storageError,
+    setStorageError,
+  ] = useState("");
 
   /* =======================================================
      NORMAL ALERT
-     Used for upload / refresh / delete etc.
   ======================================================= */
 
-  const [alert, setAlert] = useState({
-    show: false,
-    type: "success",
-    message: "",
-  });
+  const [alert, setAlert] =
+    useState({
+      show: false,
+      type: "success",
+      message: "",
+    });
 
   /* =======================================================
      ASSIGNMENT MODAL
-     Dedicated success/error modal
   ======================================================= */
 
   const [
@@ -923,55 +1155,63 @@ export default function DailyDeskPage() {
 
   const closeAssignmentModal =
     useCallback(() => {
-      setAssignmentModal((previous) => ({
-        ...previous,
-        show: false,
-      }));
+      setAssignmentModal(
+        (previous) => ({
+          ...previous,
+          show: false,
+        })
+      );
     }, []);
 
   const showAssignmentModal =
-    useCallback((type, title, text) => {
-      setAssignmentModal({
-        show: true,
-        type,
-        title,
-        message: text,
-      });
-    }, []);
+    useCallback(
+      (type, title, text) => {
+        setAssignmentModal({
+          show: true,
+          type,
+          title,
+          message: text,
+        });
+      },
+      []
+    );
 
   /* =======================================================
      ALERT
   ======================================================= */
 
-  const showAlert = useCallback(
-    (type, text) => {
-      setAlert({
-        show: true,
-        type,
-        message: text,
-      });
+  const showAlert =
+    useCallback(
+      (type, text) => {
+        setAlert({
+          show: true,
+          type,
+          message: text,
+        });
 
-      window.setTimeout(() => {
-        setAlert((previous) => ({
-          ...previous,
-          show: false,
-        }));
-      }, 4000);
-    },
-    []
-  );
+        window.setTimeout(() => {
+          setAlert((previous) => ({
+            ...previous,
+            show: false,
+          }));
+        }, 4000);
+      },
+      []
+    );
 
   /* =======================================================
      INITIAL DATE
   ======================================================= */
 
   useEffect(() => {
-    const today = getCaliforniaToday();
+    const today =
+      getCaliforniaToday();
 
     setTodayStr(today);
 
     setSelectedDate(
-      (previous) => previous || today
+      (previous) =>
+        previous || today
     );
   }, []);
 
@@ -1018,7 +1258,9 @@ export default function DailyDeskPage() {
           );
         }
 
-        setExcelSheets(normalizedSheets);
+        setExcelSheets(
+          normalizedSheets
+        );
 
         const validIds = new Set(
           normalizedSheets.map(
@@ -1031,7 +1273,8 @@ export default function DailyDeskPage() {
             meta?.selectedSheets
           )
             ? meta.selectedSheets.filter(
-                (id) => validIds.has(id)
+                (id) =>
+                  validIds.has(id)
               )
             : normalizedSheets.map(
                 (sheet) => sheet.id
@@ -1107,7 +1350,7 @@ export default function DailyDeskPage() {
   }, []);
 
   /* =======================================================
-     SAVE SMALL PAGE META ONLY
+     SAVE PAGE META
   ======================================================= */
 
   useEffect(() => {
@@ -1120,27 +1363,38 @@ export default function DailyDeskPage() {
     }
 
     saveMetaTimerRef.current =
-      window.setTimeout(async () => {
-        try {
-          await setMetaInDB({
-            key: "page",
-            selectedSheets,
-            selectedStaff,
-            savedFileName,
-            selectedDate,
-            searchQuery,
-            statusFilter,
-          });
-        } catch (error) {
-          console.error(
-            "Daily Desk meta save error:",
-            error
-          );
-        }
-      }, 250);
+      window.setTimeout(
+        async () => {
+          try {
+            await setMetaInDB({
+              key: "page",
+
+              selectedSheets,
+
+              selectedStaff,
+
+              savedFileName,
+
+              selectedDate,
+
+              searchQuery,
+
+              statusFilter,
+            });
+          } catch (error) {
+            console.error(
+              "Daily Desk meta save error:",
+              error
+            );
+          }
+        },
+        250
+      );
 
     return () => {
-      if (saveMetaTimerRef.current) {
+      if (
+        saveMetaTimerRef.current
+      ) {
         window.clearTimeout(
           saveMetaTimerRef.current
         );
@@ -1160,120 +1414,154 @@ export default function DailyDeskPage() {
      FETCH STAFF
   ======================================================= */
 
-  const fetchStaff = useCallback(
-    async () => {
-      try {
-        const response = await fetch(
-          "/api/new-users",
-          {
-            cache: "no-store",
-          }
-        );
+  const fetchStaff =
+    useCallback(
+      async () => {
+        try {
+          const response =
+            await fetch(
+              "/api/new-users",
+              {
+                cache: "no-store",
+              }
+            );
 
-        const data = await response.json();
+          const data =
+            await response.json();
 
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              "Failed to load staff."
-          );
-        }
-
-        const users = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.users)
-          ? data.users
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
-
-        const staffUsers = users.filter(
-          (user) => {
-            const role = safeString(
-              user?.role
-            ).toLowerCase();
-
-            return (
-              role === "staff" ||
-              role === "agent"
+          if (!response.ok) {
+            throw new Error(
+              data?.message ||
+                "Failed to load staff."
             );
           }
-        );
 
-        setStaff(staffUsers);
-      } catch (error) {
-        console.error(
-          "Staff fetch error:",
-          error
-        );
+          const users =
+            Array.isArray(data)
+              ? data
+              : Array.isArray(
+                  data?.users
+                )
+              ? data.users
+              : Array.isArray(
+                  data?.data
+                )
+              ? data.data
+              : [];
 
-        showAlert(
-          "error",
-          error.message ||
-            "Unable to load staff."
-        );
-      }
-    },
-    [showAlert]
-  );
+          const staffUsers =
+            users.filter(
+              (user) => {
+                const role =
+                  safeString(
+                    user?.role
+                  ).toLowerCase();
+
+                return (
+                  role === "staff" ||
+                  role === "agent"
+                );
+              }
+            );
+
+          setStaff(
+            staffUsers
+          );
+        } catch (error) {
+          console.error(
+            "Staff fetch error:",
+            error
+          );
+
+          showAlert(
+            "error",
+            error.message ||
+              "Unable to load staff."
+          );
+        }
+      },
+      [showAlert]
+    );
 
   useEffect(() => {
     fetchStaff();
   }, [fetchStaff]);
 
   /* =======================================================
-     SELECTED SHEET RECORDS
+     SELECTED SHEET OBJECTS
   ======================================================= */
 
   const selectedSheetObjects =
     useMemo(() => {
-      const selected = new Set(
-        selectedSheets
-      );
+      const selected =
+        new Set(
+          selectedSheets
+        );
 
-      return excelSheets.filter((sheet) =>
-        selected.has(sheet.id)
+      return excelSheets.filter(
+        (sheet) =>
+          selected.has(
+            sheet.id
+          )
       );
     }, [
       excelSheets,
       selectedSheets,
     ]);
 
+  /* =======================================================
+     SELECTED SHEET RECORDS
+  ======================================================= */
+
   const selectedSheetRecords =
     useMemo(() => {
       const records = [];
-      const globalPhones = new Set();
+
+      const globalPhones =
+        new Set();
 
       selectedSheetObjects.forEach(
         (sheet) => {
-          const rows = Array.isArray(
-            sheet.records
-          )
-            ? sheet.records
-            : [];
+          const rows =
+            Array.isArray(
+              sheet.records
+            )
+              ? sheet.records
+              : [];
 
           rows.forEach((row) => {
-            const digits = phoneDigits(
-              row.phoneNumber ||
-                row.phone
-            );
+            const digits =
+              phoneDigits(
+                row.phoneNumber ||
+                  row.phone
+              );
 
             if (!digits) return;
 
             if (
-              globalPhones.has(digits)
+              globalPhones.has(
+                digits
+              )
             ) {
               return;
             }
 
-            globalPhones.add(digits);
+            globalPhones.add(
+              digits
+            );
 
             records.push({
               ...row,
-              sourceSheet: sheet.name,
-              sourceSheetId: sheet.id,
+
+              sourceSheet:
+                sheet.name,
+
+              sourceSheetId:
+                sheet.id,
+
               sourceFile:
-                sheet.fileName || null,
+                sheet.fileName ||
+                null,
             });
           });
         }
@@ -1284,85 +1572,127 @@ export default function DailyDeskPage() {
 
   /* =======================================================
      FILTERED HISTORY
+
+     IMPORTANT:
+     Uses getActualStatus()
+     instead of record.status directly.
   ======================================================= */
 
-  const filteredHistory = useMemo(() => {
-    const query = safeString(
-      searchQuery
-    ).toLowerCase();
+  const filteredHistory =
+    useMemo(() => {
+      const query =
+        safeString(
+          searchQuery
+        ).toLowerCase();
 
-    return selectedSheetRecords.filter(
-      (record) => {
-        const status = normalizeStatus(
-          record.status
-        );
+      return selectedSheetRecords.filter(
+        (record) => {
+          const actualStatus =
+            getActualStatus(
+              record
+            );
 
-        if (
-          statusFilter !== "all" &&
-          status.toLowerCase() !==
-            statusFilter.toLowerCase()
-        ) {
-          return false;
+          const normalizedActualStatus =
+            normalizeStatus(
+              actualStatus
+            );
+
+          /* ----------------------------------------------
+             STATUS FILTER
+          ---------------------------------------------- */
+
+          if (
+            statusFilter !== "all" &&
+            getStatusKey(
+              normalizedActualStatus
+            ) !==
+              getStatusKey(
+                statusFilter
+              )
+          ) {
+            return false;
+          }
+
+          /* ----------------------------------------------
+             SEARCH
+          ---------------------------------------------- */
+
+          if (!query) {
+            return true;
+          }
+
+          const searchableText = [
+            record.businessName,
+            record.name,
+            record.phoneNumber,
+            record.phone,
+
+            /*
+              Search exact selected status
+            */
+            actualStatus,
+
+            record.selectedStatus,
+            record.selected_status,
+
+            record.result,
+            record.call_status,
+            record.disposition,
+
+            record.comment,
+
+            record.sourceSheet,
+            record.sourceFile,
+            record.date,
+          ]
+            .map(safeString)
+            .join(" ")
+            .toLowerCase();
+
+          return searchableText.includes(
+            query
+          );
         }
-
-        if (!query) return true;
-
-        const searchableText = [
-          record.businessName,
-          record.name,
-          record.phoneNumber,
-          record.phone,
-          record.status,
-          record.comment,
-          record.sourceSheet,
-          record.sourceFile,
-          record.date,
-        ]
-          .map(safeString)
-          .join(" ")
-          .toLowerCase();
-
-        return searchableText.includes(
-          query
-        );
-      }
-    );
-  }, [
-    selectedSheetRecords,
-    searchQuery,
-    statusFilter,
-  ]);
+      );
+    }, [
+      selectedSheetRecords,
+      searchQuery,
+      statusFilter,
+    ]);
 
   /* =======================================================
      PAGINATION
   ======================================================= */
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(
-      filteredHistory.length /
-        PAGE_SIZE
-    )
-  );
-
-  const safeCurrentPage = Math.min(
-    currentPage,
-    totalPages
-  );
-
-  const paginatedHistory = useMemo(() => {
-    const start =
-      (safeCurrentPage - 1) *
-      PAGE_SIZE;
-
-    return filteredHistory.slice(
-      start,
-      start + PAGE_SIZE
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        filteredHistory.length /
+          PAGE_SIZE
+      )
     );
-  }, [
-    filteredHistory,
-    safeCurrentPage,
-  ]);
+
+  const safeCurrentPage =
+    Math.min(
+      currentPage,
+      totalPages
+    );
+
+  const paginatedHistory =
+    useMemo(() => {
+      const start =
+        (safeCurrentPage - 1) *
+        PAGE_SIZE;
+
+      return filteredHistory.slice(
+        start,
+        start + PAGE_SIZE
+      );
+    }, [
+      filteredHistory,
+      safeCurrentPage,
+    ]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -1374,43 +1704,66 @@ export default function DailyDeskPage() {
 
   /* =======================================================
      HISTORY STATS
+
+     Generic workflow counts are based on the ACTUAL
+     selected status.
+
+     Custom statuses remain untouched.
   ======================================================= */
 
-  const historyStats = useMemo(() => {
-    const rows = selectedSheetRecords;
+  const historyStats =
+    useMemo(() => {
+      const rows =
+        selectedSheetRecords;
 
-    return {
-      total: rows.length,
+      return {
+        total: rows.length,
 
-      completed: rows.filter(
-        (row) =>
-          normalizeStatus(
-            row.status
-          ) === "Completed"
-      ).length,
+        completed:
+          rows.filter(
+            (row) =>
+              normalizeStatus(
+                getActualStatus(
+                  row
+                )
+              ) ===
+              "Completed"
+          ).length,
 
-      pending: rows.filter(
-        (row) =>
-          normalizeStatus(
-            row.status
-          ) === "Pending"
-      ).length,
+        pending:
+          rows.filter(
+            (row) =>
+              normalizeStatus(
+                getActualStatus(
+                  row
+                )
+              ) ===
+              "Pending"
+          ).length,
 
-      inProgress: rows.filter(
-        (row) =>
-          normalizeStatus(
-            row.status
-          ) === "In Progress"
-      ).length,
+        inProgress:
+          rows.filter(
+            (row) =>
+              normalizeStatus(
+                getActualStatus(
+                  row
+                )
+              ) ===
+              "In Progress"
+          ).length,
 
-      cancelled: rows.filter(
-        (row) =>
-          normalizeStatus(
-            row.status
-          ) === "Cancelled"
-      ).length,
-    };
-  }, [selectedSheetRecords]);
+        cancelled:
+          rows.filter(
+            (row) =>
+              normalizeStatus(
+                getActualStatus(
+                  row
+                )
+              ) ===
+              "Cancelled"
+          ).length,
+      };
+    }, [selectedSheetRecords]);
 
   /* =======================================================
      UPLOAD EXCEL
@@ -1430,11 +1783,12 @@ export default function DailyDeskPage() {
             .pop()
             ?.toLowerCase();
 
-        const allowedExtensions = [
-          "xlsx",
-          "xls",
-          "csv",
-        ];
+        const allowedExtensions =
+          [
+            "xlsx",
+            "xls",
+            "csv",
+          ];
 
         if (
           !allowedExtensions.includes(
@@ -1447,6 +1801,7 @@ export default function DailyDeskPage() {
           );
 
           event.target.value = "";
+
           return;
         }
 
@@ -1460,17 +1815,19 @@ export default function DailyDeskPage() {
           const arrayBuffer =
             await selectedFile.arrayBuffer();
 
-          const workbook = XLSX.read(
-            arrayBuffer,
-            {
-              type: "array",
-              cellDates: true,
-            }
-          );
+          const workbook =
+            XLSX.read(
+              arrayBuffer,
+              {
+                type: "array",
+                cellDates: true,
+              }
+            );
 
           if (
             !workbook.SheetNames ||
-            workbook.SheetNames.length === 0
+            workbook.SheetNames.length ===
+              0
           ) {
             throw new Error(
               "No worksheet was found in this file."
@@ -1502,17 +1859,22 @@ export default function DailyDeskPage() {
                 );
 
               const processed =
-                processSheetRows(rows);
+                processSheetRows(
+                  rows
+                );
 
               newSheets.push({
                 id: createSheetId(),
 
                 name: `Sheet ${
-                  baseCount + index + 1
+                  baseCount +
+                  index +
+                  1
                 }`,
 
                 order:
-                  baseCount + index,
+                  baseCount +
+                  index,
 
                 originalSheetName,
 
@@ -1532,7 +1894,8 @@ export default function DailyDeskPage() {
                   processed.totalRows,
 
                 validRows:
-                  processed.records.length,
+                  processed.records
+                    .length,
 
                 invalidRows:
                   processed.invalidRows,
@@ -1563,18 +1926,24 @@ export default function DailyDeskPage() {
             );
           }
 
-          setExcelSheets(combined);
+          setExcelSheets(
+            combined
+          );
 
           setSelectedSheets(
             (previous) => [
               ...previous,
               ...newSheets.map(
-                (sheet) => sheet.id
+                (sheet) =>
+                  sheet.id
               ),
             ]
           );
 
-          setFile(selectedFile);
+          setFile(
+            selectedFile
+          );
+
           setSavedFileName(
             selectedFile.name
           );
@@ -1584,7 +1953,8 @@ export default function DailyDeskPage() {
               (sum, sheet) =>
                 sum +
                 Number(
-                  sheet.validRows || 0
+                  sheet.validRows ||
+                    0
                 ),
               0
             );
@@ -1594,7 +1964,8 @@ export default function DailyDeskPage() {
               (sum, sheet) =>
                 sum +
                 Number(
-                  sheet.invalidRows || 0
+                  sheet.invalidRows ||
+                    0
                 ),
               0
             );
@@ -1602,7 +1973,8 @@ export default function DailyDeskPage() {
           showAlert(
             "success",
             `${newSheets.length} sheet${
-              newSheets.length === 1
+              newSheets.length ===
+              1
                 ? ""
                 : "s"
             } added successfully. Existing sheets were preserved.`
@@ -1610,7 +1982,8 @@ export default function DailyDeskPage() {
 
           setMessage(
             `${newSheets.length} sheet${
-              newSheets.length === 1
+              newSheets.length ===
+              1
                 ? ""
                 : "s"
             } added • ${totalNewRows.toLocaleString()} valid rows • ${totalInvalidRows.toLocaleString()} invalid rows`
@@ -1630,7 +2003,8 @@ export default function DailyDeskPage() {
           setIsSubmitting(false);
 
           if (event.target) {
-            event.target.value = "";
+            event.target.value =
+              "";
           }
         }
       },
@@ -1641,27 +2015,31 @@ export default function DailyDeskPage() {
      SHEET SELECT
   ======================================================= */
 
-  const toggleSheet = useCallback(
-    (sheetId) => {
-      setSelectedSheets(
-        (previous) => {
-          if (
-            previous.includes(sheetId)
-          ) {
-            return previous.filter(
-              (id) => id !== sheetId
-            );
-          }
+  const toggleSheet =
+    useCallback(
+      (sheetId) => {
+        setSelectedSheets(
+          (previous) => {
+            if (
+              previous.includes(
+                sheetId
+              )
+            ) {
+              return previous.filter(
+                (id) =>
+                  id !== sheetId
+              );
+            }
 
-          return [
-            ...previous,
-            sheetId,
-          ];
-        }
-      );
-    },
-    []
-  );
+            return [
+              ...previous,
+              sheetId,
+            ];
+          }
+        );
+      },
+      []
+    );
 
   const selectAllSheets =
     useCallback(() => {
@@ -1708,7 +2086,8 @@ export default function DailyDeskPage() {
             normalizeSheetNames(
               excelSheets.filter(
                 (item) =>
-                  item.id !== sheetId
+                  item.id !==
+                  sheetId
               )
             );
 
@@ -1723,7 +2102,8 @@ export default function DailyDeskPage() {
           setSelectedSheets(
             (previous) =>
               previous.filter(
-                (id) => id !== sheetId
+                (id) =>
+                  id !== sheetId
               )
           );
 
@@ -1740,8 +2120,12 @@ export default function DailyDeskPage() {
                   sheet.fileName
               );
 
-            if (!remainingSameFile) {
-              setSavedFileName("");
+            if (
+              !remainingSameFile
+            ) {
+              setSavedFileName(
+                ""
+              );
             }
           }
 
@@ -1773,74 +2157,90 @@ export default function DailyDeskPage() {
   ======================================================= */
 
   const handleClearAllSheets =
-    useCallback(async () => {
-      if (excelSheets.length === 0)
-        return;
+    useCallback(
+      async () => {
+        if (
+          excelSheets.length ===
+          0
+        ) {
+          return;
+        }
 
-      const confirmed =
-        window.confirm(
-          "This will permanently remove all uploaded sheets from this browser. Continue?"
-        );
+        const confirmed =
+          window.confirm(
+            "This will permanently remove all uploaded sheets from this browser. Continue?"
+          );
 
-      if (!confirmed) return;
+        if (!confirmed) return;
 
-      try {
-        await clearSheetsFromDB();
+        try {
+          await clearSheetsFromDB();
 
-        setExcelSheets([]);
-        setSelectedSheets([]);
-        setFile(null);
-        setSavedFileName("");
+          setExcelSheets([]);
+          setSelectedSheets([]);
+          setFile(null);
+          setSavedFileName("");
 
-        showAlert(
-          "success",
-          "All uploaded sheets have been removed."
-        );
-      } catch (error) {
-        console.error(
-          "Clear sheets error:",
-          error
-        );
+          showAlert(
+            "success",
+            "All uploaded sheets have been removed."
+          );
+        } catch (error) {
+          console.error(
+            "Clear sheets error:",
+            error
+          );
 
-        showAlert(
-          "error",
-          "Unable to clear uploaded sheets."
-        );
-      }
-    }, [
-      excelSheets.length,
-      showAlert,
-    ]);
+          showAlert(
+            "error",
+            "Unable to clear uploaded sheets."
+          );
+        }
+      },
+      [
+        excelSheets.length,
+        showAlert,
+      ]
+    );
 
   /* =======================================================
      STAFF
   ======================================================= */
 
   const toggleStaff =
-    useCallback((staffId) => {
-      const id = String(staffId);
+    useCallback(
+      (staffId) => {
+        const id =
+          String(staffId);
 
-      setSelectedStaff(
-        (previous) => {
-          const normalized =
-            previous.map(String);
+        setSelectedStaff(
+          (previous) => {
+            const normalized =
+              previous.map(
+                String
+              );
 
-          if (
-            normalized.includes(id)
-          ) {
-            return previous.filter(
-              (item) =>
-                String(item) !== id
-            );
+            if (
+              normalized.includes(
+                id
+              )
+            ) {
+              return previous.filter(
+                (item) =>
+                  String(item) !==
+                  id
+              );
+            }
+
+            return [
+              ...previous,
+              id,
+            ];
           }
-
-          return [
-            ...previous,
-            id,
-          ];
-        }
-      );
-    }, []);
+        );
+      },
+      []
+    );
 
   const selectAllStaff =
     useCallback(() => {
@@ -1861,211 +2261,224 @@ export default function DailyDeskPage() {
   ======================================================= */
 
   const handleAssignTasks =
-    useCallback(async () => {
-      /* -----------------------------------------------
-         VALIDATION
-      ----------------------------------------------- */
+    useCallback(
+      async () => {
+        /* -----------------------------------------------
+           VALIDATION
+        ----------------------------------------------- */
 
-      if (
-        selectedSheetObjects.length ===
-        0
-      ) {
-        showAssignmentModal(
-          "error",
-          "Assignment Failed",
-          "Please select at least one sheet before creating task pools."
-        );
-
-        return;
-      }
-
-      if (
-        selectedSheetRecords.length ===
-        0
-      ) {
-        showAssignmentModal(
-          "error",
-          "Assignment Failed",
-          "Selected sheets do not contain valid records. Please select a sheet with valid task records."
-        );
-
-        return;
-      }
-
-      if (
-        selectedStaff.length === 0
-      ) {
-        showAssignmentModal(
-          "error",
-          "Assignment Failed",
-          "Please select at least one staff member who should receive the tasks."
-        );
-
-        return;
-      }
-
-      try {
-        setIsSubmitting(true);
-
-        const response =
-          await fetch(
-            "/api/admin/create-task-pools",
-            {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body: JSON.stringify({
-                selectedEmployees:
-                  selectedStaff,
-
-                csvData:
-                  selectedSheetRecords,
-
-                selectedSheets:
-                  selectedSheetObjects.map(
-                    (sheet) => ({
-                      id: sheet.id,
-                      name: sheet.name,
-                      originalSheetName:
-                        sheet.originalSheetName ||
-                        null,
-                      fileName:
-                        sheet.fileName ||
-                        null,
-                    })
-                  ),
-
-                sourceFile:
-                  file?.name ||
-                  savedFileName ||
-                  null,
-
-                selectedDate,
-              }),
-            }
+        if (
+          selectedSheetObjects.length ===
+          0
+        ) {
+          showAssignmentModal(
+            "error",
+            "Assignment Failed",
+            "Please select at least one sheet before creating task pools."
           );
 
-        let data = {};
+          return;
+        }
+
+        if (
+          selectedSheetRecords.length ===
+          0
+        ) {
+          showAssignmentModal(
+            "error",
+            "Assignment Failed",
+            "Selected sheets do not contain valid records. Please select a sheet with valid task records."
+          );
+
+          return;
+        }
+
+        if (
+          selectedStaff.length ===
+          0
+        ) {
+          showAssignmentModal(
+            "error",
+            "Assignment Failed",
+            "Please select at least one staff member who should receive the tasks."
+          );
+
+          return;
+        }
 
         try {
-          data =
-            await response.json();
-        } catch {
-          data = {};
-        }
+          setIsSubmitting(true);
 
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              data?.error ||
-              "Unable to create task pools."
+          const response =
+            await fetch(
+              "/api/admin/create-task-pools",
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify({
+                  selectedEmployees:
+                    selectedStaff,
+
+                  /*
+                    IMPORTANT:
+                    selectedSheetRecords already
+                    contains:
+                    status
+                    selectedStatus
+                    selected_status
+                    taskStatus
+                  */
+                  csvData:
+                    selectedSheetRecords,
+
+                  selectedSheets:
+                    selectedSheetObjects.map(
+                      (sheet) => ({
+                        id: sheet.id,
+
+                        name: sheet.name,
+
+                        originalSheetName:
+                          sheet.originalSheetName ||
+                          null,
+
+                        fileName:
+                          sheet.fileName ||
+                          null,
+                      })
+                    ),
+
+                  sourceFile:
+                    file?.name ||
+                    savedFileName ||
+                    null,
+
+                  selectedDate,
+                }),
+              }
+            );
+
+          let data = {};
+
+          try {
+            data =
+              await response.json();
+          } catch {
+            data = {};
+          }
+
+          if (!response.ok) {
+            throw new Error(
+              data?.message ||
+                data?.error ||
+                "Unable to create task pools."
+            );
+          }
+
+          showAssignmentModal(
+            "success",
+            "Tasks Assigned Successfully",
+            "Your tasks have been successfully assigned."
           );
+        } catch (error) {
+          console.error(
+            "Create task pool error:",
+            error
+          );
+
+          showAssignmentModal(
+            "error",
+            "Task Assignment Failed",
+            error.message ||
+              "Unable to assign tasks. Please try again."
+          );
+        } finally {
+          setIsSubmitting(false);
         }
-
-        /* ---------------------------------------------
-           SUCCESS MODAL
-        --------------------------------------------- */
-
-        showAssignmentModal(
-          "success",
-          "Tasks Assigned Successfully",
-          "Your tasks have been successfully assigned."
-        );
-      } catch (error) {
-        console.error(
-          "Create task pool error:",
-          error
-        );
-
-        /* ---------------------------------------------
-           ERROR MODAL
-        --------------------------------------------- */
-
-        showAssignmentModal(
-          "error",
-          "Task Assignment Failed",
-          error.message ||
-            "Unable to assign tasks. Please try again."
-        );
-      } finally {
-        setIsSubmitting(false);
-      }
-    }, [
-      selectedSheetObjects,
-      selectedSheetRecords,
-      selectedStaff,
-      file,
-      savedFileName,
-      selectedDate,
-      showAssignmentModal,
-    ]);
+      },
+      [
+        selectedSheetObjects,
+        selectedSheetRecords,
+        selectedStaff,
+        file,
+        savedFileName,
+        selectedDate,
+        showAssignmentModal,
+      ]
+    );
 
   /* =======================================================
      REFRESH
   ======================================================= */
 
   const handleRefresh =
-    useCallback(async () => {
-      try {
-        setLoading(true);
+    useCallback(
+      async () => {
+        try {
+          setLoading(true);
 
-        const sheets =
-          await getAllSheetsFromDB();
+          const sheets =
+            await getAllSheetsFromDB();
 
-        const normalized =
-          normalizeSheetNames(
-            sheets
+          const normalized =
+            normalizeSheetNames(
+              sheets
+            );
+
+          await replaceAllSheetsInDB(
+            normalized
           );
 
-        await replaceAllSheetsInDB(
-          normalized
-        );
+          setExcelSheets(
+            normalized
+          );
 
-        setExcelSheets(
-          normalized
-        );
+          const validIds =
+            new Set(
+              normalized.map(
+                (sheet) =>
+                  sheet.id
+              )
+            );
 
-        const validIds = new Set(
-          normalized.map(
-            (sheet) => sheet.id
-          )
-        );
+          setSelectedSheets(
+            (previous) =>
+              previous.filter(
+                (id) =>
+                  validIds.has(id)
+              )
+          );
 
-        setSelectedSheets(
-          (previous) =>
-            previous.filter(
-              (id) =>
-                validIds.has(id)
-            )
-        );
+          await fetchStaff();
 
-        await fetchStaff();
+          showAlert(
+            "success",
+            "Daily Desk refreshed successfully."
+          );
+        } catch (error) {
+          console.error(
+            "Refresh error:",
+            error
+          );
 
-        showAlert(
-          "success",
-          "Daily Desk refreshed successfully."
-        );
-      } catch (error) {
-        console.error(
-          "Refresh error:",
-          error
-        );
-
-        showAlert(
-          "error",
-          "Unable to refresh Daily Desk."
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, [
-      fetchStaff,
-      showAlert,
-    ]);
+          showAlert(
+            "error",
+            "Unable to refresh Daily Desk."
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+      [
+        fetchStaff,
+        showAlert,
+      ]
+    );
 
   /* =======================================================
      FILTER RESET
@@ -2079,68 +2492,185 @@ export default function DailyDeskPage() {
     }, []);
 
   /* =======================================================
-     STATUS COUNTS
+     AVAILABLE STATUSES
+
+     IMPORTANT:
+     Show exact statuses from records.
   ======================================================= */
 
   const availableStatuses =
     useMemo(() => {
-      const statuses = new Set();
+      const statuses =
+        new Set();
 
       selectedSheetRecords.forEach(
         (row) => {
-          const status =
-            normalizeStatus(
-              row.status
+          const actualStatus =
+            getActualStatus(
+              row
             );
 
-          if (status) {
-            statuses.add(status);
+          if (
+            actualStatus
+          ) {
+            statuses.add(
+              actualStatus
+            );
           }
         }
       );
 
       return Array.from(
         statuses
-      ).sort();
-    }, [selectedSheetRecords]);
+      ).sort(
+        (a, b) =>
+          a.localeCompare(b)
+      );
+    }, [
+      selectedSheetRecords,
+    ]);
 
   /* =======================================================
-     UI HELPERS
+     STATUS CLASSES
+
+     Supports standard + call/result statuses.
   ======================================================= */
 
   function statusClasses(status) {
     const normalized =
-      normalizeStatus(
+      safeString(
         status
-      ).toLowerCase();
+      )
+        .toLowerCase()
+        .replace(/[\s_-]+/g, "");
+
+    /* ----------------------------------------------
+       WORKFLOW
+    ---------------------------------------------- */
 
     if (
-      normalized ===
-      "completed"
+      [
+        "completed",
+        "complete",
+        "done",
+      ].includes(normalized)
     ) {
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     }
 
     if (
-      normalized ===
-      "pending"
+      [
+        "pending",
+        "new",
+        "notstarted",
+      ].includes(normalized)
     ) {
       return "bg-amber-50 text-amber-700 border-amber-200";
     }
 
     if (
-      normalized ===
-      "in progress"
+      [
+        "inprogress",
+        "working",
+      ].includes(normalized)
     ) {
       return "bg-blue-50 text-blue-700 border-blue-200";
     }
 
     if (
-      normalized ===
-      "cancelled"
+      [
+        "cancelled",
+        "canceled",
+        "cancel",
+      ].includes(normalized)
     ) {
       return "bg-red-50 text-red-700 border-red-200";
     }
+
+    /* ----------------------------------------------
+       CALL RESULT STATUSES
+    ---------------------------------------------- */
+
+    if (
+      [
+        "callback",
+        "callbacklater",
+      ].includes(normalized)
+    ) {
+      return "bg-purple-50 text-purple-700 border-purple-200";
+    }
+
+    if (
+      [
+        "followup",
+        "follow-up",
+      ].includes(normalized)
+    ) {
+      return "bg-indigo-50 text-indigo-700 border-indigo-200";
+    }
+
+    if (
+      [
+        "noanswer",
+      ].includes(normalized)
+    ) {
+      return "bg-orange-50 text-orange-700 border-orange-200";
+    }
+
+    if (
+      [
+        "voicemail",
+        "voicemailleft",
+      ].includes(normalized)
+    ) {
+      return "bg-cyan-50 text-cyan-700 border-cyan-200";
+    }
+
+    if (
+      [
+        "busy",
+      ].includes(normalized)
+    ) {
+      return "bg-yellow-50 text-yellow-700 border-yellow-200";
+    }
+
+    if (
+      [
+        "wrongnumber",
+        "wrongno",
+      ].includes(normalized)
+    ) {
+      return "bg-rose-50 text-rose-700 border-rose-200";
+    }
+
+    if (
+      [
+        "interested",
+      ].includes(normalized)
+    ) {
+      return "bg-green-50 text-green-700 border-green-200";
+    }
+
+    if (
+      [
+        "notinterested",
+      ].includes(normalized)
+    ) {
+      return "bg-slate-100 text-slate-700 border-slate-300";
+    }
+
+    if (
+      [
+        "connected",
+        "answered",
+      ].includes(normalized)
+    ) {
+      return "bg-teal-50 text-teal-700 border-teal-200";
+    }
+
+    /* ----------------------------------------------
+       DEFAULT
+    ---------------------------------------------- */
 
     return "bg-slate-50 text-slate-700 border-slate-200";
   }
@@ -2159,6 +2689,9 @@ export default function DailyDeskPage() {
       </div>
     );
   }
+
+
+
 
   /* =======================================================
      RENDER
@@ -3430,6 +3963,7 @@ export default function DailyDeskPage() {
   ========================================================= */}
 
 
+
 <div className="overflow-x-auto">
   {selectedSheetObjects.length === 0 ? (
     <div className="p-8 sm:p-14">
@@ -3498,12 +4032,18 @@ export default function DailyDeskPage() {
       <tbody className="divide-y divide-slate-100">
         {paginatedHistory.map((record, index) => {
           const globalIndex =
-            (safeCurrentPage - 1) * PAGE_SIZE +
-            index +
-            1;
+            (safeCurrentPage - 1) * PAGE_SIZE + index + 1;
+
+          /* ==========================================================
+             CONTACT
+          ========================================================== */
 
           const contactName =
             safeString(record?.name) ||
+            safeString(record?.contactName) ||
+            safeString(record?.contact_name) ||
+            safeString(record?.customerName) ||
+            safeString(record?.customer_name) ||
             "Unknown";
 
           const initials =
@@ -3516,119 +4056,127 @@ export default function DailyDeskPage() {
               )
               .join("") || "—";
 
-          /*
-           * ============================================================
-           * IMPORTANT STATUS LOGIC
-           * ============================================================
-           *
-           * assignment_status = user ka actual saved status
-           *
-           * Isko FIRST priority di ja rahi hai.
-           *
-           * Example:
-           *
-           * User selected:
-           *   No Answer
-           *
-           * Database:
-           *   assignment_status = "No Answer"
-           *
-           * Admin History:
-           *   No Answer
-           *
-           * Isi tarah:
-           *   Callback
-           *   Follow Up
-           *   No Answer
-           *   Straight to Voicemail
-           *   Interested
-           *   Not Interested
-           *   Busy
-           *   Wrong Number
-           *   etc.
-           *
-           * IMPORTANT:
-           * normalizeStatus() yahan use NAHI karna.
-           * Status ko Pending/Completed mein convert NAHI karna.
-           * ============================================================
-           */
-
-          const rawAssignmentStatus = safeString(
-            record?.assignment_status
-          );
-
-          const rawStatus = safeString(
-            record?.status
-          );
-
-          const rawTaskStatus = safeString(
-            record?.task_status
-          );
-
-          const rawCallStatus = safeString(
-            record?.call_status
-          );
-
-          const rawDisposition = safeString(
-            record?.disposition
-          );
+          /* ==========================================================
+             EXACT USER SAVED STATUS
+             
+             Priority:
+             1. selected_status
+             2. selectedStatus
+             3. assignment_status
+             4. status
+             5. result
+             6. task_status
+             7. call_status
+             8. disposition
+          ========================================================== */
 
           const displayStatus =
-            rawAssignmentStatus ||
-            rawStatus ||
-            rawTaskStatus ||
-            rawCallStatus ||
-            rawDisposition ||
-            "Pending";
+            getActualStatus(record) || "Pending";
+
+          /* ==========================================================
+             PHONE
+          ========================================================== */
 
           const phoneValue =
-            record?.phoneNumber ||
-            record?.phone ||
-            record?.phone_number ||
+            safeString(record?.phoneNumber) ||
+            safeString(record?.phone_number) ||
+            safeString(record?.phone) ||
+            safeString(record?.mobile) ||
             "";
+
+          /* ==========================================================
+             BUSINESS
+          ========================================================== */
 
           const businessName =
             safeString(record?.businessName) ||
             safeString(record?.business_name) ||
+            safeString(record?.companyName) ||
+            safeString(record?.company_name) ||
             "—";
 
+          /* ==========================================================
+             TASK DATE
+          ========================================================== */
+
           const taskDate =
-            record?.date ||
             record?.assignment_date ||
             record?.taskDate ||
+            record?.task_date ||
+            record?.date ||
+            record?.created_at ||
             "";
+
+          /* ==========================================================
+             USER SAVED COMMENT
+          ========================================================== */
 
           const notes =
             safeString(record?.comment) ||
+            safeString(record?.comments) ||
+            safeString(record?.assignment_comment) ||
+            safeString(record?.task_comment) ||
             safeString(record?.notes) ||
+            safeString(record?.remarks) ||
+            safeString(record?.description) ||
             "";
+
+          /* ==========================================================
+             SOURCE
+          ========================================================== */
 
           const sourceSheet =
             safeString(record?.sourceSheet) ||
             safeString(record?.source_sheet) ||
+            safeString(record?.sheetName) ||
+            safeString(record?.sheet_name) ||
             "—";
 
           const sourceFile =
             safeString(record?.sourceFile) ||
             safeString(record?.source_file) ||
+            safeString(record?.fileName) ||
+            safeString(record?.file_name) ||
             "";
 
+          /* ==========================================================
+             TASK ID
+          ========================================================== */
+
           const taskId =
-            record?.taskId ||
-            record?.task_id ||
-            record?.id ||
+            record?.taskId ??
+            record?.task_id ??
+            record?.master_task_id ??
+            record?.id ??
             globalIndex;
+
+          /* ==========================================================
+             UNIQUE ROW KEY
+          ========================================================== */
+
+          const rowKey = [
+            record?.sourceSheetId ??
+              record?.source_sheet_id ??
+              "sheet",
+
+            record?.assignment_id ??
+              record?.daily_assignment_id ??
+              taskId,
+
+            phoneValue || "phone",
+
+            taskId,
+          ].join("-");
 
           return (
             <tr
-              key={`${record?.sourceSheetId || "sheet"}-${
-                phoneValue || "phone"
-              }-${taskId}`}
+              key={rowKey}
               className="hover:bg-slate-50/80 transition-colors"
             >
               {/* ======================================================
                   #
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <span className="text-xs font-bold text-slate-400">
                   {globalIndex}
@@ -3638,6 +4186,7 @@ export default function DailyDeskPage() {
               {/* ======================================================
                   BUSINESS
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <div className="max-w-[240px]">
                   <div
@@ -3661,6 +4210,7 @@ export default function DailyDeskPage() {
               {/* ======================================================
                   CONTACT
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <div className="flex items-center gap-2.5">
                   <div
@@ -3685,6 +4235,7 @@ export default function DailyDeskPage() {
               {/* ======================================================
                   PHONE
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <div className="flex items-center gap-2">
                   <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
@@ -3703,6 +4254,7 @@ export default function DailyDeskPage() {
               {/* ======================================================
                   TASK DATE
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <div className="flex items-center gap-2">
                   <Calendar
@@ -3717,8 +4269,9 @@ export default function DailyDeskPage() {
               </td>
 
               {/* ======================================================
-                  USER UPDATED STATUS
-                  ======================================================= */}
+                  EXACT USER SAVED STATUS
+              ======================================================= */}
+
               <td className="px-5 py-4">
                 <span
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-bold whitespace-nowrap ${statusClasses(
@@ -3734,6 +4287,7 @@ export default function DailyDeskPage() {
               {/* ======================================================
                   SOURCE
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 whitespace-nowrap">
                   <Layers3 size={13} />
@@ -3743,12 +4297,13 @@ export default function DailyDeskPage() {
               </td>
 
               {/* ======================================================
-                  NOTES
+                  EXACT USER SAVED COMMENT
               ======================================================= */}
+
               <td className="px-5 py-4">
                 <div
                   className="max-w-[280px] truncate text-sm text-slate-500"
-                  title={notes}
+                  title={notes || ""}
                 >
                   {notes || "—"}
                 </div>
@@ -3760,6 +4315,8 @@ export default function DailyDeskPage() {
     </table>
   )}
 </div>
+
+
 
 
 

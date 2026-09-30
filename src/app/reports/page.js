@@ -52,27 +52,37 @@ function safeString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
-
 function normalizeDate(value) {
   if (!value) return "";
 
-  const str = String(value);
+  try {
+    const str = String(value).trim();
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    return str;
-  }
+    // Already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
 
-  const date = new Date(value);
+    // MYSQL datetime
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+      return str.substring(0, 10);
+    }
 
-  if (Number.isNaN(date.getTime())) {
+    const date = new Date(str);
+
+    if (isNaN(date.getTime())) {
+      return "";
+    }
+
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+
+  } catch {
     return "";
   }
-
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
 }
 
 function formatDate(value) {
@@ -98,21 +108,31 @@ function formatPhone(value) {
  */
 function getStatus(record) {
   return (
+    safeString(record?.selected_status) ||
+    safeString(record?.selectedStatus) ||
     safeString(record?.assignment_status) ||
     safeString(record?.status) ||
     safeString(record?.task_status) ||
     safeString(record?.call_status) ||
     safeString(record?.disposition) ||
+    safeString(record?.result) ||
     "Pending"
   );
 }
 
 function getDate(record) {
   return (
-    record?.assignment_date ||
-    record?.date ||
-    record?.task_date ||
-    record?.taskDate ||
+    safeString(record?.assignment_date) ||
+    safeString(record?.assignmentDate) ||
+    safeString(record?.assigned_date) ||
+    safeString(record?.assignedDate) ||
+    safeString(record?.task_date) ||
+    safeString(record?.taskDate) ||
+    safeString(record?.date) ||
+    safeString(record?.created_at) ||
+    safeString(record?.createdAt) ||
+    safeString(record?.updated_at) ||
+    safeString(record?.updatedAt) ||
     ""
   );
 }
@@ -146,7 +166,10 @@ function getName(record) {
 function getComment(record) {
   return (
     safeString(record?.comment) ||
+    safeString(record?.comments) ||
     safeString(record?.notes) ||
+    safeString(record?.remark) ||
+    safeString(record?.remarks) ||
     ""
   );
 }
@@ -375,50 +398,114 @@ export default function AdminReportsPage() {
      LOAD REPORT
   ============================================================ */
 
-  const fetchReport = useCallback(
-    async (showRefresh = false) => {
+
+const fetchReport = useCallback(
+  async (showRefresh = false, isLive = false) => {
+    try {
+      if (showRefresh && !isLive) {
+        setRefreshing(true);
+      } else if (!isLive) {
+        setLoading(true);
+      }
+
+      setError("");
+
+      // =====================================================
+      // BUILD API URL
+      // =====================================================
+
+      const params = new URLSearchParams();
+
+      // Single date
+      if (fromDate && toDate && fromDate === toDate) {
+        params.set("date", fromDate);
+      }
+
+      // Date range
+      else {
+        if (fromDate) {
+          params.set("from", fromDate);
+        }
+
+        if (toDate) {
+          params.set("to", toDate);
+        }
+      }
+
+      params.set("_", Date.now().toString());
+
+      const response = await fetch(
+        `${API_URLS.history}?${params.toString()}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
+        }
+      );
+
+      const responseText = await response.text();
+
+      let data = {};
+
       try {
-        if (showRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
-
-        setError("");
-
-        const response = await fetch(
-          `${API_URLS.history}?_=${Date.now()}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-          }
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        throw new Error(
+          "Server returned invalid JSON response."
         );
+      }
 
-        const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Unable to load admin report."
+        );
+      }
 
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              "Unable to load admin report."
-          );
+      // =====================================================
+      // SUPPORT ALL POSSIBLE API RESPONSE SHAPES
+      // =====================================================
+
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.records)
+        ? data.records
+        : Array.isArray(data?.history)
+        ? data.history
+        : Array.isArray(data?.tasks)
+        ? data.tasks
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
+
+      console.log(
+        "ADMIN HISTORY API:",
+        {
+          requestedFrom: fromDate,
+          requestedTo: toDate,
+          count: list.length,
+          firstRecord: list[0],
+          response: data,
         }
+      );
 
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.records)
-          ? data.records
-          : Array.isArray(data?.history)
-          ? data.history
-          : Array.isArray(data?.tasks)
-          ? data.tasks
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
+      setRecords(list);
+    } catch (err) {
+      console.error(
+        isLive
+          ? "Live report update error:"
+          : "Report error:",
+        err
+      );
 
-        setRecords(list);
-      } catch (err) {
-        console.error("Report error:", err);
-
+      if (!isLive) {
         setError(
           err?.message ||
             "Unable to load report."
@@ -430,18 +517,35 @@ export default function AdminReportsPage() {
           err?.message ||
             "Unable to load report."
         );
-      } finally {
+      }
+    } finally {
+      if (!isLive) {
         setLoading(false);
         setRefreshing(false);
       }
-    },
-    []
-  );
+    }
+  },
+  [fromDate, toDate]
+);
 
-  useEffect(() => {
-    loadStaff();
-    fetchReport();
-  }, [loadStaff, fetchReport]);
+
+
+useEffect(() => {
+  loadStaff();
+  fetchReport(false, false);
+
+  const intervalId = setInterval(() => {
+    if (document.visibilityState === "visible") {
+      fetchReport(false, true);
+    }
+  }, 5000);
+
+  return () => {
+    clearInterval(intervalId);
+  };
+}, [loadStaff, fetchReport]);
+
+
 
   /* ============================================================
      STATUS OPTIONS
@@ -549,24 +653,29 @@ export default function AdminReportsPage() {
       .toLowerCase();
 
     return records.filter((record) => {
-      const recordDate =
-        normalizeDate(getDate(record));
+     const recordDate = normalizeDate(
+  getDate(record)
+);
 
-      if (
-        fromDate &&
-        recordDate &&
-        recordDate < fromDate
-      ) {
-        return false;
-      }
 
-      if (
-        toDate &&
-        recordDate &&
-        recordDate > toDate
-      ) {
-        return false;
-      }
+// FROM DATE
+if (fromDate) {
+  if (!recordDate) return false;
+
+  if (recordDate < fromDate) {
+    return false;
+  }
+}
+
+
+// TO DATE
+if (toDate) {
+  if (!recordDate) return false;
+
+  if (recordDate > toDate) {
+    return false;
+  }
+}
 
       if (
         statusFilter !== "all" &&
@@ -639,81 +748,162 @@ export default function AdminReportsPage() {
   /* ============================================================
      STATS
   ============================================================ */
+const reportStats = useMemo(() => {
+  let completed = 0;
+  let callback = 0;
+  let followUp = 0;
+  let noAnswer = 0;
+  let voicemail = 0;
+  let pending = 0;
 
-  const reportStats = useMemo(() => {
-    let completed = 0;
-    let callback = 0;
-    let followUp = 0;
-    let noAnswer = 0;
-    let voicemail = 0;
-    let pending = 0;
+  filteredRecords.forEach((record) => {
+    // =====================================================
+    // EXACT EMPLOYEE SELECTED STATUS
+    // || use kiya hai taake empty string par next field mile
+    // =====================================================
+    const status = String(
+      record?.selected_status ||
+        record?.selectedStatus ||
+        record?.assignment_status ||
+        record?.status ||
+        record?.result ||
+        record?.task_status ||
+        record?.call_status ||
+        record?.disposition ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
 
-    filteredRecords.forEach((record) => {
-      const status =
-        getStatus(record).toLowerCase();
+    // =====================================================
+    // NORMALIZED STATUS
+    // Removes spaces, "-", "_"
+    //
+    // Example:
+    // Callback  -> callback
+    // Call Back -> callback
+    // Call-Back -> callback
+    // Call_Back -> callback
+    // =====================================================
+    const normalizedStatus = status.replace(/[\s_-]+/g, "");
 
-      if (status.includes("complete"))
-        completed++;
+    // =====================================================
+    // COMPLETED
+    // =====================================================
+    if (
+      Number(record?.is_completed) === 1 ||
+      status.includes("complete") ||
+      normalizedStatus === "completed"
+    ) {
+      completed++;
+    }
 
-      if (status.includes("callback"))
-        callback++;
+    // =====================================================
+    // CALLBACK
+    // Supports:
+    // Callback
+    // CALLBACK
+    // callback
+    // Call Back
+    // Call-Back
+    // Call_Back
+    // =====================================================
+    if (normalizedStatus.includes("callback")) {
+      callback++;
+    }
 
-      if (status.includes("follow"))
-        followUp++;
+    // =====================================================
+    // FOLLOW UP
+    // Supports:
+    // Follow Up
+    // Follow UP
+    // Follow-Up
+    // Followup
+    // Follow_Up
+    // =====================================================
+    if (normalizedStatus.includes("followup")) {
+      followUp++;
+    }
 
-      if (
-        status.includes("no answer")
+    // =====================================================
+    // NO ANSWER
+    // Supports:
+    // No Answer
+    // No-Answer
+    // No_Answer
+    // =====================================================
+    if (normalizedStatus.includes("noanswer")) {
+      noAnswer++;
+    }
+
+    // =====================================================
+    // VOICEMAIL
+    // Supports:
+    // Voicemail
+    // Voice Mail
+    // Voice-Mail
+    // Straight to Voicemail
+    // =====================================================
+    if (
+      normalizedStatus.includes("voicemail") ||
+      normalizedStatus.includes("straight")
+    ) {
+      voicemail++;
+    }
+
+    // =====================================================
+    // PENDING / IN PROGRESS
+    // =====================================================
+    if (
+      status.includes("pending") ||
+      normalizedStatus.includes("inprogress") ||
+      normalizedStatus === "progress"
+    ) {
+      pending++;
+    }
+  });
+
+  // =====================================================
+  // UNIQUE USERS
+  // =====================================================
+  const uniqueUsers = new Set(
+    filteredRecords
+      .map((record) => getUserName(record))
+      .filter(
+        (name) =>
+          name &&
+          name !== "—"
       )
-        noAnswer++;
+  ).size;
 
-      if (
-        status.includes("voicemail") ||
-        status.includes("straight")
+  // =====================================================
+  // UNIQUE SHEETS
+  // =====================================================
+  const uniqueSheets = new Set(
+    filteredRecords
+      .map((record) => getSheet(record))
+      .filter(
+        (sheet) =>
+          sheet &&
+          sheet !== "—"
       )
-        voicemail++;
+  ).size;
 
-      if (
-        status.includes("pending") ||
-        status.includes("progress")
-      )
-        pending++;
-    });
-
-    const uniqueUsers = new Set(
-      filteredRecords
-        .map((record) =>
-          getUserName(record)
-        )
-        .filter(
-          (name) =>
-            name && name !== "—"
-        )
-    ).size;
-
-    const uniqueSheets = new Set(
-      filteredRecords
-        .map((record) =>
-          getSheet(record)
-        )
-        .filter(
-          (sheet) =>
-            sheet && sheet !== "—"
-        )
-    ).size;
-
-    return {
-      total: filteredRecords.length,
-      completed,
-      callback,
-      followUp,
-      noAnswer,
-      voicemail,
-      pending,
-      uniqueUsers,
-      uniqueSheets,
-    };
-  }, [filteredRecords]);
-
+  // =====================================================
+  // RETURN REPORT STATS
+  // =====================================================
+  return {
+    total: filteredRecords.length,
+    completed,
+    callback,
+    followUp,
+    noAnswer,
+    voicemail,
+    pending,
+    uniqueUsers,
+    uniqueSheets,
+  };
+}, [filteredRecords]);
   /* ============================================================
      STATUS BREAKDOWN
   ============================================================ */
@@ -1085,13 +1275,10 @@ export default function AdminReportsPage() {
                       />
 
                       <input
-                        type="date"
-                        value={fromDate}
-                        onChange={(e) =>
-                          setFromDate(
-                            e.target.value
-                          )
-                        }
+ type="date"
+ value={fromDate}
+ max={toDate || undefined}
+ onChange={(e)=>setFromDate(e.target.value)}
                         className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
                       />
                     </div>
@@ -1110,14 +1297,12 @@ export default function AdminReportsPage() {
                         className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                       />
 
-                      <input
-                        type="date"
-                        value={toDate}
-                        onChange={(e) =>
-                          setToDate(
-                            e.target.value
-                          )
-                        }
+                     <input
+ type="date"
+ value={toDate}
+ min={fromDate || undefined}
+ onChange={(e)=>setToDate(e.target.value)}
+
                         className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
                       />
                     </div>
@@ -1410,7 +1595,7 @@ export default function AdminReportsPage() {
               <>
                 {/* TABLE */}
 
-                <div className="overflow-x-auto">
+           <div className="max-h-[400px] overflow-auto">
 
                   <table className="w-full min-w-[1450px] text-left">
 

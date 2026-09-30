@@ -86,10 +86,10 @@ function getCaliforniaTime12() {
 // OPERATIONAL DATE
 //
 // 12:00 AM - 06:59 AM
-//       => PREVIOUS DAY
+//     => PREVIOUS OPERATIONAL DAY
 //
 // 07:00 AM - 11:59 PM
-//       => CURRENT DAY
+//     => CURRENT OPERATIONAL DAY
 // ==================================================
 
 function getShiftOperationalDate() {
@@ -121,6 +121,30 @@ function getShiftOperationalDate() {
 }
 
 // ==================================================
+// PREVIOUS OPERATIONAL DATE
+// ==================================================
+
+function getPreviousOperationalDate(operationalDate) {
+    const date = new Date(
+        `${operationalDate}T00:00:00Z`
+    );
+
+    date.setUTCDate(
+        date.getUTCDate() - 1
+    );
+
+    return (
+        `${date.getUTCFullYear()}-` +
+        `${String(
+            date.getUTCMonth() + 1
+        ).padStart(2, "0")}-` +
+        `${String(
+            date.getUTCDate()
+        ).padStart(2, "0")}`
+    );
+}
+
+// ==================================================
 // VALIDATE YYYY-MM-DD
 // ==================================================
 
@@ -131,7 +155,9 @@ function isValidDate(date) {
         return false;
     }
 
-    const parsed = new Date(`${date}T00:00:00Z`);
+    const parsed = new Date(
+        `${date}T00:00:00Z`
+    );
 
     return (
         parsed.getUTCFullYear() ===
@@ -144,6 +170,274 @@ function isValidDate(date) {
 }
 
 // ==================================================
+// GET PREVIOUS DAY PENDING TASKS
+// ==================================================
+
+async function getPreviousDayPendingCount(
+    employeeId,
+    previousOperationalDate
+) {
+    const [rows] = await db.query(
+        `
+        SELECT
+            COUNT(*) AS pending_count
+
+        FROM daily_assignments da
+
+        INNER JOIN master_tasks mt
+            ON mt.id = da.task_id
+
+        WHERE
+            da.employee_id = ?
+
+            AND da.assignment_date = ?
+
+            AND (
+                da.is_completed = 0
+                OR da.is_completed IS NULL
+            )
+
+            AND (
+                mt.is_locked = 0
+                OR mt.is_locked IS NULL
+            )
+        `,
+        [
+            employeeId,
+            previousOperationalDate,
+        ]
+    );
+
+    return Math.max(
+        0,
+        Number(
+            rows?.[0]?.pending_count || 0
+        )
+    );
+}
+
+// ==================================================
+// AUTO ASSIGN NEW TASKS
+//
+// RULE:
+//
+// Previous operational day pending > 0
+//      => NO NEW NUMBERS
+//
+// Previous operational day pending = 0
+//      => Assign up to 500 globally unused numbers
+//
+// IMPORTANT:
+// A master task can ONLY be assigned once globally.
+// ==================================================
+
+async function autoAssignTasks(
+    employeeId,
+    assignmentDate
+) {
+    let totalAssignedNow = 0;
+
+    // --------------------------------------------------
+    // PREVIOUS OPERATIONAL DATE
+    // --------------------------------------------------
+
+    const previousOperationalDate =
+        getPreviousOperationalDate(
+            assignmentDate
+        );
+
+    // --------------------------------------------------
+    // CHECK PREVIOUS PENDING
+    // --------------------------------------------------
+
+    const previousPending =
+        await getPreviousDayPendingCount(
+            employeeId,
+            previousOperationalDate
+        );
+
+    // --------------------------------------------------
+    // BLOCK NEW NUMBERS
+    // --------------------------------------------------
+
+    if (previousPending > 0) {
+        return {
+            assigned: 0,
+            total_assigned: 0,
+            previous_pending: previousPending,
+            blocked_by_previous_pending: true,
+        };
+    }
+
+    // --------------------------------------------------
+    // CURRENT DAY ASSIGNMENTS
+    // --------------------------------------------------
+
+    const [existingRows] = await db.query(
+        `
+        SELECT
+            COUNT(*) AS total_assigned
+
+        FROM daily_assignments
+
+        WHERE
+            employee_id = ?
+
+            AND assignment_date = ?
+        `,
+        [
+            employeeId,
+            assignmentDate,
+        ]
+    );
+
+    let alreadyAssigned = Number(
+        existingRows?.[0]?.total_assigned || 0
+    );
+
+    let needed = Math.max(
+        0,
+        DAILY_TASK_LIMIT - alreadyAssigned
+    );
+
+    // --------------------------------------------------
+    // ALREADY 500
+    // --------------------------------------------------
+
+    if (needed <= 0) {
+        return {
+            assigned: 0,
+            total_assigned: alreadyAssigned,
+            previous_pending: 0,
+            blocked_by_previous_pending: false,
+        };
+    }
+
+    // --------------------------------------------------
+    // MULTIPLE ROUNDS
+    // --------------------------------------------------
+
+    const MAX_ROUNDS = 20;
+
+    for (
+        let round = 0;
+        round < MAX_ROUNDS && needed > 0;
+        round++
+    ) {
+        const before = alreadyAssigned;
+
+        // --------------------------------------------------
+        // GET GLOBALLY UNUSED MASTER TASKS
+        // --------------------------------------------------
+
+        const [unusedTasks] = await db.query(
+            `
+            SELECT
+                mt.id AS task_id
+
+            FROM master_tasks mt
+
+            LEFT JOIN daily_assignments used
+                ON used.task_id = mt.id
+
+            WHERE
+                used.task_id IS NULL
+
+                AND (
+                    mt.is_locked = 0
+                    OR mt.is_locked IS NULL
+                )
+
+            ORDER BY
+                mt.sequence_no ASC,
+                mt.id ASC
+
+            LIMIT ?
+            `,
+            [needed]
+        );
+
+        if (
+            !unusedTasks ||
+            unusedTasks.length === 0
+        ) {
+            break;
+        }
+
+        // --------------------------------------------------
+        // INSERT
+        // --------------------------------------------------
+
+        for (const task of unusedTasks) {
+            try {
+                const [insertResult] =
+                    await db.query(
+                        `
+                        INSERT IGNORE INTO daily_assignments
+                        (
+                            employee_id,
+                            task_id,
+                            assignment_date,
+                            status,
+                            comment,
+                            is_completed
+                        )
+                        VALUES
+                        (
+                            ?,
+                            ?,
+                            ?,
+                            'Pending',
+                            NULL,
+                            0
+                        )
+                        `,
+                        [
+                            employeeId,
+                            task.task_id,
+                            assignmentDate,
+                        ]
+                    );
+
+                if (
+                    Number(
+                        insertResult?.affectedRows || 0
+                    ) > 0
+                ) {
+                    totalAssignedNow++;
+                    alreadyAssigned++;
+                    needed--;
+                }
+
+                if (needed <= 0) {
+                    break;
+                }
+            } catch (insertError) {
+                console.error(
+                    "TASK AUTO ASSIGN INSERT ERROR:",
+                    insertError
+                );
+            }
+        }
+
+        // --------------------------------------------------
+        // NOTHING INSERTED
+        // --------------------------------------------------
+
+        if (alreadyAssigned === before) {
+            break;
+        }
+    }
+
+    return {
+        assigned: totalAssignedNow,
+        total_assigned: alreadyAssigned,
+        previous_pending: 0,
+        blocked_by_previous_pending: false,
+    };
+}
+
+// ==================================================
 // GET EMPLOYEE DAILY TASKS
 // ==================================================
 
@@ -153,13 +447,14 @@ export async function GET(req) {
         // URL
         // ==================================================
 
-        const { searchParams } = new URL(req.url);
+        const { searchParams } =
+            new URL(req.url);
 
         const selectedDate =
             searchParams.get("date");
 
         // ==================================================
-        // DETERMINE OPERATIONAL DATE
+        // DETERMINE DATE
         // ==================================================
 
         let date;
@@ -180,14 +475,16 @@ export async function GET(req) {
 
             date = selectedDate;
         } else {
-            date = getShiftOperationalDate();
+            date =
+                getShiftOperationalDate();
         }
 
         // ==================================================
         // AUTH
         // ==================================================
 
-        const cookieStore = await cookies();
+        const cookieStore =
+            await cookies();
 
         const token =
             cookieStore.get("token")?.value;
@@ -247,7 +544,8 @@ export async function GET(req) {
             return NextResponse.json(
                 {
                     success: false,
-                    message: "User ID not found",
+                    message:
+                        "User ID not found",
                 },
                 {
                     status: 401,
@@ -256,7 +554,7 @@ export async function GET(req) {
         }
 
         // ==================================================
-        // CALIFORNIA CURRENT INFO
+        // CALIFORNIA INFO
         // ==================================================
 
         const californiaDate =
@@ -269,180 +567,344 @@ export async function GET(req) {
             getCaliforniaTime12();
 
         // ==================================================
+        // CURRENT OPERATIONAL DATE
+        // ==================================================
+
+        const currentOperationalDate =
+            getShiftOperationalDate();
+
+        const previousOperationalDate =
+            getPreviousOperationalDate(
+                currentOperationalDate
+            );
+
+        // ==================================================
         // STEP 1
-        // COUNT COMPLETED TASKS
         //
-        // This is IMPORTANT.
-        //
-        // Daily quota = 500
-        //
-        // Example:
-        //
-        // 14 completed
-        // 500 - 14 = 486 remaining
-        //
-        // 500 completed
-        // 500 - 500 = 0 remaining
+        // CURRENT DAY ONLY
         // ==================================================
 
-        const [completedRows] = await db.query(
-            `
-            SELECT
-                COUNT(*) AS completed_today
+        let allocationResult = {
+            assigned: 0,
+            total_assigned: 0,
+            previous_pending: 0,
+            blocked_by_previous_pending: false,
+        };
 
-            FROM daily_assignments da
-
-            WHERE
-                da.employee_id = ?
-                AND da.assignment_date = ?
-                AND da.is_completed = 1
-            `,
-            [
-                employeeId,
-                date,
-            ]
-        );
-
-        const completedToday = Math.max(
-            0,
-            Number(
-                completedRows?.[0]?.completed_today || 0
-            )
-        );
-
-        // ==================================================
-        // STEP 2
-        // CALCULATE REMAINING DAILY QUOTA
-        //
-        // NEVER use tasks.length for this calculation.
-        //
-        // The quota is:
-        //
-        // 500 - completed
-        // ==================================================
-
-        const remainingQuota = Math.max(
-            0,
-            DAILY_TASK_LIMIT - completedToday
-        );
-
-        // ==================================================
-        // STEP 3
-        // FETCH ONLY REMAINING QUOTA TASKS
-        //
-        // Completed tasks:
-        // is_completed = 1
-        //
-        // are excluded.
-        //
-        // Pending tasks:
-        // is_completed = 0
-        // OR NULL
-        //
-        // remain visible.
-        // ==================================================
-
-        let tasks = [];
-
-        if (remainingQuota > 0) {
-            const [taskRows] =
-                await db.query(
-                    `
-                    SELECT
-                        da.id AS assignment_id,
-
-                        da.assignment_date,
-
-                        da.status AS assignment_status,
-
-                        da.comment,
-
-                        da.is_completed,
-
-                        mt.id AS task_id,
-
-                        mt.sequence_no,
-
-                        mt.name,
-
-                        mt.phone_number,
-
-                        mt.business_name,
-
-                        mt.is_locked
-
-                    FROM daily_assignments da
-
-                    INNER JOIN master_tasks mt
-                        ON da.task_id = mt.id
-
-                    WHERE
-                        da.employee_id = ?
-                        AND da.assignment_date = ?
-
-                        AND (
-                            da.is_completed = 0
-                            OR da.is_completed IS NULL
-                        )
-
-                        AND (
-                            mt.is_locked = 0
-                            OR mt.is_locked IS NULL
-                        )
-
-                    ORDER BY
-                        mt.sequence_no ASC,
-                        da.id ASC
-
-                    LIMIT ?
-                    `,
-                    [
-                        employeeId,
-                        date,
-                        remainingQuota,
-                    ]
+        if (
+            date ===
+            currentOperationalDate
+        ) {
+            allocationResult =
+                await autoAssignTasks(
+                    employeeId,
+                    date
                 );
-
-            tasks = taskRows || [];
         }
 
         // ==================================================
-        // STEP 4
-        // ACTUAL TASK COUNT
+        // STEP 2
+        //
+        // LATEST PREVIOUS PENDING
         // ==================================================
 
-        const taskCount =
-            Number(tasks.length || 0);
+        const previousPendingCount =
+            await getPreviousDayPendingCount(
+                employeeId,
+                previousOperationalDate
+            );
+
+        // ==================================================
+        // STEP 3
+        //
+        // SHOW PREVIOUS PENDING
+        // ==================================================
+
+        const showPreviousPending =
+            date === currentOperationalDate &&
+            previousPendingCount > 0;
+
+        // ==================================================
+        // STEP 4
+        //
+        // TASK SOURCE DATE
+        // ==================================================
+
+        const taskDate =
+            showPreviousPending
+                ? previousOperationalDate
+                : date;
 
         // ==================================================
         // STEP 5
-        // ACTUAL TOTAL ASSIGNED FOR DAILY QUOTA
         //
-        // The daily quota can never exceed 500.
-        //
-        // If 14 completed:
-        //
-        // total = 500
-        // completed = 14
-        // remaining = 486
+        // COMPLETED COUNT
         // ==================================================
 
-        const totalAssigned =
-            DAILY_TASK_LIMIT;
+        const statsDate =
+            showPreviousPending
+                ? previousOperationalDate
+                : date;
+
+        const [completedRows] =
+            await db.query(
+                `
+                SELECT
+                    COUNT(*) AS completed_today
+
+                FROM daily_assignments da
+
+                WHERE
+                    da.employee_id = ?
+
+                    AND da.assignment_date = ?
+
+                    AND da.is_completed = 1
+                `,
+                [
+                    employeeId,
+                    statsDate,
+                ]
+            );
+
+        const completedToday =
+            Math.max(
+                0,
+                Number(
+                    completedRows?.[0]
+                        ?.completed_today || 0
+                )
+            );
 
         // ==================================================
         // STEP 6
-        // SAFETY CHECK
         //
-        // If fewer tasks actually exist in DB than
-        // remaining quota, return the actual available
-        // task count separately.
+        // FETCH TASKS
+        //
+        // IMPORTANT:
+        //
+        // Return the actual saved status from
+        // daily_assignments.status.
+        //
+        // Example:
+        //
+        // Callback
+        // Follow Up
+        // No Answer
+        // Interested
+        // Not Interested
+        // etc.
+        // ==================================================
+
+        const [taskRows] =
+            await db.query(
+                `
+                SELECT
+                    da.id AS assignment_id,
+
+                    da.id AS daily_assignment_id,
+
+                    da.assignment_date,
+
+                    da.status AS status,
+
+                    da.status AS assignment_status,
+
+                    da.status AS assignment_status_name,
+
+                    da.status AS selected_status,
+
+                    da.status AS result,
+
+                    da.status AS result_status,
+
+                    da.status AS disposition,
+
+                    da.status AS outcome,
+
+                    da.comment AS comment,
+
+                    da.comment AS comments,
+
+                    da.is_completed,
+
+                    mt.id AS task_id,
+
+                    mt.id AS master_task_id,
+
+                    mt.sequence_no,
+
+                    mt.name,
+
+                    mt.phone_number,
+
+                    mt.business_name,
+
+                    mt.is_locked
+
+                FROM daily_assignments da
+
+                INNER JOIN master_tasks mt
+                    ON da.task_id = mt.id
+
+                WHERE
+                    da.employee_id = ?
+
+                    AND da.assignment_date = ?
+
+                    AND (
+                        da.is_completed = 0
+                        OR da.is_completed IS NULL
+                    )
+
+                    AND (
+                        mt.is_locked = 0
+                        OR mt.is_locked IS NULL
+                    )
+
+                ORDER BY
+                    mt.sequence_no ASC,
+                    da.id ASC
+
+                LIMIT 500
+                `,
+                [
+                    employeeId,
+                    taskDate,
+                ]
+            );
+
+        const tasks = taskRows || [];
+
+        // ==================================================
+        // STEP 7
+        //
+        // CURRENT DAY TOTAL ASSIGNED
+        // ==================================================
+
+        const [assignedRows] =
+            await db.query(
+                `
+                SELECT
+                    COUNT(*) AS total_assigned
+
+                FROM daily_assignments
+
+                WHERE
+                    employee_id = ?
+
+                    AND assignment_date = ?
+                `,
+                [
+                    employeeId,
+                    date,
+                ]
+            );
+
+        const totalAssignedToday =
+            Number(
+                assignedRows?.[0]
+                    ?.total_assigned || 0
+            );
+
+        // ==================================================
+        // STEP 8
+        //
+        // PREVIOUS DAY TOTAL
+        // ==================================================
+
+        const [previousAssignedRows] =
+            await db.query(
+                `
+                SELECT
+                    COUNT(*) AS total_assigned
+
+                FROM daily_assignments
+
+                WHERE
+                    employee_id = ?
+
+                    AND assignment_date = ?
+                `,
+                [
+                    employeeId,
+                    previousOperationalDate,
+                ]
+            );
+
+        const previousTotalAssigned =
+            Number(
+                previousAssignedRows?.[0]
+                    ?.total_assigned || 0
+            );
+
+        // ==================================================
+        // STEP 9
+        //
+        // CURRENT DAY PENDING
+        // ==================================================
+
+        const [currentPendingRows] =
+            await db.query(
+                `
+                SELECT
+                    COUNT(*) AS pending_count
+
+                FROM daily_assignments da
+
+                INNER JOIN master_tasks mt
+                    ON mt.id = da.task_id
+
+                WHERE
+                    da.employee_id = ?
+
+                    AND da.assignment_date = ?
+
+                    AND (
+                        da.is_completed = 0
+                        OR da.is_completed IS NULL
+                    )
+
+                    AND (
+                        mt.is_locked = 0
+                        OR mt.is_locked IS NULL
+                    )
+                `,
+                [
+                    employeeId,
+                    date,
+                ]
+            );
+
+        const currentPendingCount =
+            Number(
+                currentPendingRows?.[0]
+                    ?.pending_count || 0
+            );
+
+        // ==================================================
+        // STEP 10
+        //
+        // PREVIOUS DAY PENDING
+        // ==================================================
+
+        const remaining =
+            showPreviousPending
+                ? previousPendingCount
+                : currentPendingCount;
+
+        // ==================================================
+        // STEP 11
+        //
+        // ACTUAL VISIBLE COUNT
         // ==================================================
 
         const actualAvailableTasks =
-            taskCount;
+            Number(tasks.length || 0);
 
         // ==================================================
+        // STEP 12
+        //
         // RESPONSE
         // ==================================================
 
@@ -472,6 +934,16 @@ export async function GET(req) {
                     "07:00:00",
 
                 // ------------------------------------------
+                // OPERATIONAL DATES
+                // ------------------------------------------
+
+                operational_date:
+                    currentOperationalDate,
+
+                previous_operational_date:
+                    previousOperationalDate,
+
+                // ------------------------------------------
                 // EMPLOYEE
                 // ------------------------------------------
 
@@ -486,39 +958,99 @@ export async function GET(req) {
                     DAILY_TASK_LIMIT,
 
                 // ------------------------------------------
+                // ALLOCATION
+                // ------------------------------------------
+
+                allocation: {
+                    auto_assigned:
+                        allocationResult.assigned,
+
+                    total_assigned_today:
+                        totalAssignedToday,
+
+                    previous_day_pending:
+                        previousPendingCount,
+
+                    previous_day_total:
+                        previousTotalAssigned,
+
+                    blocked_by_previous_pending:
+                        showPreviousPending,
+
+                    new_numbers_allowed:
+                        !showPreviousPending,
+
+                    rule:
+                        "Previous operational day pending tasks must be completed before new numbers are assigned.",
+
+                    daily_rule:
+                        "Maximum 500 new tasks are assigned when the previous operational day has zero pending tasks.",
+
+                    pending_rule:
+                        "If previous day has pending tasks, only those pending tasks are shown.",
+
+                    duplicate_rule:
+                        "A master task can only be assigned once globally.",
+                },
+
+                // ------------------------------------------
                 // DAILY STATS
-                //
-                // Example:
-                //
-                // total_tasks     = 500
-                // completed_today = 14
-                // remaining       = 486
                 // ------------------------------------------
 
                 total:
-                    totalAssigned,
+                    DAILY_TASK_LIMIT,
 
                 total_tasks:
-                    totalAssigned,
+                    DAILY_TASK_LIMIT,
 
                 completed_today:
                     completedToday,
 
-                remaining:
-                    remainingQuota,
+                remaining,
 
                 remaining_tasks:
-                    remainingQuota,
+                    remaining,
 
                 // ------------------------------------------
-                // ACTUAL VISIBLE TASK COUNT
+                // DATABASE COUNTS
                 // ------------------------------------------
+
+                total_assigned_today:
+                    totalAssignedToday,
+
+                current_day_pending:
+                    currentPendingCount,
+
+                previous_day_pending:
+                    previousPendingCount,
+
+                available_tasks:
+                    actualAvailableTasks,
 
                 count:
                     actualAvailableTasks,
 
                 // ------------------------------------------
-                // FILTER
+                // TASK SOURCE
+                // ------------------------------------------
+
+                task_source: {
+                    type:
+                        showPreviousPending
+                            ? "previous_day_pending"
+                            : "current_day",
+
+                    date:
+                        taskDate,
+
+                    label:
+                        showPreviousPending
+                            ? "Previous Day Pending"
+                            : "Current Day New Tasks",
+                },
+
+                // ------------------------------------------
+                // FILTER INFO
                 // ------------------------------------------
 
                 filter: {
@@ -528,27 +1060,48 @@ export async function GET(req) {
                     applied_date:
                         date,
 
+                    operational_date:
+                        currentOperationalDate,
+
+                    previous_operational_date:
+                        previousOperationalDate,
+
                     filtered_by:
                         "employee_id + assignment_date + is_completed",
 
                     completion_rule:
-                        "completed tasks are excluded from Daily Desk",
+                        "Completed tasks are excluded from Daily Desk.",
 
                     daily_quota_rule:
-                        "500 - completed_today",
+                        "Maximum 500 new tasks.",
+
+                    pending_carry_forward_rule:
+                        "Previous operational day pending tasks are shown first and block new task assignment until completed.",
+
+                    allocation_rule:
+                        "If previous pending exists, show only previous pending. If previous pending is zero, assign up to 500 globally unused master tasks.",
                 },
 
                 // ------------------------------------------
                 // TASKS
+                //
+                // Every task now contains the actual
+                // employee-selected status in multiple
+                // compatible fields.
                 // ------------------------------------------
 
                 tasks,
             },
             {
                 status: 200,
+                headers: {
+                    "Cache-Control":
+                        "no-store, no-cache, must-revalidate, proxy-revalidate",
+                    Pragma: "no-cache",
+                    Expires: "0",
+                },
             }
         );
-
     } catch (error) {
         console.error(
             "EMPLOYEE TASKS API ERROR:",
@@ -572,3 +1125,4 @@ export async function GET(req) {
         );
     }
 }
+

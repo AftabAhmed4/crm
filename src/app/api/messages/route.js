@@ -5,6 +5,8 @@ import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /*
 ==================================================
@@ -13,7 +15,8 @@ GET CURRENT USER FROM JWT
 */
 function getCurrentUser(request) {
   try {
-    const token = request.cookies.get("token")?.value;
+    const token =
+      request.cookies.get("token")?.value;
 
     if (!token) {
       return null;
@@ -27,6 +30,7 @@ function getCurrentUser(request) {
     const id =
       decoded.id ||
       decoded.userId ||
+      decoded.user_id ||
       decoded._id;
 
     const numericId = Number(id);
@@ -55,7 +59,11 @@ function getCurrentUser(request) {
       ).toLowerCase(),
     };
   } catch (error) {
-    console.error("JWT Error:", error);
+    console.error(
+      "JWT Error:",
+      error
+    );
+
     return null;
   }
 }
@@ -114,7 +122,10 @@ function formatFileSize(bytes) {
 GET INITIALS
 ==================================================
 */
-function getInitials(name, email = "") {
+function getInitials(
+  name,
+  email = ""
+) {
   const value =
     String(name || "").trim() ||
     String(email || "").trim();
@@ -135,7 +146,10 @@ function getInitials(name, email = "") {
   }
 
   return value
-    .replace(/[^a-zA-Z0-9]/g, "")
+    .replace(
+      /[^a-zA-Z0-9]/g,
+      ""
+    )
     .slice(0, 2)
     .toUpperCase();
 }
@@ -149,22 +163,23 @@ async function isConversationMember(
   conversationId,
   userId
 ) {
-  const [rows] = await db.query(
-    `
-    SELECT id
+  const [rows] =
+    await db.query(
+      `
+      SELECT id
 
-    FROM conversation_members
+      FROM conversation_members
 
-    WHERE conversation_id = ?
-      AND user_id = ?
+      WHERE conversation_id = ?
+        AND user_id = ?
 
-    LIMIT 1
-    `,
-    [
-      conversationId,
-      userId,
-    ]
-  );
+      LIMIT 1
+      `,
+      [
+        conversationId,
+        userId,
+      ]
+    );
 
   return rows.length > 0;
 }
@@ -177,32 +192,33 @@ GET CONVERSATION MEMBERS
 async function getConversationMembers(
   conversationId
 ) {
-  const [rows] = await db.query(
-    `
-    SELECT
-      cm.id AS member_id,
-      cm.user_id,
-      cm.role AS member_role,
+  const [rows] =
+    await db.query(
+      `
+      SELECT
+        cm.id AS member_id,
+        cm.user_id,
+        cm.role AS member_role,
 
-      u.name,
-      u.email,
-      u.phone,
-      u.role,
-      u.team,
-      u.status,
-      u.avatar
+        u.name,
+        u.email,
+        u.phone,
+        u.role,
+        u.team,
+        u.status,
+        u.avatar
 
-    FROM conversation_members cm
+      FROM conversation_members cm
 
-    INNER JOIN users u
-      ON u.id = cm.user_id
+      INNER JOIN users u
+        ON u.id = cm.user_id
 
-    WHERE cm.conversation_id = ?
+      WHERE cm.conversation_id = ?
 
-    ORDER BY cm.id ASC
-    `,
-    [conversationId]
-  );
+      ORDER BY cm.id ASC
+      `,
+      [conversationId]
+    );
 
   return rows;
 }
@@ -214,7 +230,9 @@ FORMAT MEMBER
 */
 function formatMember(member) {
   return {
-    id: Number(member.user_id),
+    id: Number(
+      member.user_id
+    ),
 
     user_id: Number(
       member.user_id
@@ -268,44 +286,45 @@ async function findDirectConversation(
   userId,
   targetUserId
 ) {
-  const [rows] = await db.query(
-    `
-    SELECT
-      c.id
+  const [rows] =
+    await db.query(
+      `
+      SELECT
+        c.id
 
-    FROM conversations c
+      FROM conversations c
 
-    WHERE c.type = 'direct'
+      WHERE c.type = 'direct'
 
-      AND EXISTS (
-        SELECT 1
-        FROM conversation_members cm
-        WHERE cm.conversation_id = c.id
-          AND cm.user_id = ?
-      )
+        AND EXISTS (
+          SELECT 1
+          FROM conversation_members cm
+          WHERE cm.conversation_id = c.id
+            AND cm.user_id = ?
+        )
 
-      AND EXISTS (
-        SELECT 1
-        FROM conversation_members cm
-        WHERE cm.conversation_id = c.id
-          AND cm.user_id = ?
-      )
+        AND EXISTS (
+          SELECT 1
+          FROM conversation_members cm
+          WHERE cm.conversation_id = c.id
+            AND cm.user_id = ?
+        )
 
-      AND (
-        SELECT COUNT(*)
-        FROM conversation_members cm
-        WHERE cm.conversation_id = c.id
-      ) = 2
+        AND (
+          SELECT COUNT(*)
+          FROM conversation_members cm
+          WHERE cm.conversation_id = c.id
+        ) = 2
 
-    ORDER BY c.id DESC
+      ORDER BY c.id DESC
 
-    LIMIT 1
-    `,
-    [
-      userId,
-      targetUserId,
-    ]
-  );
+      LIMIT 1
+      `,
+      [
+        userId,
+        targetUserId,
+      ]
+    );
 
   return rows.length
     ? Number(rows[0].id)
@@ -332,7 +351,9 @@ async function createDirectConversation(
     /*
     DOUBLE CHECK EXISTING CHAT
     */
-    const [existingRows] =
+    const [
+      existingRows,
+    ] =
       await connection.query(
         `
         SELECT
@@ -385,28 +406,29 @@ async function createDirectConversation(
     */
     const [
       conversationResult,
-    ] = await connection.query(
-      `
-      INSERT INTO conversations
-      (
-        type,
-        name,
-        created_by,
-        created_at,
-        updated_at
-      )
+    ] =
+      await connection.query(
+        `
+        INSERT INTO conversations
+        (
+          type,
+          name,
+          created_by,
+          created_at,
+          updated_at
+        )
 
-      VALUES
-      (
-        'direct',
-        NULL,
-        ?,
-        NOW(),
-        NOW()
-      )
-      `,
-      [userId]
-    );
+        VALUES
+        (
+          'direct',
+          NULL,
+          ?,
+          NOW(),
+          NOW()
+        )
+        `,
+        [userId]
+      );
 
     const conversationId =
       Number(
@@ -483,6 +505,165 @@ async function createDirectConversation(
 
 /*
 ==================================================
+CREATE MESSAGE NOTIFICATIONS
+==================================================
+
+IMPORTANT:
+
+Sender does NOT receive notification.
+
+Every other member receives notification.
+
+Works for:
+
+Admin -> User
+User -> Admin
+Admin -> Admin
+User -> User
+Group -> Multiple Users
+==================================================
+*/
+async function createMessageNotifications({
+  conversationId,
+  senderId,
+  senderName,
+  text,
+  msgType,
+  fileName,
+}) {
+  try {
+    /*
+    GET ALL OTHER MEMBERS
+    */
+    const [members] =
+      await db.query(
+        `
+        SELECT
+          cm.user_id
+
+        FROM conversation_members cm
+
+        WHERE cm.conversation_id = ?
+          AND cm.user_id != ?
+        `,
+        [
+          conversationId,
+          senderId,
+        ]
+      );
+
+    if (
+      !members ||
+      members.length === 0
+    ) {
+      return 0;
+    }
+
+    /*
+    BUILD NOTIFICATION MESSAGE
+    */
+    let notificationMessage = "";
+
+    if (
+      msgType === "image"
+    ) {
+      notificationMessage =
+        text ||
+        "📷 Sent you an image";
+    } else if (
+      msgType === "file"
+    ) {
+      notificationMessage =
+        text ||
+        `📎 Sent you ${
+          fileName || "a file"
+        }`;
+    } else {
+      notificationMessage =
+        text ||
+        "Sent you a new message";
+    }
+
+    /*
+    KEEP PREVIEW SHORT
+    */
+    if (
+      notificationMessage.length >
+      200
+    ) {
+      notificationMessage =
+        notificationMessage.substring(
+          0,
+          197
+        ) + "...";
+    }
+
+    /*
+    CREATE NOTIFICATION
+    FOR EVERY RECIPIENT
+    */
+    let createdCount = 0;
+
+    for (
+      const member of members
+    ) {
+      await db.query(
+        `
+        INSERT INTO notifications
+        (
+          user_id,
+          title,
+          message,
+          type,
+          is_read,
+          created_at
+        )
+
+        VALUES
+        (
+          ?,
+          ?,
+          ?,
+          'message',
+          0,
+          NOW()
+        )
+        `,
+        [
+          Number(
+            member.user_id
+          ),
+
+          `New message from ${
+            senderName || "User"
+          }`,
+
+          notificationMessage,
+        ]
+      );
+
+      createdCount++;
+    }
+
+    return createdCount;
+  } catch (error) {
+    /*
+    IMPORTANT:
+
+    If notification creation fails,
+    message itself should still succeed.
+    */
+    console.error(
+      "CREATE MESSAGE NOTIFICATION ERROR:",
+      error
+    );
+
+    return 0;
+  }
+}
+
+/*
+==================================================
 GET
 ==================================================
 
@@ -500,7 +681,8 @@ export async function GET(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized",
+          message:
+            "Unauthorized",
         },
         {
           status: 401,
@@ -578,7 +760,8 @@ export async function GET(request) {
       );
 
       if (
-        conversationRows.length === 0
+        conversationRows.length ===
+        0
       ) {
         return NextResponse.json(
           {
@@ -624,16 +807,7 @@ export async function GET(request) {
       }
 
       /*
-      ==================================================
       ACCESS
-      ==================================================
-
-      ADMIN:
-        Can read any conversation.
-
-      NORMAL USER:
-        Must be a member.
-      ==================================================
       */
       const member =
         await isConversationMember(
@@ -658,20 +832,7 @@ export async function GET(request) {
       }
 
       /*
-      ==================================================
       MARK RECEIVED MESSAGES READ
-      ==================================================
-
-      IMPORTANT:
-      This only runs when a specific conversation
-      is opened.
-
-      Background conversation refresh should use:
-      GET /api/messages
-
-      and NOT:
-      GET /api/messages?conversationId=...
-      ==================================================
       */
       await db.query(
         `
@@ -683,7 +844,10 @@ export async function GET(request) {
 
           AND sender_id != ?
 
-          AND COALESCE(is_read, 0) = 0
+          AND COALESCE(
+            is_read,
+            0
+          ) = 0
         `,
         [
           conversationId,
@@ -692,9 +856,7 @@ export async function GET(request) {
       );
 
       /*
-      ==================================================
       GET MESSAGES
-      ==================================================
       */
       const [messages] =
         await db.query(
@@ -747,18 +909,7 @@ export async function GET(request) {
         );
 
       /*
-      ==================================================
       UNREAD COUNT
-      ==================================================
-      */
-
-      /*
-      After opening the conversation,
-      received messages have been marked read.
-
-      Therefore this will normally return 0.
-
-      This is intentional.
       */
       const [
         unreadRows,
@@ -773,7 +924,10 @@ export async function GET(request) {
 
           AND sender_id != ?
 
-          AND COALESCE(is_read, 0) = 0
+          AND COALESCE(
+            is_read,
+            0
+          ) = 0
         `,
         [
           conversationId,
@@ -781,9 +935,6 @@ export async function GET(request) {
         ]
       );
 
-      /*
-      RETURN ONE CONVERSATION
-      */
       return NextResponse.json({
         success: true,
 
@@ -847,36 +998,33 @@ export async function GET(request) {
       );
 
     const formattedUsers =
-      users.map((item) => ({
-        ...item,
+      users.map(
+        (item) => ({
+          ...item,
 
-        id: Number(item.id),
-
-        name:
-          item.name ||
-          item.email ||
-          "",
-
-        email:
-          item.email || "",
-
-        initials:
-          getInitials(
-            item.name,
-            item.email
+          id: Number(
+            item.id
           ),
-      }));
+
+          name:
+            item.name ||
+            item.email ||
+            "",
+
+          email:
+            item.email || "",
+
+          initials:
+            getInitials(
+              item.name,
+              item.email
+            ),
+        })
+      );
 
     /*
     ==================================================
     GET CONVERSATIONS
-    ==================================================
-
-    ADMIN:
-      ALL conversations.
-
-    NORMAL USER:
-      Only conversations where user is member.
     ==================================================
     */
     let conversationRows;
@@ -906,7 +1054,8 @@ export async function GET(request) {
           `
         );
 
-      conversationRows = rows;
+      conversationRows =
+        rows;
     } else {
       const [rows] =
         await db.query(
@@ -922,7 +1071,8 @@ export async function GET(request) {
           FROM conversations c
 
           INNER JOIN conversation_members cm
-            ON cm.conversation_id = c.id
+            ON cm.conversation_id =
+              c.id
 
           WHERE cm.user_id = ?
 
@@ -938,15 +1088,14 @@ export async function GET(request) {
           [user.id]
         );
 
-      conversationRows = rows;
+      conversationRows =
+        rows;
     }
 
     const conversations = [];
 
     /*
-    ==================================================
     BUILD CONVERSATIONS
-    ==================================================
     */
     for (
       const conversation of
@@ -981,9 +1130,7 @@ export async function GET(request) {
       }
 
       /*
-      ==================================================
       GET LAST MESSAGE
-      ==================================================
       */
       const [
         lastMessageRows,
@@ -1038,20 +1185,7 @@ export async function GET(request) {
         null;
 
       /*
-      ==================================================
       UNREAD COUNT
-      ==================================================
-
-      IMPORTANT:
-
-      Count only messages:
-
-      1. In this conversation
-      2. Not sent by current user
-      3. is_read = 0
-
-      COALESCE handles NULL safely.
-      ==================================================
       */
       const [
         unreadRows,
@@ -1066,7 +1200,10 @@ export async function GET(request) {
 
           AND sender_id != ?
 
-          AND COALESCE(is_read, 0) = 0
+          AND COALESCE(
+            is_read,
+            0
+          ) = 0
         `,
         [
           id,
@@ -1081,9 +1218,7 @@ export async function GET(request) {
         );
 
       /*
-      ==================================================
       FORMAT MEMBERS
-      ==================================================
       */
       const formattedMembers =
         memberRows.map(
@@ -1091,9 +1226,7 @@ export async function GET(request) {
         );
 
       /*
-      ==================================================
       CONVERSATION NAME
-      ==================================================
       */
       let name = "";
       let email = "";
@@ -1155,8 +1288,6 @@ export async function GET(request) {
           } else {
             /*
             ADMIN IS NOT MEMBER
-
-            SHOW BOTH USERS
             */
             const personNames =
               memberRows
@@ -1209,9 +1340,7 @@ export async function GET(request) {
       }
 
       /*
-      ==================================================
       LAST MESSAGE TEXT
-      ==================================================
       */
       let lastMsg =
         "No messages yet";
@@ -1241,17 +1370,13 @@ export async function GET(request) {
       }
 
       /*
-      ==================================================
       MEMBER COUNT
-      ==================================================
       */
       const memberCount =
         memberRows.length;
 
       /*
-      ==================================================
       PUSH CONVERSATION
-      ==================================================
       */
       conversations.push({
         id,
@@ -1310,32 +1435,23 @@ export async function GET(request) {
           lastMessage?.created_at ||
           null,
 
-        /*
-        ==============================================
-        IMPORTANT UNREAD COUNT
-        ==============================================
-        */
         unread_count:
           unreadCount,
 
         last_message:
           lastMessage || null,
 
-        /*
-        ==============================================
-        CAN SEND
-        ==============================================
-        */
         can_send:
           admin ||
-          member,
+          await isConversationMember(
+            id,
+            user.id
+          ),
       });
     }
 
     /*
-    ==================================================
     RETURN ALL DATA
-    ==================================================
     */
     return NextResponse.json({
       success: true,
@@ -1387,6 +1503,9 @@ POST MESSAGE
 */
 export async function POST(request) {
   try {
+    /*
+    AUTH
+    */
     const user =
       getCurrentUser(request);
 
@@ -1394,7 +1513,8 @@ export async function POST(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized",
+          message:
+            "Unauthorized",
         },
         {
           status: 401,
@@ -1412,8 +1532,10 @@ export async function POST(request) {
 
     let conversationId = null;
     let targetUserId = null;
+
     let text = null;
     let msgType = "text";
+
     let fileName = null;
     let fileSize = null;
     let fileUrl = null;
@@ -1446,19 +1568,25 @@ export async function POST(request) {
         formData.get("text");
 
       const msgTypeValue =
-        formData.get("msgType");
+        formData.get(
+          "msgType"
+        );
 
       const file =
         formData.get("file");
 
-      if (conversationValue) {
+      if (
+        conversationValue
+      ) {
         conversationId =
           Number(
             conversationValue
           );
       }
 
-      if (targetUserValue) {
+      if (
+        targetUserValue
+      ) {
         targetUserId =
           Number(
             targetUserValue
@@ -1735,7 +1863,8 @@ export async function POST(request) {
       );
 
       if (
-        targetRows.length === 0
+        targetRows.length ===
+        0
       ) {
         return NextResponse.json(
           {
@@ -1750,7 +1879,7 @@ export async function POST(request) {
       }
 
       /*
-      FIND EXACT 2-PERSON CHAT
+      FIND EXACT DIRECT CHAT
       */
       conversationId =
         await findDirectConversation(
@@ -1823,7 +1952,8 @@ export async function POST(request) {
     );
 
     if (
-      conversationRows.length === 0
+      conversationRows.length ===
+      0
     ) {
       return NextResponse.json(
         {
@@ -1884,13 +2014,6 @@ export async function POST(request) {
     ==================================================
     CHECK CURRENT USER MEMBERSHIP
     ==================================================
-
-    NORMAL USER:
-      Must be member.
-
-    ADMIN:
-      Can send into ANY conversation.
-    ==================================================
     */
     const member =
       await isConversationMember(
@@ -1950,19 +2073,6 @@ export async function POST(request) {
     ==================================================
     INSERT MESSAGE
     ==================================================
-    */
-
-    /*
-    IMPORTANT:
-
-    is_read = 1
-
-    because the sender has already
-    "read" their own message.
-
-    Recipient will see:
-    is_read = 0
-    and therefore unread_count will increase.
     */
     const [
       result,
@@ -2042,8 +2152,7 @@ export async function POST(request) {
       lastMessage =
         text ||
         `📎 ${
-          fileName ||
-          "File"
+          fileName || "File"
         }`;
     }
 
@@ -2068,6 +2177,30 @@ export async function POST(request) {
         conversationId,
       ]
     );
+
+    /*
+    ==================================================
+    CREATE NOTIFICATIONS
+    ==================================================
+    */
+    const notificationCount =
+      await createMessageNotifications({
+        conversationId,
+
+        senderId:
+          user.id,
+
+        senderName:
+          user.name ||
+          user.email ||
+          "User",
+
+        text,
+
+        msgType,
+
+        fileName,
+      });
 
     /*
     ==================================================
@@ -2148,10 +2281,17 @@ export async function POST(request) {
           newMessageRows[0],
 
         /*
-        Sender doesn't have an unread
-        message from their own send.
+        Sender doesn't have unread
+        message from own send.
         */
         unread_count: 0,
+
+        /*
+        Number of notifications
+        successfully created.
+        */
+        notification_count:
+          notificationCount,
       },
       {
         status: 201,
