@@ -1046,13 +1046,13 @@ const visibleStatusOptions = useMemo(() => {
   // PROFILE IMAGE
   // ============================================================
 
-  const profileImage =
-    currentUser?.avatar ||
-    currentUser?.image ||
-    currentUser?.profilePic ||
-    currentUser?.avatarUrl ||
-    currentUser?.profile_picture ||
-    null;
+ const profileImage =
+  currentUser?.avatar ||
+  currentUser?.image ||
+  currentUser?.profilePic ||
+  currentUser?.avatarUrl ||
+  currentUser?.profile_picture ||
+  null;
 
   // ============================================================
   // USER NAME

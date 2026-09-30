@@ -1,1918 +1,13 @@
-
-
-// "use client";
-
-// import { useEffect, useState } from "react";
-// import Sidebar from "@/components/Sidebar";
-// import {
-//   Upload,
-//   Users,
-//   Phone,
-//   CheckCircle2,
-//   Loader2,
-//   FileSpreadsheet,
-//   ShieldCheck,
-//   XCircle,
-//   X,
-//   LogOut,
-//   Menu,
-// } from "lucide-react";
-
-// export default function AdminDailyDeskPage() {
-//   const [file, setFile] = useState(null);
-//   const [staff, setStaff] = useState([]);
-//   const [selectedStaff, setSelectedStaff] = useState([]);
-//   const [numbers, setNumbers] = useState([]);
-//   const [distribution, setDistribution] = useState("equal");
-//   const [loading, setLoading] = useState(false);
-//   const [message, setMessage] = useState("");
-//   const [sidebarOpen, setSidebarOpen] = useState(false);
-//   const [loggingOut, setLoggingOut] = useState(false);
-//   const [showLogoutModal, setShowLogoutModal] = useState(false);
-
-//   // Custom Alert Modal / Toast State
-//   const [alertConfig, setAlertConfig] = useState({
-//     show: false,
-//     title: "",
-//     message: "",
-//     type: "success",
-//   });
-
-//   const showAlert = (title, message, type = "success") => {
-//     setAlertConfig({ show: true, title, message, type });
-//   };
-
-//   const closeAlert = () => {
-//     setAlertConfig((prev) => ({ ...prev, show: false }));
-//   };
-
-//   useEffect(() => {
-//     const fetchStaff = async () => {
-//       try {
-//         const res = await fetch("/api/new-users", { cache: "no-store" });
-//         const data = await res.json();
-//         const users = data.users || data.data || [];
-
-//         const staffUsers = users.filter((user) => {
-//           const role = (user.role || "").toLowerCase();
-//           return role === "staff" || role === "agent";
-//         });
-
-//         setStaff(staffUsers);
-//       } catch (error) {
-//         console.error("Fetch staff error:", error);
-//       }
-//     };
-
-//     fetchStaff();
-//   }, []);
-
-//   const handleExcelUpload = async (e) => {
-//     const selectedFile = e.target.files?.[0];
-//     if (!selectedFile) return;
-
-//     setFile(selectedFile);
-
-//     try {
-//       const XLSX = await import("xlsx");
-//       const buffer = await selectedFile.arrayBuffer();
-//       const workbook = XLSX.read(buffer, { type: "array" });
-//       const sheetName = workbook.SheetNames[0];
-//       const worksheet = workbook.Sheets[sheetName];
-//       const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-
-//       const extracted = rows
-//         .map((row, index) => {
-//           const phone =
-//             row.phone ||
-//             row.Phone ||
-//             row.PHONE ||
-//             row.number ||
-//             row.Number ||
-//             row.mobile ||
-//             row.Mobile;
-
-//           const rawPhone = String(phone || "").trim();
-//           if (!rawPhone) return null;
-
-//           const rawTaskId =
-//             row.taskId ||
-//             row.TaskId ||
-//             row["Task ID"] ||
-//             row["task_id"] ||
-//             row.id ||
-//             row.ID ||
-//             `TSK-${1001 + index}`;
-
-//           return {
-//             taskId: String(rawTaskId).trim(),
-//             phone: rawPhone,
-//           };
-//         })
-//         .filter(Boolean);
-
-//       const uniqueItems = extracted.filter(
-//         (item, index, self) =>
-//           index === self.findIndex((t) => t.phone === item.phone)
-//       );
-
-//       setNumbers(uniqueItems);
-//       setMessage(
-//         `${uniqueItems.length} unique phone records loaded successfully.`
-//       );
-//       showAlert(
-//         "Excel Loaded",
-//         `${uniqueItems.length} records processed successfully.`,
-//         "success"
-//       );
-//     } catch (error) {
-//       console.error("Excel error:", error);
-//       setMessage("Excel file read nahi ho saki.");
-//       showAlert("Upload Error", "Excel file read nahi ho saki.", "error");
-//     }
-//   };
-
-//   const toggleStaff = (id) => {
-//     setSelectedStaff((prev) =>
-//       prev.includes(id) ? prev.filter((staffId) => staffId !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllStaff = () => {
-//     if (selectedStaff.length === staff.length) {
-//       setSelectedStaff([]);
-//     } else {
-//       setSelectedStaff(staff.map((user) => user.id || user._id));
-//     }
-//   };
-
-//   const distributeNumbers = () => {
-//     if (!numbers.length) {
-//       showAlert("Error", "Pehle Excel file upload karein!", "error");
-//       return null;
-//     }
-
-//     if (!selectedStaff.length) {
-//       showAlert("Error", "Kam az kam 1 staff member select karein!", "error");
-//       return null;
-//     }
-
-//     const assignments = {};
-//     selectedStaff.forEach((staffId) => {
-//       assignments[staffId] = [];
-//     });
-
-//     numbers.forEach((item, index) => {
-//       const staffId = selectedStaff[index % selectedStaff.length];
-//       assignments[staffId].push(item);
-//     });
-
-//     return assignments;
-//   };
-
-
-
-//   const handleConfirmLogout = async () => {
-//     setLoggingOut(true);
-//     try {
-//       // Add your logout logic here (e.g. clear session/cookies or hit endpoint)
-//       window.location.href = "/login";
-//     } catch (err) {
-//       console.error("Logout failed:", err);
-//       setLoggingOut(false);
-//     }
-//   };
-// const handleAssign = async () => {
-//   const assignments = distributeNumbers();
-
-//   if (!assignments) return;
-
-//   setLoading(true);
-//   setMessage("");
-
-//   try {
-//     const response = await fetch("/api/admin/daily-desk/assign", {
-//       method: "POST",
-//       headers: {
-//         "Content-Type": "application/json",
-//       },
-//       body: JSON.stringify({
-//         numbers,
-//         selectedStaff,
-//         distribution,
-//         sourceFile: file?.name || null,
-//       }),
-//     });
-
-//     const data = await response.json();
-
-//     if (!response.ok || !data.success) {
-//       throw new Error(
-//         data.message || "Numbers assign nahi ho sake."
-//       );
-//     }
-
-//     const successMsg =
-//       `${data.data.tasksSaved} tasks successfully ` +
-//       `assigned to ${data.data.staffCount} staff members!`;
-
-//     setMessage(successMsg);
-
-//     showAlert(
-//       "Success!",
-//       successMsg,
-//       "success"
-//     );
-//   } catch (error) {
-//     console.error("Assignment error:", error);
-
-//     const errorMsg =
-//       error.message || "Numbers assign nahi ho sake.";
-
-//     setMessage(errorMsg);
-
-//     showAlert(
-//       "Assignment Failed",
-//       errorMsg,
-//       "error"
-//     );
-//   } finally {
-//     setLoading(false);
-//   }
-// };
-//   return (
-//     <div className="min-h-screen bg-slate-50 flex relative">
-//       {/* SIDEBAR COMPONENT */}
-//       <Sidebar
-//         sidebarOpen={sidebarOpen}
-//         setSidebarOpen={setSidebarOpen}
-//         setShowLogoutModal={setShowLogoutModal}
-//       />
-
-//       {/* MAIN CONTENT CONTAINER */}
-//       <div className="flex-1 lg:ml-64 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6">
-//         {/* CUSTOM FLOATING ALERT POPUP */}
-//         {alertConfig.show && (
-//           <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-//             <div
-//               className={`flex items-start gap-4 p-4 rounded-2xl shadow-xl border max-w-md ${
-//                 alertConfig.type === "success"
-//                   ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-//                   : "bg-red-50 border-red-200 text-red-900"
-//               }`}
-//             >
-//               <div
-//                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-//                   alertConfig.type === "success"
-//                     ? "bg-emerald-500 text-white"
-//                     : "bg-red-500 text-white"
-//                 }`}
-//               >
-//                 {alertConfig.type === "success" ? (
-//                   <CheckCircle2 size={22} />
-//                 ) : (
-//                   <XCircle size={22} />
-//                 )}
-//               </div>
-
-//               <div className="flex-1">
-//                 <h3 className="font-extrabold text-sm">{alertConfig.title}</h3>
-//                 <p className="text-xs mt-1 text-slate-600">{alertConfig.message}</p>
-//               </div>
-
-//               <button
-//                 onClick={closeAlert}
-//                 className="text-slate-400 hover:text-slate-600 transition"
-//               >
-//                 <X size={18} />
-//               </button>
-//             </div>
-//           </div>
-//         )}
-
-//         <div className="max-w-7xl mx-auto">
-//           {/* TOP BAR / HEADER */}
-//           <div className="mb-8 flex items-center justify-between">
-//             <div className="flex items-center gap-3">
-//               <button
-//                 onClick={() => setSidebarOpen(true)}
-//                 className="lg:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-//               >
-//                 <Menu size={20} />
-//               </button>
-//               <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-//                 <ShieldCheck size={24} />
-//               </div>
-//               <div>
-//                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-//                   Daily Desk Admin
-//                 </h1>
-//                 <p className="text-xs font-medium text-slate-500 mt-0.5">
-//                   Call List Distribution & Task Assignment
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* MAIN GRID */}
-//           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-//             {/* EXCEL UPLOAD */}
-//             <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//               <div className="flex items-center gap-3 mb-5">
-//                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-//                   <FileSpreadsheet size={20} />
-//                 </div>
-//                 <div>
-//                   <h2 className="font-bold text-slate-900">
-//                     Upload Daily Call List
-//                   </h2>
-//                   <p className="text-xs text-slate-500">
-//                     Import phone records via Excel file
-//                   </p>
-//                 </div>
-//               </div>
-
-//               <label className="block cursor-pointer">
-//                 <input
-//                   type="file"
-//                   accept=".xlsx,.xls,.csv"
-//                   onChange={handleExcelUpload}
-//                   className="hidden"
-//                 />
-//                 <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 hover:bg-blue-50/20 rounded-2xl p-8 text-center transition group">
-//                   <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto group-hover:scale-110 transition duration-200">
-//                     <Upload size={24} />
-//                   </div>
-//                   <p className="mt-3 text-sm font-bold text-slate-700">
-//                     {file ? file.name : "Click to upload Excel file"}
-//                   </p>
-//                   <p className="text-xs text-slate-400 mt-1">XLSX, XLS or CSV</p>
-//                 </div>
-//               </label>
-
-//               {/* LOADED NUMBERS COUNTER */}
-//               <div className="mt-5 flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-//                     <Phone size={17} />
-//                   </div>
-//                   <div>
-//                     <p className="text-xs font-bold text-slate-800">
-//                       Phone Records Loaded
-//                     </p>
-//                     <p className="text-[11px] text-slate-400">
-//                       Unique numbers with Task IDs
-//                     </p>
-//                   </div>
-//                 </div>
-//                 <span className="text-xl font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-//                   {numbers.length}
-//                 </span>
-//               </div>
-//             </div>
-
-//             {/* STAFF SELECTION */}
-//             <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col">
-//               <div className="flex items-center justify-between mb-5">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-//                     <Users size={20} />
-//                   </div>
-//                   <div>
-//                     <h2 className="font-bold text-slate-900">Select Staff</h2>
-//                     <p className="text-xs text-slate-500">Active team members</p>
-//                   </div>
-//                 </div>
-//                 <button
-//                   onClick={selectAllStaff}
-//                   className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline transition"
-//                 >
-//                   {selectedStaff.length === staff.length
-//                     ? "Unselect All"
-//                     : "Select All"}
-//                 </button>
-//               </div>
-
-//               <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 flex-1">
-//                 {staff.map((user) => {
-//                   const id = user.id || user._id;
-//                   const selected = selectedStaff.includes(id);
-
-//                   return (
-//                     <button
-//                       key={id}
-//                       onClick={() => toggleStaff(id)}
-//                       className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition duration-150 ${
-//                         selected
-//                           ? "border-blue-300 bg-blue-50/60 shadow-sm"
-//                           : "border-slate-100 hover:bg-slate-50"
-//                       }`}
-//                     >
-//                       <div
-//                         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-//                           selected
-//                             ? "bg-blue-600 text-white"
-//                             : "bg-slate-100 text-slate-600"
-//                         }`}
-//                       >
-//                         {(user.name || user.fullName || "U").charAt(0).toUpperCase()}
-//                       </div>
-//                       <div className="flex-1 min-w-0">
-//                         <p className="text-xs font-bold text-slate-800 truncate">
-//                           {user.name || user.fullName}
-//                         </p>
-//                         <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-//                       </div>
-//                       {selected && (
-//                         <CheckCircle2 size={18} className="text-blue-600 shrink-0" />
-//                       )}
-//                     </button>
-//                   );
-//                 })}
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* DISTRIBUTION MODE & SUBMIT */}
-//           <div className="mt-6 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//             <h2 className="font-bold text-slate-900">Number Distribution</h2>
-//             <p className="text-xs text-slate-500 mt-0.5">
-//               Select how tasks should be distributed among chosen staff members.
-//             </p>
-
-//             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-//               <button
-//                 onClick={() => setDistribution("equal")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "equal"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Equal Distribution</p>
-//                 <p className="text-xs text-slate-500 mt-1">
-//                   Divides records as evenly as possible.
-//                 </p>
-//               </button>
-
-//               <button
-//                 onClick={() => setDistribution("round")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "round"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Round Robin</p>
-//                 <p className="text-xs text-slate-500 mt-1">
-//                   Sequential rotation through selected staff.
-//                 </p>
-//               </button>
-//             </div>
-
-//             <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-5">
-//               <div>
-//                 {message && (
-//                   <p className="text-xs font-semibold text-blue-600">{message}</p>
-//                 )}
-//               </div>
-
-//               <button
-//                 onClick={handleAssign}
-//                 disabled={loading || !numbers.length || !selectedStaff.length}
-//                 className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-500/20"
-//               >
-//                 {loading ? (
-//                   <>
-//                     <Loader2 size={16} className="animate-spin" />
-//                     Assigning Tasks...
-//                   </>
-//                 ) : (
-//                   <>
-//                     <CheckCircle2 size={16} />
-//                     Assign Numbers
-//                   </>
-//                 )}
-//               </button>
-//             </div>
-//           </div>
-
-//           {/* ASSIGNMENT PREVIEW */}
-//           {numbers.length > 0 && selectedStaff.length > 0 && (
-//             <div className="mt-6 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//               <h2 className="font-bold text-slate-900 mb-4">
-//                 Assignment Preview
-//               </h2>
-
-//               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-//                 {selectedStaff.map((staffId) => {
-//                   const user = staff.find((s) => (s.id || s._id) === staffId);
-//                   const staffIndex = selectedStaff.indexOf(staffId);
-//                   const count =
-//                     Math.floor(numbers.length / selectedStaff.length) +
-//                     (staffIndex < numbers.length % selectedStaff.length ? 1 : 0);
-
-//                   return (
-//                     <div
-//                       key={staffId}
-//                       className="border border-slate-100 rounded-xl p-4 bg-slate-50/70 hover:bg-slate-50 transition"
-//                     >
-//                       <div className="flex items-center justify-between">
-//                         <p className="text-xs font-bold text-slate-800 truncate">
-//                           {user?.name || user?.fullName || "Staff"}
-//                         </p>
-//                         <span className="text-xs font-black text-blue-600 bg-blue-100/60 px-2 py-0.5 rounded-md">
-//                           {count} tasks
-//                         </span>
-//                       </div>
-//                       <p className="text-[10px] text-slate-400 mt-1">
-//                         Allocated workload
-//                       </p>
-//                     </div>
-//                   );
-//                 })}
-//               </div>
-//             </div>
-//           )}
-//         </div>
-//       </div>
-
-//       {/* LOGOUT CONFIRMATION MODAL */}
-//       {showLogoutModal && (
-//         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-//           <div className="bg-white border border-slate-100 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
-//             <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mx-auto mb-4">
-//               <LogOut size={22} />
-//             </div>
-
-//             <h3 className="text-base font-bold text-slate-900 text-center">
-//               Confirm Logout
-//             </h3>
-//             <p className="text-xs text-slate-500 text-center mt-1">
-//               Kya aap sach me account se log out karna chahte hain?
-//             </p>
-
-//             <div className="mt-6 flex items-center gap-3">
-//               <button
-//                 onClick={() => setShowLogoutModal(false)}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-//               >
-//                 Cancel
-//               </button>
-//               <button
-//                 onClick={handleConfirmLogout}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-xs font-bold text-white flex items-center justify-center gap-2 transition shadow-md shadow-red-500/20"
-//               >
-//                 {loggingOut ? (
-//                   <Loader2 size={15} className="animate-spin" />
-//                 ) : (
-//                   "Logout"
-//                 )}
-//               </button>
-//             </div>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-
-
-// "use client";
-
-// import { useEffect, useState } from "react";
-// import Sidebar from "@/components/Sidebar";
-// import {
-//   Upload,
-//   Users,
-//   Phone,
-//   CheckCircle2,
-//   Loader2,
-//   FileSpreadsheet,
-//   ShieldCheck,
-//   XCircle,
-//   X,
-//   LogOut,
-//   Menu,
-//   Calendar,
-//   Search,
-//   RefreshCw,
-// } from "lucide-react";
-
-// export default function AdminDailyDeskPage() {
-//   const [file, setFile] = useState(null);
-//   const [staff, setStaff] = useState([]);
-//   const [selectedStaff, setSelectedStaff] = useState([]);
-//   const [numbers, setNumbers] = useState([]);
-//   const [distribution, setDistribution] = useState("equal");
-//   const [loading, setLoading] = useState(false);
-//   const [message, setMessage] = useState("");
-//   const [sidebarOpen, setSidebarOpen] = useState(false);
-//   const [loggingOut, setLoggingOut] = useState(false);
-//   const [showLogoutModal, setShowLogoutModal] = useState(false);
-
-//   // Date-wise History State
-//   const [selectedDate, setSelectedDate] = useState(
-//     new Date().toISOString().split("T")[0]
-//   );
-//   const [historyRecords, setHistoryRecords] = useState([]);
-//   const [fetchingHistory, setFetchingHistory] = useState(false);
-
-//   // Custom Alert Modal / Toast State
-//   const [alertConfig, setAlertConfig] = useState({
-//     show: false,
-//     title: "",
-//     message: "",
-//     type: "success",
-//   });
-
-//   const showAlert = (title, message, type = "success") => {
-//     setAlertConfig({ show: true, title, message, type });
-//   };
-
-//   const closeAlert = () => {
-//     setAlertConfig((prev) => ({ ...prev, show: false }));
-//   };
-
-//   // Fetch Active Staff Members
-//   useEffect(() => {
-//     const fetchStaff = async () => {
-//       try {
-//         const res = await fetch("/api/new-users", { cache: "no-store" });
-//         const data = await res.json();
-//         const users = data.users || data.data || [];
-
-//         const staffUsers = users.filter((user) => {
-//           const role = (user.role || "").toLowerCase();
-//           return role === "staff" || role === "agent";
-//         });
-
-//         setStaff(staffUsers);
-//       } catch (error) {
-//         console.error("Fetch staff error:", error);
-//       }
-//     };
-
-//     fetchStaff();
-//   }, []);
-
-//   // Fetch Historical Tasks based on Selected Date
-//   const fetchDateWiseTasks = async (dateStr) => {
-//     setFetchingHistory(true);
-//     try {
-//       const res = await fetch(`/api/admin/daily-desk/history?date=${dateStr}`, {
-//         cache: "no-store",
-//       });
-//       const data = await res.json();
-
-//       if (data.success) {
-//         setHistoryRecords(data.data || []);
-//       } else {
-//         setHistoryRecords([]);
-//       }
-//     } catch (error) {
-//       console.error("Error fetching history:", error);
-//       setHistoryRecords([]);
-//     } finally {
-//       setFetchingHistory(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     if (selectedDate) {
-//       fetchDateWiseTasks(selectedDate);
-//     }
-//   }, [selectedDate]);
-
-//   const handleExcelUpload = async (e) => {
-//     const selectedFile = e.target.files?.[0];
-//     if (!selectedFile) return;
-
-//     setFile(selectedFile);
-
-//     try {
-//       const XLSX = await import("xlsx");
-//       const buffer = await selectedFile.arrayBuffer();
-//       const workbook = XLSX.read(buffer, { type: "array" });
-//       const sheetName = workbook.SheetNames[0];
-//       const worksheet = workbook.Sheets[sheetName];
-//       const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-
-//       const extracted = rows
-//         .map((row, index) => {
-//           const phone =
-//             row.phone ||
-//             row.Phone ||
-//             row.PHONE ||
-//             row.number ||
-//             row.Number ||
-//             row.mobile ||
-//             row.Mobile;
-
-//           const rawPhone = String(phone || "").trim();
-//           if (!rawPhone) return null;
-
-//           const rawTaskId =
-//             row.taskId ||
-//             row.TaskId ||
-//             row["Task ID"] ||
-//             row["task_id"] ||
-//             row.id ||
-//             row.ID ||
-//             `TSK-${1001 + index}`;
-
-//           return {
-//             taskId: String(rawTaskId).trim(),
-//             phone: rawPhone,
-//           };
-//         })
-//         .filter(Boolean);
-
-//       const uniqueItems = extracted.filter(
-//         (item, index, self) =>
-//           index === self.findIndex((t) => t.phone === item.phone)
-//       );
-
-//       setNumbers(uniqueItems);
-//       setMessage(
-//         `${uniqueItems.length} unique phone records loaded successfully.`
-//       );
-//       showAlert(
-//         "Excel Loaded",
-//         `${uniqueItems.length} records processed successfully.`,
-//         "success"
-//       );
-//     } catch (error) {
-//       console.error("Excel error:", error);
-//       setMessage("Excel file read nahi ho saki.");
-//       showAlert("Upload Error", "Excel file read nahi ho saki.", "error");
-//     }
-//   };
-
-//   const toggleStaff = (id) => {
-//     setSelectedStaff((prev) =>
-//       prev.includes(id) ? prev.filter((staffId) => staffId !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllStaff = () => {
-//     if (selectedStaff.length === staff.length) {
-//       setSelectedStaff([]);
-//     } else {
-//       setSelectedStaff(staff.map((user) => user.id || user._id));
-//     }
-//   };
-
-//   const distributeNumbers = () => {
-//     if (!numbers.length) {
-//       showAlert("Error", "Pehle Excel file upload karein!", "error");
-//       return null;
-//     }
-
-//     if (!selectedStaff.length) {
-//       showAlert("Error", "Kam az kam 1 staff member select karein!", "error");
-//       return null;
-//     }
-
-//     const assignments = {};
-//     selectedStaff.forEach((staffId) => {
-//       assignments[staffId] = [];
-//     });
-
-//     numbers.forEach((item, index) => {
-//       const staffId = selectedStaff[index % selectedStaff.length];
-//       assignments[staffId].push(item);
-//     });
-
-//     return assignments;
-//   };
-
-//   const handleConfirmLogout = async () => {
-//     setLoggingOut(true);
-//     try {
-//       window.location.href = "/login";
-//     } catch (err) {
-//       console.error("Logout failed:", err);
-//       setLoggingOut(false);
-//     }
-//   };
-
-//   const handleAssign = async () => {
-//     const assignments = distributeNumbers();
-//     if (!assignments) return;
-
-//     setLoading(true);
-//     setMessage("");
-
-//     try {
-//       const response = await fetch("/api/admin/daily-desk/assign", {
-//         method: "POST",
-//         headers: {
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify({
-//           numbers,
-//           selectedStaff,
-//           distribution,
-//           sourceFile: file?.name || null,
-//         }),
-//       });
-
-//       const data = await response.json();
-
-//       if (!response.ok || !data.success) {
-//         throw new Error(data.message || "Numbers assign nahi ho sake.");
-//       }
-
-//       const successMsg = `${data.data.tasksSaved} tasks successfully assigned to ${data.data.staffCount} staff members!`;
-
-//       setMessage(successMsg);
-//       showAlert("Success!", successMsg, "success");
-
-//       // Refresh date wise table after assignment
-//       fetchDateWiseTasks(selectedDate);
-//     } catch (error) {
-//       console.error("Assignment error:", error);
-//       const errorMsg = error.message || "Numbers assign nahi ho sake.";
-//       setMessage(errorMsg);
-//       showAlert("Assignment Failed", errorMsg, "error");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="min-h-screen bg-slate-50 flex relative">
-//       <Sidebar
-//         sidebarOpen={sidebarOpen}
-//         setSidebarOpen={setSidebarOpen}
-//         setShowLogoutModal={setShowLogoutModal}
-//       />
-
-//       <div className="flex-1 lg:ml-64 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6">
-//         {/* CUSTOM ALERT */}
-//         {alertConfig.show && (
-//           <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-//             <div
-//               className={`flex items-start gap-4 p-4 rounded-2xl shadow-xl border max-w-md ${
-//                 alertConfig.type === "success"
-//                   ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-//                   : "bg-red-50 border-red-200 text-red-900"
-//               }`}
-//             >
-//               <div
-//                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-//                   alertConfig.type === "success"
-//                     ? "bg-emerald-500 text-white"
-//                     : "bg-red-500 text-white"
-//                 }`}
-//               >
-//                 {alertConfig.type === "success" ? (
-//                   <CheckCircle2 size={22} />
-//                 ) : (
-//                   <XCircle size={22} />
-//                 )}
-//               </div>
-
-//               <div className="flex-1">
-//                 <h3 className="font-extrabold text-sm">{alertConfig.title}</h3>
-//                 <p className="text-xs mt-1 text-slate-600">{alertConfig.message}</p>
-//               </div>
-
-//               <button
-//                 onClick={closeAlert}
-//                 className="text-slate-400 hover:text-slate-600 transition"
-//               >
-//                 <X size={18} />
-//               </button>
-//             </div>
-//           </div>
-//         )}
-
-//         <div className="max-w-7xl mx-auto space-y-6">
-//           {/* HEADER */}
-//           <div className="flex items-center justify-between">
-//             <div className="flex items-center gap-3">
-//               <button
-//                 onClick={() => setSidebarOpen(true)}
-//                 className="lg:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-//               >
-//                 <Menu size={20} />
-//               </button>
-//               <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-//                 <ShieldCheck size={24} />
-//               </div>
-//               <div>
-//                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-//                   Daily Desk Admin
-//                 </h1>
-//                 <p className="text-xs font-medium text-slate-500 mt-0.5">
-//                   Call List Distribution & Historical Records
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* MAIN FORM GRID */}
-//           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-//             <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//               <div className="flex items-center gap-3 mb-5">
-//                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-//                   <FileSpreadsheet size={20} />
-//                 </div>
-//                 <div>
-//                   <h2 className="font-bold text-slate-900">Upload Daily Call List</h2>
-//                   <p className="text-xs text-slate-500">Import phone records via Excel file</p>
-//                 </div>
-//               </div>
-
-//               <label className="block cursor-pointer">
-//                 <input
-//                   type="file"
-//                   accept=".xlsx,.xls,.csv"
-//                   onChange={handleExcelUpload}
-//                   className="hidden"
-//                 />
-//                 <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 hover:bg-blue-50/20 rounded-2xl p-8 text-center transition group">
-//                   <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto group-hover:scale-110 transition duration-200">
-//                     <Upload size={24} />
-//                   </div>
-//                   <p className="mt-3 text-sm font-bold text-slate-700">
-//                     {file ? file.name : "Click to upload Excel file"}
-//                   </p>
-//                   <p className="text-xs text-slate-400 mt-1">XLSX, XLS or CSV</p>
-//                 </div>
-//               </label>
-
-//               <div className="mt-5 flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-//                     <Phone size={17} />
-//                   </div>
-//                   <div>
-//                     <p className="text-xs font-bold text-slate-800">Phone Records Loaded</p>
-//                     <p className="text-[11px] text-slate-400">Unique numbers with Task IDs</p>
-//                   </div>
-//                 </div>
-//                 <span className="text-xl font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-//                   {numbers.length}
-//                 </span>
-//               </div>
-//             </div>
-
-//             {/* STAFF SELECTION */}
-//             <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col">
-//               <div className="flex items-center justify-between mb-5">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-//                     <Users size={20} />
-//                   </div>
-//                   <div>
-//                     <h2 className="font-bold text-slate-900">Select Staff</h2>
-//                     <p className="text-xs text-slate-500">Active team members</p>
-//                   </div>
-//                 </div>
-//                 <button
-//                   onClick={selectAllStaff}
-//                   className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline transition"
-//                 >
-//                   {selectedStaff.length === staff.length ? "Unselect All" : "Select All"}
-//                 </button>
-//               </div>
-
-//               <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 flex-1">
-//                 {staff.map((user) => {
-//                   const id = user.id || user._id;
-//                   const selected = selectedStaff.includes(id);
-
-//                   return (
-//                     <button
-//                       key={id}
-//                       onClick={() => toggleStaff(id)}
-//                       className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition duration-150 ${
-//                         selected
-//                           ? "border-blue-300 bg-blue-50/60 shadow-sm"
-//                           : "border-slate-100 hover:bg-slate-50"
-//                       }`}
-//                     >
-//                       <div
-//                         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-//                           selected
-//                             ? "bg-blue-600 text-white"
-//                             : "bg-slate-100 text-slate-600"
-//                         }`}
-//                       >
-//                         {(user.name || user.fullName || "U").charAt(0).toUpperCase()}
-//                       </div>
-//                       <div className="flex-1 min-w-0">
-//                         <p className="text-xs font-bold text-slate-800 truncate">
-//                           {user.name || user.fullName}
-//                         </p>
-//                         <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-//                       </div>
-//                       {selected && (
-//                         <CheckCircle2 size={18} className="text-blue-600 shrink-0" />
-//                       )}
-//                     </button>
-//                   );
-//                 })}
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* DISTRIBUTION OPTIONS & SUBMIT */}
-//           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//             <h2 className="font-bold text-slate-900">Number Distribution</h2>
-//             <p className="text-xs text-slate-500 mt-0.5">
-//               Select how tasks should be distributed among chosen staff members.
-//             </p>
-
-//             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-//               <button
-//                 onClick={() => setDistribution("equal")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "equal"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Equal Distribution</p>
-//                 <p className="text-xs text-slate-500 mt-1">Divides records as evenly as possible.</p>
-//               </button>
-
-//               <button
-//                 onClick={() => setDistribution("round")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "round"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Round Robin</p>
-//                 <p className="text-xs text-slate-500 mt-1">Sequential rotation through selected staff.</p>
-//               </button>
-//             </div>
-
-//             <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-5">
-//               <div>
-//                 {message && <p className="text-xs font-semibold text-blue-600">{message}</p>}
-//               </div>
-
-//               <button
-//                 onClick={handleAssign}
-//                 disabled={loading || !numbers.length || !selectedStaff.length}
-//                 className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-500/20"
-//               >
-//                 {loading ? (
-//                   <>
-//                     <Loader2 size={16} className="animate-spin" />
-//                     Assigning Tasks...
-//                   </>
-//                 ) : (
-//                   <>
-//                     <CheckCircle2 size={16} />
-//                     Assign Numbers
-//                   </>
-//                 )}
-//               </button>
-//             </div>
-//           </div>
-
-//           {/* DATE-WISE HISTORY / RECORDS VIEW SECTION */}
-//           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 space-y-4">
-//             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-//               <div className="flex items-center gap-3">
-//                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-//                   <Calendar size={20} />
-//                 </div>
-//                 <div>
-//                   <h2 className="font-bold text-slate-900">Date-wise Assigned History</h2>
-//                   <p className="text-xs text-slate-500">Check tasks assigned on a specific date</p>
-//                 </div>
-//               </div>
-
-//               {/* Date Filter Input */}
-//               <div className="flex items-center gap-3">
-//                 <input
-//                   type="date"
-//                   value={selectedDate}
-//                   onChange={(e) => setSelectedDate(e.target.value)}
-//                   className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-//                 />
-//                 <button
-//                   onClick={() => fetchDateWiseTasks(selectedDate)}
-//                   className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
-//                   title="Refresh Data"
-//                 >
-//                   <RefreshCw size={16} className={fetchingHistory ? "animate-spin" : ""} />
-//                 </button>
-//               </div>
-//             </div>
-
-//             {/* History Table */}
-//             {fetchingHistory ? (
-//               <div className="py-8 flex flex-col items-center justify-center text-slate-400 gap-2">
-//                 <Loader2 size={24} className="animate-spin text-blue-600" />
-//                 <span className="text-xs">Loading records for {selectedDate}...</span>
-//               </div>
-//             ) : historyRecords.length > 0 ? (
-//               <div className="overflow-x-auto">
-//                 <table className="w-full text-left text-xs">
-//                   <thead>
-//                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-//                       <th className="p-3">Task ID</th>
-//                       <th className="p-3">Phone Number</th>
-//                       <th className="p-3">Assigned Staff</th>
-//                       <th className="p-3">Status</th>
-//                       <th className="p-3 text-right">Time</th>
-//                     </tr>
-//                   </thead>
-//                   <tbody className="divide-y divide-slate-100">
-//                     {historyRecords.map((item, idx) => (
-//                       <tr key={item._id || item.id || idx} className="hover:bg-slate-50/50">
-//                         <td className="p-3 font-mono font-bold text-slate-800">
-//                           {item.taskId || "N/A"}
-//                         </td>
-//                         <td className="p-3 font-semibold text-slate-700">{item.phone}</td>
-//                         <td className="p-3">
-//                           <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md font-bold">
-//                             {item.assignedToName || item.assignedTo || "Staff Member"}
-//                           </span>
-//                         </td>
-//                         <td className="p-3">
-//                           <span
-//                             className={`px-2 py-1 rounded-md font-bold text-[10px] ${
-//                               item.status === "completed"
-//                                 ? "bg-emerald-50 text-emerald-700"
-//                                 : "bg-amber-50 text-amber-700"
-//                             }`}
-//                           >
-//                             {(item.status || "Pending").toUpperCase()}
-//                           </span>
-//                         </td>
-//                         <td className="p-3 text-right text-slate-400">
-//                           {item.createdAt
-//                             ? new Date(item.createdAt).toLocaleTimeString([], {
-//                                 hour: "2-digit",
-//                                 minute: "2-digit",
-//                               })
-//                             : "-"}
-//                         </td>
-//                       </tr>
-//                     ))}
-//                   </tbody>
-//                 </table>
-//               </div>
-//             ) : (
-//               <div className="py-8 text-center text-slate-400 text-xs">
-//                 Is date (<b>{selectedDate}</b>) ke liye koi assigned tasks nahi mile.
-//               </div>
-//             )}
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* LOGOUT MODAL */}
-//       {showLogoutModal && (
-//         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-//           <div className="bg-white border border-slate-100 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-//             <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mx-auto mb-4">
-//               <LogOut size={22} />
-//             </div>
-
-//             <h3 className="text-base font-bold text-slate-900 text-center">Confirm Logout</h3>
-//             <p className="text-xs text-slate-500 text-center mt-1">
-//               Kya aap sach me account se log out karna chahte hain?
-//             </p>
-
-//             <div className="mt-6 flex items-center gap-3">
-//               <button
-//                 onClick={() => setShowLogoutModal(false)}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-//               >
-//                 Cancel
-//               </button>
-//               <button
-//                 onClick={handleConfirmLogout}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-xs font-bold text-white flex items-center justify-center gap-2 transition shadow-md shadow-red-500/20"
-//               >
-//                 {loggingOut ? <Loader2 size={15} className="animate-spin" /> : "Logout"}
-//               </button>
-//             </div>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-
-
-// "use client";
-
-// import { useEffect, useState, useMemo } from "react";
-// import Sidebar from "@/components/Sidebar";
-// import {
-//   Upload,
-//   Users,
-//   Phone,
-//   CheckCircle2,
-//   Loader2,
-//   FileSpreadsheet,
-//   ShieldCheck,
-//   XCircle,
-//   X,
-//   LogOut,
-//   Menu,
-//   Calendar,
-//   Search,
-//   RefreshCw,
-//   Filter,
-// } from "lucide-react";
-
-// export default function AdminDailyDeskPage() {
-//   const [file, setFile] = useState(null);
-//   const [staff, setStaff] = useState([]);
-//   const [selectedStaff, setSelectedStaff] = useState([]);
-//   const [numbers, setNumbers] = useState([]);
-//   const [distribution, setDistribution] = useState("equal");
-//   const [loading, setLoading] = useState(false);
-//   const [message, setMessage] = useState("");
-//   const [sidebarOpen, setSidebarOpen] = useState(false);
-//   const [loggingOut, setLoggingOut] = useState(false);
-//   const [showLogoutModal, setShowLogoutModal] = useState(false);
-
-//   // Date-wise History & Search State
-//   const todayStr = new Date().toISOString().split("T")[0];
-//   const [selectedDate, setSelectedDate] = useState(todayStr);
-//   const [historyRecords, setHistoryRecords] = useState([]);
-//   const [fetchingHistory, setFetchingHistory] = useState(false);
-//   const [searchQuery, setSearchQuery] = useState("");
-//   const [statusFilter, setStatusFilter] = useState("all"); // 'all' | 'pending' | 'completed'
-
-//   // Custom Alert Modal / Toast State
-//   const [alertConfig, setAlertConfig] = useState({
-//     show: false,
-//     title: "",
-//     message: "",
-//     type: "success",
-//   });
-
-//   const showAlert = (title, message, type = "success") => {
-//     setAlertConfig({ show: true, title, message, type });
-//   };
-
-//   const closeAlert = () => {
-//     setAlertConfig((prev) => ({ ...prev, show: false }));
-//   };
-
-//   // Fetch Active Staff Members
-//   useEffect(() => {
-//     const fetchStaff = async () => {
-//       try {
-//         const res = await fetch("/api/new-users", { cache: "no-store" });
-//         const data = await res.json();
-//         const users = data.users || data.data || [];
-
-//         const staffUsers = users.filter((user) => {
-//           const role = (user.role || "").toLowerCase();
-//           return role === "staff" || role === "agent";
-//         });
-
-//         setStaff(staffUsers);
-//       } catch (error) {
-//         console.error("Fetch staff error:", error);
-//       }
-//     };
-
-//     fetchStaff();
-//   }, []);
-
-//   // Fetch Historical Tasks based on Selected Date
-//   const fetchDateWiseTasks = async (dateStr) => {
-//     setFetchingHistory(true);
-//     try {
-//       const res = await fetch(`/api/admin/history?date=${dateStr}`, {
-//         cache: "no-store",
-//       });
-//       const data = await res.json();
-
-//       if (data.success) {
-//         setHistoryRecords(data.data || []);
-//       } else {
-//         setHistoryRecords([]);
-//       }
-//     } catch (error) {
-//       console.error("Error fetching history:", error);
-//       setHistoryRecords([]);
-//     } finally {
-//       setFetchingHistory(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     if (selectedDate) {
-//       fetchDateWiseTasks(selectedDate);
-//     }
-//   }, [selectedDate]);
-
-//   // Client-side Filtering for History Records (Date + Search + Status)
-//   const filteredRecords = useMemo(() => {
-//     return historyRecords.filter((item) => {
-//       const matchesSearch =
-//         (item.taskId || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-//         (item.phone || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-//         (item.assignedToName || item.assignedTo || "")
-//           .toLowerCase()
-//           .includes(searchQuery.toLowerCase());
-
-//       const matchesStatus =
-//         statusFilter === "all"
-//           ? true
-//           : (item.status || "pending").toLowerCase() === statusFilter.toLowerCase();
-
-//       return matchesSearch && matchesStatus;
-//     });
-//   }, [historyRecords, searchQuery, statusFilter]);
-
-//   const handleExcelUpload = async (e) => {
-//     const selectedFile = e.target.files?.[0];
-//     if (!selectedFile) return;
-
-//     setFile(selectedFile);
-
-//     try {
-//       const XLSX = await import("xlsx");
-//       const buffer = await selectedFile.arrayBuffer();
-//       const workbook = XLSX.read(buffer, { type: "array" });
-//       const sheetName = workbook.SheetNames[0];
-//       const worksheet = workbook.Sheets[sheetName];
-//       const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-
-//       const extracted = rows
-//         .map((row, index) => {
-//           const phone =
-//             row.phone ||
-//             row.Phone ||
-//             row.PHONE ||
-//             row.number ||
-//             row.Number ||
-//             row.mobile ||
-//             row.Mobile;
-
-//           const rawPhone = String(phone || "").trim();
-//           if (!rawPhone) return null;
-
-//           const rawTaskId =
-//             row.taskId ||
-//             row.TaskId ||
-//             row["Task ID"] ||
-//             row["task_id"] ||
-//             row.id ||
-//             row.ID ||
-//             `TSK-${1001 + index}`;
-
-//           return {
-//             taskId: String(rawTaskId).trim(),
-//             phone: rawPhone,
-//           };
-//         })
-//         .filter(Boolean);
-
-//       const uniqueItems = extracted.filter(
-//         (item, index, self) =>
-//           index === self.findIndex((t) => t.phone === item.phone)
-//       );
-
-//       setNumbers(uniqueItems);
-//       setMessage(
-//         `${uniqueItems.length} unique phone records loaded successfully.`
-//       );
-//       showAlert(
-//         "Excel Loaded",
-//         `${uniqueItems.length} records processed successfully.`,
-//         "success"
-//       );
-//     } catch (error) {
-//       console.error("Excel error:", error);
-//       setMessage("Excel file read nahi ho saki.");
-//       showAlert("Upload Error", "Excel file read nahi ho saki.", "error");
-//     }
-//   };
-
-//   const toggleStaff = (id) => {
-//     setSelectedStaff((prev) =>
-//       prev.includes(id) ? prev.filter((staffId) => staffId !== id) : [...prev, id]
-//     );
-//   };
-
-//   const selectAllStaff = () => {
-//     if (selectedStaff.length === staff.length) {
-//       setSelectedStaff([]);
-//     } else {
-//       setSelectedStaff(staff.map((user) => user.id || user._id));
-//     }
-//   };
-
-//   const distributeNumbers = () => {
-//     if (!numbers.length) {
-//       showAlert("Error", "Pehle Excel file upload karein!", "error");
-//       return null;
-//     }
-
-//     if (!selectedStaff.length) {
-//       showAlert("Error", "Kam az kam 1 staff member select karein!", "error");
-//       return null;
-//     }
-
-//     const assignments = {};
-//     selectedStaff.forEach((staffId) => {
-//       assignments[staffId] = [];
-//     });
-
-//     numbers.forEach((item, index) => {
-//       const staffId = selectedStaff[index % selectedStaff.length];
-//       assignments[staffId].push(item);
-//     });
-
-//     return assignments;
-//   };
-
-//   const handleConfirmLogout = async () => {
-//     setLoggingOut(true);
-//     try {
-//       window.location.href = "/login";
-//     } catch (err) {
-//       console.error("Logout failed:", err);
-//       setLoggingOut(false);
-//     }
-//   };
-
-// const handleAssign = async () => {
-//     const assignments = distributeNumbers();
-//     if (!assignments) return;
-
-//     setLoading(true);
-//     setMessage("");
-
-//     try {
-//       const response = await fetch("/api/admin/daily-desk/assign", {
-//         method: "POST",
-//         headers: {
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify({
-//           numbers,
-//           selectedStaff,
-//           distribution,
-//           sourceFile: file?.name || null,
-//         }),
-//       });
-
-//       const data = await response.json();
-
-//       if (!response.ok || !data.success) {
-//         throw new Error(data.message || "Numbers assign nahi ho sake.");
-//       }
-
-//       const successMsg = `${data.data.tasksSaved} tasks successfully assigned to ${data.data.staffCount} staff members!`;
-
-//       setMessage(successMsg);
-//       showAlert("Success!", successMsg, "success");
-
-//       fetchDateWiseTasks(selectedDate);
-//     } catch (error) {
-//       console.error("Assignment error:", error);
-//       const errorMsg = error.message || "Numbers assign nahi ho sake.";
-//       setMessage(errorMsg);
-//       showAlert("Assignment Failed", errorMsg, "error");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="min-h-screen bg-slate-50 flex relative">
-//       <Sidebar
-//         sidebarOpen={sidebarOpen}
-//         setSidebarOpen={setSidebarOpen}
-//         setShowLogoutModal={setShowLogoutModal}
-//       />
-
-//       <div className="flex-1 lg:ml-64 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6">
-//         {/* CUSTOM ALERT */}
-//         {alertConfig.show && (
-//           <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-//             <div
-//               className={`flex items-start gap-4 p-4 rounded-2xl shadow-xl border max-w-md ${
-//                 alertConfig.type === "success"
-//                   ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-//                   : "bg-red-50 border-red-200 text-red-900"
-//               }`}
-//             >
-//               <div
-//                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-//                   alertConfig.type === "success"
-//                     ? "bg-emerald-500 text-white"
-//                     : "bg-red-500 text-white"
-//                 }`}
-//               >
-//                 {alertConfig.type === "success" ? (
-//                   <CheckCircle2 size={22} />
-//                 ) : (
-//                   <XCircle size={22} />
-//                 )}
-//               </div>
-
-//               <div className="flex-1">
-//                 <h3 className="font-extrabold text-sm">{alertConfig.title}</h3>
-//                 <p className="text-xs mt-1 text-slate-600">{alertConfig.message}</p>
-//               </div>
-
-//               <button
-//                 onClick={closeAlert}
-//                 className="text-slate-400 hover:text-slate-600 transition"
-//               >
-//                 <X size={18} />
-//               </button>
-//             </div>
-//           </div>
-//         )}
-
-//         <div className="max-w-7xl mx-auto space-y-6">
-//           {/* HEADER */}
-//           <div className="flex items-center justify-between">
-//             <div className="flex items-center gap-3">
-//               <button
-//                 onClick={() => setSidebarOpen(true)}
-//                 className="lg:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-//               >
-//                 <Menu size={20} />
-//               </button>
-//               <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-//                 <ShieldCheck size={24} />
-//               </div>
-//               <div>
-//                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-//                   Daily Desk Admin
-//                 </h1>
-//                 <p className="text-xs font-medium text-slate-500 mt-0.5">
-//                   Call List Distribution & Historical Records
-//                 </p>
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* MAIN FORM GRID */}
-//           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-//             <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//               <div className="flex items-center gap-3 mb-5">
-//                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-//                   <FileSpreadsheet size={20} />
-//                 </div>
-//                 <div>
-//                   <h2 className="font-bold text-slate-900">Upload Daily Call List</h2>
-//                   <p className="text-xs text-slate-500">Import phone records via Excel file</p>
-//                 </div>
-//               </div>
-
-//               <label className="block cursor-pointer">
-//                 <input
-//                   type="file"
-//                   accept=".xlsx,.xls,.csv"
-//                   onChange={handleExcelUpload}
-//                   className="hidden"
-//                 />
-//                 <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 hover:bg-blue-50/20 rounded-2xl p-8 text-center transition group">
-//                   <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto group-hover:scale-110 transition duration-200">
-//                     <Upload size={24} />
-//                   </div>
-//                   <p className="mt-3 text-sm font-bold text-slate-700">
-//                     {file ? file.name : "Click to upload Excel file"}
-//                   </p>
-//                   <p className="text-xs text-slate-400 mt-1">XLSX, XLS or CSV</p>
-//                 </div>
-//               </label>
-
-//               <div className="mt-5 flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-//                     <Phone size={17} />
-//                   </div>
-//                   <div>
-//                     <p className="text-xs font-bold text-slate-800">Phone Records Loaded</p>
-//                     <p className="text-[11px] text-slate-400">Unique numbers with Task IDs</p>
-//                   </div>
-//                 </div>
-//                 <span className="text-xl font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-//                   {numbers.length}
-//                 </span>
-//               </div>
-//             </div>
-
-//             {/* STAFF SELECTION */}
-//             <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col">
-//               <div className="flex items-center justify-between mb-5">
-//                 <div className="flex items-center gap-3">
-//                   <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-//                     <Users size={20} />
-//                   </div>
-//                   <div>
-//                     <h2 className="font-bold text-slate-900">Select Staff</h2>
-//                     <p className="text-xs text-slate-500">Active team members</p>
-//                   </div>
-//                 </div>
-//                 <button
-//                   onClick={selectAllStaff}
-//                   className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline transition"
-//                 >
-//                   {selectedStaff.length === staff.length ? "Unselect All" : "Select All"}
-//                 </button>
-//               </div>
-
-//               <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 flex-1">
-//                 {staff.map((user) => {
-//                   const id = user.id || user._id;
-//                   const selected = selectedStaff.includes(id);
-
-//                   return (
-//                     <button
-//                       key={id}
-//                       onClick={() => toggleStaff(id)}
-//                       className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition duration-150 ${
-//                         selected
-//                           ? "border-blue-300 bg-blue-50/60 shadow-sm"
-//                           : "border-slate-100 hover:bg-slate-50"
-//                       }`}
-//                     >
-//                       <div
-//                         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-//                           selected
-//                             ? "bg-blue-600 text-white"
-//                             : "bg-slate-100 text-slate-600"
-//                         }`}
-//                       >
-//                         {(user.name || user.fullName || "U").charAt(0).toUpperCase()}
-//                       </div>
-//                       <div className="flex-1 min-w-0">
-//                         <p className="text-xs font-bold text-slate-800 truncate">
-//                           {user.name || user.fullName}
-//                         </p>
-//                         <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-//                       </div>
-//                       {selected && (
-//                         <CheckCircle2 size={18} className="text-blue-600 shrink-0" />
-//                       )}
-//                     </button>
-//                   );
-//                 })}
-//               </div>
-//             </div>
-//           </div>
-
-//           {/* DISTRIBUTION OPTIONS & SUBMIT */}
-//           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-//             <h2 className="font-bold text-slate-900">Number Distribution</h2>
-//             <p className="text-xs text-slate-500 mt-0.5">
-//               Select how tasks should be distributed among chosen staff members.
-//             </p>
-
-//             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-//               <button
-//                 onClick={() => setDistribution("equal")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "equal"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Equal Distribution</p>
-//                 <p className="text-xs text-slate-500 mt-1">Divides records as evenly as possible.</p>
-//               </button>
-
-//               <button
-//                 onClick={() => setDistribution("round")}
-//                 className={`p-4 rounded-xl border text-left transition ${
-//                   distribution === "round"
-//                     ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-//                     : "border-slate-200 hover:bg-slate-50"
-//                 }`}
-//               >
-//                 <p className="text-sm font-bold text-slate-800">Round Robin</p>
-//                 <p className="text-xs text-slate-500 mt-1">Sequential rotation through selected staff.</p>
-//               </button>
-//             </div>
-
-//             <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-5">
-//               <div>
-//                 {message && <p className="text-xs font-semibold text-blue-600">{message}</p>}
-//               </div>
-
-//               <button
-//                 onClick={handleAssign}
-//                 disabled={loading || !numbers.length || !selectedStaff.length}
-//                 className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-500/20"
-//               >
-//                 {loading ? (
-//                   <>
-//                     <Loader2 size={16} className="animate-spin" />
-//                     Assigning Tasks...
-//                   </>
-//                 ) : (
-//                   <>
-//                     <CheckCircle2 size={16} />
-//                     Assign Numbers
-//                   </>
-//                 )}
-//               </button>
-//             </div>
-//           </div>
-
-//           {/* DATE-WISE HISTORY / RECORDS VIEW SECTION */}
-//           <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 space-y-4">
-//             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-//               <div className="flex items-center gap-3">
-//                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-//                   <Calendar size={20} />
-//                 </div>
-//                 <div>
-//                   <h2 className="font-bold text-slate-900">Date-wise Assigned History</h2>
-//                   <p className="text-xs text-slate-500">Check and filter tasks assigned on a specific date</p>
-//                 </div>
-//               </div>
-
-//               {/* Date Filter & Actions */}
-//               <div className="flex flex-wrap items-center gap-3">
-//                 <div className="relative flex items-center">
-//                   <input
-//                     type="date"
-//                     value={selectedDate}
-//                     onChange={(e) => setSelectedDate(e.target.value)}
-//                     className="pl-3 pr-2 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-//                   />
-//                   {selectedDate !== todayStr && (
-//                     <button
-//                       onClick={() => setSelectedDate(todayStr)}
-//                       className="ml-2 text-[11px] font-semibold text-blue-600 hover:underline"
-//                     >
-//                       Today
-//                     </button>
-//                   )}
-//                 </div>
-
-//                 <button
-//                   onClick={() => fetchDateWiseTasks(selectedDate)}
-//                   className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
-//                   title="Refresh Data"
-//                 >
-//                   <RefreshCw size={16} className={fetchingHistory ? "animate-spin" : ""} />
-//                 </button>
-//               </div>
-//             </div>
-
-//             {/* Search and Status Filters Sub-Bar */}
-//             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-//               <div className="relative w-full sm:w-72">
-//                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-//                 <input
-//                   type="text"
-//                   placeholder="Search Task ID, Phone, Staff..."
-//                   value={searchQuery}
-//                   onChange={(e) => setSearchQuery(e.target.value)}
-//                   className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-//                 />
-//               </div>
-
-//               {/* Status Filter Tabs */}
-//               <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1 w-full sm:w-auto justify-center">
-//                 {["all", "pending", "completed"].map((st) => (
-//                   <button
-//                     key={st}
-//                     onClick={() => setStatusFilter(st)}
-//                     className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition ${
-//                       statusFilter === st
-//                         ? "bg-white text-slate-900 shadow-sm"
-//                         : "text-slate-500 hover:text-slate-700"
-//                     }`}
-//                   >
-//                     {st}
-//                   </button>
-//                 ))}
-//               </div>
-//             </div>
-
-//             {/* History Table */}
-//             {fetchingHistory ? (
-//               <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
-//                 <Loader2 size={24} className="animate-spin text-blue-600" />
-//                 <span className="text-xs">Loading records for {selectedDate}...</span>
-//               </div>
-//             ) : filteredRecords.length > 0 ? (
-//               <div className="overflow-x-auto">
-//                 <table className="w-full text-left text-xs">
-//                   <thead>
-//                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-//                       <th className="p-3">Task ID</th>
-//                       <th className="p-3">Phone Number</th>
-//                       <th className="p-3">Assigned Staff</th>
-//                       <th className="p-3">Status</th>
-//                       <th className="p-3 text-right">Time</th>
-//                     </tr>
-//                   </thead>
-//                   <tbody className="divide-y divide-slate-100">
-//                     {filteredRecords.map((item, idx) => (
-//                       <tr key={item._id || item.id || idx} className="hover:bg-slate-50/50">
-//                         <td className="p-3 font-mono font-bold text-slate-800">
-//                           {item.taskId || "N/A"}
-//                         </td>
-//                         <td className="p-3 font-semibold text-slate-700">{item.phone}</td>
-//                         <td className="p-3">
-//                           <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md font-bold">
-//                             {item.assignedToName || item.assignedTo || "Staff Member"}
-//                           </span>
-//                         </td>
-//                         <td className="p-3">
-//                           <span
-//                             className={`px-2 py-1 rounded-md font-bold text-[10px] ${
-//                               item.status === "completed"
-//                                 ? "bg-emerald-50 text-emerald-700"
-//                                 : "bg-amber-50 text-amber-700"
-//                             }`}
-//                           >
-//                             {(item.status || "Pending").toUpperCase()}
-//                           </span>
-//                         </td>
-//                         <td className="p-3 text-right text-slate-400">
-//                           {item.createdAt
-//                             ? new Date(item.createdAt).toLocaleTimeString([], {
-//                                 hour: "2-digit",
-//                                 minute: "2-digit",
-//                               })
-//                             : "-"}
-//                         </td>
-//                       </tr>
-//                     ))}
-//                   </tbody>
-//                 </table>
-//               </div>
-//             ) : (
-//               <div className="py-12 text-center text-slate-400 text-xs">
-//                 Is date (<b>{selectedDate}</b>) ke liye koi assigned tasks nahi meil ya search result empty hai.
-//               </div>
-//             )}
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* LOGOUT MODAL */}
-//       {showLogoutModal && (
-//         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-//           <div className="bg-white border border-slate-100 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-//             <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mx-auto mb-4">
-//               <LogOut size={22} />
-//             </div>
-
-//             <h3 className="text-base font-bold text-slate-900 text-center">Confirm Logout</h3>
-//             <p className="text-xs text-slate-500 text-center mt-1">
-//               Kya aap sach me account se log out karna chahte hain?
-//             </p>
-
-//             <div className="mt-6 flex items-center gap-3">
-//               <button
-//                 onClick={() => setShowLogoutModal(false)}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-//               >
-//                 Cancel
-//               </button>
-//               <button
-//                 onClick={handleConfirmLogout}
-//                 disabled={loggingOut}
-//                 className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-xs font-bold text-white flex items-center justify-center gap-2 transition shadow-md shadow-red-500/20"
-//               >
-//                 {loggingOut ? <Loader2 size={15} className="animate-spin" /> : "Logout"}
-//               </button>
-//             </div>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-
-
-
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
-import Sidebar from "@/components/Sidebar";
-import { useRouter } from "next/navigation";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import {
   Upload,
   Users,
@@ -1923,1288 +18,4230 @@ import {
   ShieldCheck,
   XCircle,
   X,
-  LogOut,
   Menu,
   Calendar,
   Search,
   RefreshCw,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Database,
+  Layers3,
+  Check,
+  AlertCircle,
+  FileText,
+  UserCheck,
+  Clock3,
 } from "lucide-react";
+
+import Sidebar from "@/components/Sidebar";
 import LogoutModal from "@/components/LogoutModal";
-import toast from "react-hot-toast";
+import { useRouter } from "next/navigation";
 import Loader from "@/components/Loader";
 
-export default function AdminDailyDeskPage() {
-  const router = useRouter();
-  const [file, setFile] = useState(null);
-  const [staff, setStaff] = useState([]);
-  const [selectedStaff, setSelectedStaff] = useState([]);
-  const [numbers, setNumbers] = useState([]);
-  const [distribution, setDistribution] = useState("equal"); // 'equal' | 'round'
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
+/* =========================================================
+   CONFIG
+========================================================= */
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const DB_NAME = "crm_daily_desk_db_v1";
+const DB_VERSION = 1;
 
-  const [csvData, setCsvData] = useState([]); // state that hold sheet data
+const SHEETS_STORE = "sheets";
+const META_STORE = "meta";
 
-  // Helper: Get local YYYY-MM-DD date string safely without UTC offset shift
-  const getLocalDateString = (d = new Date()) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
+const LEGACY_STORAGE_KEY = "crm_admin_daily_desk_state_v3";
+
+const PAGE_SIZE = 25;
+
+const ACCENT = "#ec3737";
+
+/* =========================================================
+   GENERAL HELPERS
+========================================================= */
+
+function safeString(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function normalizeHeader(value) {
+  return safeString(value)
+    .toLowerCase()
+    .replace(/[\s_\-./\\()]+/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function findColumn(headers, aliases) {
+  const normalizedHeaders = headers.map((header) => ({
+    original: header,
+    normalized: normalizeHeader(header),
+  }));
+
+  const normalizedAliases = aliases.map(normalizeHeader);
+
+  for (const alias of normalizedAliases) {
+    const found = normalizedHeaders.find(
+      (header) => header.normalized === alias
+    );
+
+    if (found) return found.original;
+  }
+
+  for (const alias of normalizedAliases) {
+    const found = normalizedHeaders.find(
+      (header) =>
+        header.normalized.includes(alias) ||
+        alias.includes(header.normalized)
+    );
+
+    if (found) return found.original;
+  }
+
+  return null;
+}
+
+function normalizePhone(value) {
+  let phone = safeString(value);
+
+  if (!phone) return "";
+
+  phone = phone.replace(/[^\d+]/g, "");
+
+  if (phone.startsWith("00")) {
+    phone = "+" + phone.slice(2);
+  }
+
+  return phone;
+}
+
+function phoneDigits(value) {
+  return safeString(value).replace(/\D/g, "");
+}
+
+function formatPhone(value) {
+  const phone = normalizePhone(value);
+
+  if (!phone) return "—";
+
+  const digits = phoneDigits(phone);
+
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(
+      3,
+      6
+    )}-${digits.slice(6)}`;
+  }
+
+  return phone;
+}
+
+function normalizeStatus(value) {
+  const status = safeString(value);
+
+  if (!status) return "";
+
+  const normalized = status.toLowerCase();
+
+  if (
+    normalized === "complete" ||
+    normalized === "completed" ||
+    normalized === "done"
+  ) {
+    return "Completed";
+  }
+
+  if (
+    normalized === "pending" ||
+    normalized === "new" ||
+    normalized === "not started"
+  ) {
+    return "Pending";
+  }
+
+  if (
+    normalized === "in progress" ||
+    normalized === "inprogress" ||
+    normalized === "working"
+  ) {
+    return "In Progress";
+  }
+
+  if (
+    normalized === "cancelled" ||
+    normalized === "canceled" ||
+    normalized === "cancel"
+  ) {
+    return "Cancelled";
+  }
+
+  return status;
+}
+
+function excelDateToYMD(value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+
+  if (
+    value instanceof Date &&
+    !Number.isNaN(value.getTime())
+  ) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(
+      2,
+      "0"
+    );
+    const day = String(value.getDate()).padStart(2, "0");
+
     return `${year}-${month}-${day}`;
-  };
+  }
 
-  const todayStr = useMemo(() => getLocalDateString(), []);
-  const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [historyRecords, setHistoryRecords] = useState([]);
-  const [fetchingHistory, setFetchingHistory] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // 'all' | 'pending' | 'completed'
+  if (typeof value === "number") {
+    const excelEpoch = new Date(
+      Date.UTC(1899, 11, 30)
+    );
 
-  // Custom Alert Modal / Toast State
-  const [alertConfig, setAlertConfig] = useState({
-    show: false,
-    title: "",
-    message: "",
-    type: "success",
+    const date = new Date(
+      excelEpoch.getTime() +
+        value * 24 * 60 * 60 * 1000
+    );
+
+    if (!Number.isNaN(date.getTime())) {
+      const year = date.getUTCFullYear();
+      const month = String(
+        date.getUTCMonth() + 1
+      ).padStart(2, "0");
+      const day = String(
+        date.getUTCDate()
+      ).padStart(2, "0");
+
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const raw = safeString(value);
+
+  if (!raw) return "";
+
+  const directMatch = raw.match(
+    /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/
+  );
+
+  if (directMatch) {
+    return `${directMatch[1]}-${String(
+      directMatch[2]
+    ).padStart(2, "0")}-${String(
+      directMatch[3]
+    ).padStart(2, "0")}`;
+  }
+
+  const usMatch = raw.match(
+    /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/
+  );
+
+  if (usMatch) {
+    return `${usMatch[3]}-${String(
+      usMatch[1]
+    ).padStart(2, "0")}-${String(
+      usMatch[2]
+    ).padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(raw);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${String(
+      parsed.getMonth() + 1
+    ).padStart(2, "0")}-${String(
+      parsed.getDate()
+    ).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+function getCaliforniaToday() {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function formatDate(date) {
+  if (!date) return "—";
+
+  const parsed = new Date(`${date}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) return date;
+
+  return parsed.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
+}
 
-  const showAlert = useCallback((title, message, type = "success") => {
-    setAlertConfig({ show: true, title, message, type });
-  }, []);
+function createSheetId() {
+  return `sheet_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
 
-  const closeAlert = () => {
-    setAlertConfig((prev) => ({ ...prev, show: false }));
-  };
+function normalizeSheetNames(sheets) {
+  return sheets.map((sheet, index) => ({
+    ...sheet,
+    name: `Sheet ${index + 1}`,
+    order: index,
+  }));
+}
 
-  // Fetch Active Staff Members
-  useEffect(() => {
-    const fetchStaff = async () => {
-      try {
-        const res = await fetch("/api/new-users", { cache: "no-store" });
-        const data = await res.json();
-        const users = data.users || data.data || [];
+/* =========================================================
+   INDEXED DB
+========================================================= */
 
-        const staffUsers = users.filter((user) => {
-          const role = (user.role || "").toLowerCase();
-          return role === "staff" || role === "agent";
+function openDailyDeskDB() {
+  return new Promise((resolve, reject) => {
+    if (
+      typeof window === "undefined" ||
+      !window.indexedDB
+    ) {
+      reject(
+        new Error(
+          "IndexedDB is not supported in this browser."
+        )
+      );
+      return;
+    }
+
+    const request = window.indexedDB.open(
+      DB_NAME,
+      DB_VERSION
+    );
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+
+      if (!db.objectStoreNames.contains(SHEETS_STORE)) {
+        db.createObjectStore(SHEETS_STORE, {
+          keyPath: "id",
         });
+      }
 
-        setStaff(staffUsers);
-      } catch (error) {
-        console.error("Fetch staff error:", error);
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, {
+          keyPath: "key",
+        });
       }
     };
 
-    fetchStaff();
-  }, []);
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
 
-  // Fetch Historical Tasks based on Selected Date
-  const fetchDateWiseTasks = useCallback(
-    async (dateStr) => {
-      setFetchingHistory(true);
-      try {
-        const res = await fetch(`/api/admin/history?date=${dateStr}`, {
-          cache: "no-store",
-        });
-        const data = await res.json();
+    request.onerror = () => {
+      reject(request.error);
+    };
+  });
+}
 
-        if (data.success) {
-          setHistoryRecords(data.data || []);
-        } else {
-          setHistoryRecords([]);
-        }
-      } catch (error) {
-        console.error("Error fetching history:", error);
-        setHistoryRecords([]);
-      } finally {
-        setFetchingHistory(false);
-      }
+async function getAllSheetsFromDB() {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SHEETS_STORE,
+      "readonly"
+    );
+
+    const store = transaction.objectStore(
+      SHEETS_STORE
+    );
+
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const rows = Array.isArray(request.result)
+        ? request.result
+        : [];
+
+      db.close();
+
+      rows.sort((a, b) => {
+        const aOrder = Number.isFinite(a.order)
+          ? a.order
+          : 0;
+
+        const bOrder = Number.isFinite(b.order)
+          ? b.order
+          : 0;
+
+        return aOrder - bOrder;
+      });
+
+      resolve(rows);
+    };
+
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function putSheetsToDB(sheets) {
+  if (!sheets?.length) return;
+
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SHEETS_STORE,
+      "readwrite"
+    );
+
+    const store = transaction.objectStore(
+      SHEETS_STORE
+    );
+
+    sheets.forEach((sheet) => {
+      store.put(sheet);
+    });
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function deleteSheetFromDB(sheetId) {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SHEETS_STORE,
+      "readwrite"
+    );
+
+    transaction
+      .objectStore(SHEETS_STORE)
+      .delete(sheetId);
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function replaceAllSheetsInDB(sheets) {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SHEETS_STORE,
+      "readwrite"
+    );
+
+    const store = transaction.objectStore(
+      SHEETS_STORE
+    );
+
+    store.clear();
+
+    sheets.forEach((sheet) => {
+      store.put(sheet);
+    });
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function clearSheetsFromDB() {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SHEETS_STORE,
+      "readwrite"
+    );
+
+    transaction
+      .objectStore(SHEETS_STORE)
+      .clear();
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function getMetaFromDB(key) {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      META_STORE,
+      "readonly"
+    );
+
+    const request = transaction
+      .objectStore(META_STORE)
+      .get(key);
+
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result || null);
+    };
+
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function setMetaInDB(data) {
+  const db = await openDailyDeskDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      META_STORE,
+      "readwrite"
+    );
+
+    transaction
+      .objectStore(META_STORE)
+      .put(data);
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+/* =========================================================
+   LEGACY LOCAL STORAGE MIGRATION
+========================================================= */
+
+async function migrateLegacyStorageIfNeeded() {
+  try {
+    const existingSheets =
+      await getAllSheetsFromDB();
+
+    if (existingSheets.length > 0) {
+      return null;
+    }
+
+    const legacyRaw =
+      window.localStorage.getItem(
+        LEGACY_STORAGE_KEY
+      );
+
+    if (!legacyRaw) {
+      return null;
+    }
+
+    let legacy;
+
+    try {
+      legacy = JSON.parse(legacyRaw);
+    } catch {
+      window.localStorage.removeItem(
+        LEGACY_STORAGE_KEY
+      );
+      return null;
+    }
+
+    if (
+      !legacy ||
+      !Array.isArray(legacy.excelSheets) ||
+      legacy.excelSheets.length === 0
+    ) {
+      window.localStorage.removeItem(
+        LEGACY_STORAGE_KEY
+      );
+      return null;
+    }
+
+    const migratedSheets =
+      normalizeSheetNames(
+        legacy.excelSheets.map((sheet) => ({
+          ...sheet,
+          id: sheet.id || createSheetId(),
+        }))
+      );
+
+    await putSheetsToDB(migratedSheets);
+
+    await setMetaInDB({
+      key: "page",
+
+      selectedSheets:
+        Array.isArray(legacy.selectedSheets)
+          ? legacy.selectedSheets
+          : migratedSheets.map(
+              (sheet) => sheet.id
+            ),
+
+      selectedStaff:
+        Array.isArray(legacy.selectedStaff)
+          ? legacy.selectedStaff
+          : [],
+
+      savedFileName:
+        legacy.savedFileName || "",
+
+      selectedDate:
+        legacy.selectedDate || "",
+
+      searchQuery:
+        legacy.searchQuery || "",
+
+      statusFilter:
+        legacy.statusFilter || "all",
+    });
+
+    window.localStorage.removeItem(
+      LEGACY_STORAGE_KEY
+    );
+
+    return migratedSheets;
+  } catch {
+    return null;
+  }
+}
+
+/* =========================================================
+   EXCEL PROCESSING
+========================================================= */
+
+function processSheetRows(rawRows) {
+  if (
+    !Array.isArray(rawRows) ||
+    rawRows.length === 0
+  ) {
+    return {
+      records: [],
+      invalidRows: 0,
+      missingColumns: [],
+      totalRows: 0,
+    };
+  }
+
+  const headers = Object.keys(
+    rawRows[0] || {}
+  );
+
+  const businessNameColumn = findColumn(
+    headers,
+    [
+      "Business Name",
+      "Business",
+      "Company Name",
+      "Company",
+    ]
+  );
+
+  const nameColumn = findColumn(
+    headers,
+    [
+      "Name",
+      "Customer Name",
+      "Contact Name",
+      "Full Name",
+    ]
+  );
+
+  const phoneColumn = findColumn(
+    headers,
+    [
+      "Phone Number",
+      "Phone",
+      "Phone No",
+      "Phone #",
+      "Telephone",
+      "Mobile",
+    ]
+  );
+
+  const dateColumn = findColumn(
+    headers,
+    [
+      "Date",
+      "Task Date",
+      "Due Date",
+      "Call Date",
+    ]
+  );
+
+  const statusColumn = findColumn(
+    headers,
+    [
+      "Status",
+      "Task Status",
+    ]
+  );
+
+  const commentColumn = findColumn(
+    headers,
+    [
+      "Comment",
+      "Comments",
+      "Note",
+      "Notes",
+      "Remark",
+      "Remarks",
+    ]
+  );
+
+  const missingColumns = [];
+
+  if (!businessNameColumn) {
+    missingColumns.push("Business Name");
+  }
+
+  if (!nameColumn) {
+    missingColumns.push("Name");
+  }
+
+  if (!phoneColumn) {
+    missingColumns.push("Phone Number");
+  }
+
+  if (!dateColumn) {
+    missingColumns.push("Date");
+  }
+
+  if (!statusColumn) {
+    missingColumns.push("Status");
+  }
+
+  if (missingColumns.length > 0) {
+    return {
+      records: [],
+      invalidRows: rawRows.length,
+      missingColumns,
+      totalRows: rawRows.length,
+    };
+  }
+
+  const records = [];
+  let invalidRows = 0;
+
+  const seenPhones = new Set();
+
+  rawRows.forEach((row) => {
+    const businessName = safeString(
+      row[businessNameColumn]
+    );
+
+    const name = safeString(
+      row[nameColumn]
+    );
+
+    const phone = normalizePhone(
+      row[phoneColumn]
+    );
+
+    const digits = phoneDigits(phone);
+
+    const date = excelDateToYMD(
+      row[dateColumn]
+    );
+
+    const status = normalizeStatus(
+      row[statusColumn]
+    );
+
+    const comment = commentColumn
+      ? safeString(row[commentColumn])
+      : "";
+
+    if (
+      !businessName ||
+      !name ||
+      !phone ||
+      digits.length < 10 ||
+      !date ||
+      !status
+    ) {
+      invalidRows += 1;
+      return;
+    }
+
+    if (seenPhones.has(digits)) {
+      invalidRows += 1;
+      return;
+    }
+
+    seenPhones.add(digits);
+
+    records.push({
+      taskId: null,
+      businessName,
+      name,
+      phoneNumber: phone,
+      phone,
+      date,
+      status,
+      comment,
+    });
+  });
+
+  return {
+    records,
+    invalidRows,
+    missingColumns,
+    totalRows: rawRows.length,
+  };
+}
+
+/* =========================================================
+   MAIN COMPONENT
+========================================================= */
+
+export default function DailyDeskPage() {
+  const router = useRouter();
+
+  const fileInputRef = useRef(null);
+  const saveMetaTimerRef = useRef(null);
+
+  const [file, setFile] = useState(null);
+  const [savedFileName, setSavedFileName] =
+    useState("");
+
+  const [excelSheets, setExcelSheets] =
+    useState([]);
+
+  const [selectedSheets, setSelectedSheets] =
+    useState([]);
+
+  const [staff, setStaff] = useState([]);
+  const [selectedStaff, setSelectedStaff] =
+    useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
+
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
+
+  const [showLogoutModal, setShowLogoutModal] =
+    useState(false);
+
+  const [todayStr, setTodayStr] =
+    useState("");
+
+  const [selectedDate, setSelectedDate] =
+    useState("");
+
+  const [searchQuery, setSearchQuery] =
+    useState("");
+
+  const [statusFilter, setStatusFilter] =
+    useState("all");
+
+  const [currentPage, setCurrentPage] =
+    useState(1);
+
+  const [storageReady, setStorageReady] =
+    useState(false);
+
+  const [storageError, setStorageError] =
+    useState("");
+
+  /* =======================================================
+     NORMAL ALERT
+     Used for upload / refresh / delete etc.
+  ======================================================= */
+
+  const [alert, setAlert] = useState({
+    show: false,
+    type: "success",
+    message: "",
+  });
+
+  /* =======================================================
+     ASSIGNMENT MODAL
+     Dedicated success/error modal
+  ======================================================= */
+
+  const [
+    assignmentModal,
+    setAssignmentModal,
+  ] = useState({
+    show: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
+
+  const closeAssignmentModal =
+    useCallback(() => {
+      setAssignmentModal((previous) => ({
+        ...previous,
+        show: false,
+      }));
+    }, []);
+
+  const showAssignmentModal =
+    useCallback((type, title, text) => {
+      setAssignmentModal({
+        show: true,
+        type,
+        title,
+        message: text,
+      });
+    }, []);
+
+  /* =======================================================
+     ALERT
+  ======================================================= */
+
+  const showAlert = useCallback(
+    (type, text) => {
+      setAlert({
+        show: true,
+        type,
+        message: text,
+      });
+
+      window.setTimeout(() => {
+        setAlert((previous) => ({
+          ...previous,
+          show: false,
+        }));
+      }, 4000);
     },
     []
   );
 
+  /* =======================================================
+     INITIAL DATE
+  ======================================================= */
+
   useEffect(() => {
-    if (selectedDate) {
-      fetchDateWiseTasks(selectedDate);
-    }
-  }, [selectedDate, fetchDateWiseTasks]);
+    const today = getCaliforniaToday();
 
-  // Client-side Filtering for History Records (Date + Search + Status)
-  const filteredRecords = useMemo(() => {
-    return historyRecords.filter((item) => {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch =
-        (item.taskId || "").toLowerCase().includes(query) ||
-        (item.phone || "").toLowerCase().includes(query) ||
-        (item.assignedToName || item.assignedTo || "").toLowerCase().includes(query);
+    setTodayStr(today);
 
-      const matchesStatus =
-        statusFilter === "all"
-          ? true
-          : (item.status || "pending").toLowerCase() === statusFilter.toLowerCase();
+    setSelectedDate(
+      (previous) => previous || today
+    );
+  }, []);
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [historyRecords, searchQuery, statusFilter]);
+  /* =======================================================
+     LOAD PERSISTENT DATA
+  ======================================================= */
 
+  useEffect(() => {
+    let cancelled = false;
 
+    async function loadPersistentData() {
+      try {
+        setLoading(true);
 
+        await migrateLegacyStorageIfNeeded();
 
+        const [
+          dbSheets,
+          meta,
+        ] = await Promise.all([
+          getAllSheetsFromDB(),
+          getMetaFromDB("page"),
+        ]);
 
-  const handleExcelUpload = async (e) => {
-    const selectedFile = e.target.files?.[0];
+        if (cancelled) return;
 
-    if (!selectedFile) return;
+        const normalizedSheets =
+          normalizeSheetNames(
+            dbSheets || []
+          );
 
-    setFile(selectedFile);
+        if (
+          normalizedSheets.length !==
+            dbSheets.length ||
+          normalizedSheets.some(
+            (sheet, index) =>
+              sheet.name !==
+                `Sheet ${index + 1}` ||
+              sheet.order !== index
+          )
+        ) {
+          await replaceAllSheetsInDB(
+            normalizedSheets
+          );
+        }
 
-    try {
-      const XLSX = await import("xlsx");
+        setExcelSheets(normalizedSheets);
 
-      const buffer = await selectedFile.arrayBuffer();
+        const validIds = new Set(
+          normalizedSheets.map(
+            (sheet) => sheet.id
+          )
+        );
 
-      const workbook = XLSX.read(buffer, {
-        type: "array",
-        cellDates: true,
-      });
+        const restoredSelectedSheets =
+          Array.isArray(
+            meta?.selectedSheets
+          )
+            ? meta.selectedSheets.filter(
+                (id) => validIds.has(id)
+              )
+            : normalizedSheets.map(
+                (sheet) => sheet.id
+              );
 
-      const sheetName = workbook.SheetNames[0];
+        setSelectedSheets(
+          restoredSelectedSheets
+        );
 
-      if (!sheetName) {
-        throw new Error("Excel file mein koi sheet nahi mili.");
+        if (
+          Array.isArray(
+            meta?.selectedStaff
+          )
+        ) {
+          setSelectedStaff(
+            meta.selectedStaff
+          );
+        }
+
+        if (meta?.savedFileName) {
+          setSavedFileName(
+            meta.savedFileName
+          );
+        }
+
+        if (meta?.selectedDate) {
+          setSelectedDate(
+            meta.selectedDate
+          );
+        }
+
+        if (
+          typeof meta?.searchQuery ===
+          "string"
+        ) {
+          setSearchQuery(
+            meta.searchQuery
+          );
+        }
+
+        if (meta?.statusFilter) {
+          setStatusFilter(
+            meta.statusFilter
+          );
+        }
+
+        setStorageReady(true);
+      } catch (error) {
+        console.error(
+          "Daily Desk storage load error:",
+          error
+        );
+
+        if (!cancelled) {
+          setStorageReady(true);
+
+          setStorageError(
+            "Persistent browser storage could not be initialized. Uploaded sheets may not survive a browser refresh."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
+    }
 
-      const worksheet = workbook.Sheets[sheetName];
+    loadPersistentData();
 
-      const rows = XLSX.utils.sheet_to_json(worksheet, {
-        defval: "",
-        raw: true,
-      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-      console.log("Excel Rows:", rows);
+  /* =======================================================
+     SAVE SMALL PAGE META ONLY
+  ======================================================= */
 
-      // -----------------------------------------
-      // Check empty Excel
-      // -----------------------------------------
+  useEffect(() => {
+    if (!storageReady) return;
 
-      if (!rows || rows.length === 0) {
-        setNumbers([]);
-        setCsvData([]);
-        setMessage("Excel file empty hai.");
+    if (saveMetaTimerRef.current) {
+      window.clearTimeout(
+        saveMetaTimerRef.current
+      );
+    }
+
+    saveMetaTimerRef.current =
+      window.setTimeout(async () => {
+        try {
+          await setMetaInDB({
+            key: "page",
+            selectedSheets,
+            selectedStaff,
+            savedFileName,
+            selectedDate,
+            searchQuery,
+            statusFilter,
+          });
+        } catch (error) {
+          console.error(
+            "Daily Desk meta save error:",
+            error
+          );
+        }
+      }, 250);
+
+    return () => {
+      if (saveMetaTimerRef.current) {
+        window.clearTimeout(
+          saveMetaTimerRef.current
+        );
+      }
+    };
+  }, [
+    storageReady,
+    selectedSheets,
+    selectedStaff,
+    savedFileName,
+    selectedDate,
+    searchQuery,
+    statusFilter,
+  ]);
+
+  /* =======================================================
+     FETCH STAFF
+  ======================================================= */
+
+  const fetchStaff = useCallback(
+    async () => {
+      try {
+        const response = await fetch(
+          "/api/new-users",
+          {
+            cache: "no-store",
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              "Failed to load staff."
+          );
+        }
+
+        const users = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.users)
+          ? data.users
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+        const staffUsers = users.filter(
+          (user) => {
+            const role = safeString(
+              user?.role
+            ).toLowerCase();
+
+            return (
+              role === "staff" ||
+              role === "agent"
+            );
+          }
+        );
+
+        setStaff(staffUsers);
+      } catch (error) {
+        console.error(
+          "Staff fetch error:",
+          error
+        );
 
         showAlert(
-          "Invalid Excel",
-          "Excel file mein koi data nahi mila.",
-          "error"
+          "error",
+          error.message ||
+            "Unable to load staff."
         );
-
-        return;
       }
+    },
+    [showAlert]
+  );
 
-      // -----------------------------------------
-      // Normalize Excel Headers
-      // -----------------------------------------
+  useEffect(() => {
+    fetchStaff();
+  }, [fetchStaff]);
 
-      const normalizeKey = (key) => {
-        return String(key || "")
-          .trim()
-          .toLowerCase()
-          .replace(/[_-]+/g, " ")
-          .replace(/\s+/g, " ");
-      };
+  /* =======================================================
+     SELECTED SHEET RECORDS
+  ======================================================= */
 
-      // -----------------------------------------
-      // Find Column
-      // -----------------------------------------
+  const selectedSheetObjects =
+    useMemo(() => {
+      const selected = new Set(
+        selectedSheets
+      );
 
-      const findColumn = (row, possibleNames) => {
-        const key = Object.keys(row).find((originalKey) => {
-          const normalized = normalizeKey(originalKey);
+      return excelSheets.filter((sheet) =>
+        selected.has(sheet.id)
+      );
+    }, [
+      excelSheets,
+      selectedSheets,
+    ]);
 
-          return possibleNames.some(
-            (name) =>
-              normalized === name ||
-              normalized.includes(name)
-          );
-        });
+  const selectedSheetRecords =
+    useMemo(() => {
+      const records = [];
+      const globalPhones = new Set();
 
-        return key || null;
-      };
+      selectedSheetObjects.forEach(
+        (sheet) => {
+          const rows = Array.isArray(
+            sheet.records
+          )
+            ? sheet.records
+            : [];
 
-      // -----------------------------------------
-      // Excel Date Converter
-      // -----------------------------------------
+          rows.forEach((row) => {
+            const digits = phoneDigits(
+              row.phoneNumber ||
+                row.phone
+            );
 
-      const formatExcelDate = (value) => {
-        if (
-          value === null ||
-          value === undefined ||
-          value === ""
-        ) {
-          return null;
-        }
+            if (!digits) return;
 
-        // JS Date
-        if (
-          value instanceof Date &&
-          !isNaN(value.getTime())
-        ) {
-          const year = value.getFullYear();
-
-          const month = String(
-            value.getMonth() + 1
-          ).padStart(2, "0");
-
-          const day = String(
-            value.getDate()
-          ).padStart(2, "0");
-
-          return `${year}-${month}-${day}`;
-        }
-
-        // Excel serial date
-        if (
-          typeof value === "number" &&
-          Number.isFinite(value)
-        ) {
-          try {
-            const excelDate =
-              XLSX.SSF.parse_date_code(value);
-
-            if (excelDate) {
-              const year = excelDate.y;
-
-              const month = String(
-                excelDate.m
-              ).padStart(2, "0");
-
-              const day = String(
-                excelDate.d
-              ).padStart(2, "0");
-
-              return `${year}-${month}-${day}`;
+            if (
+              globalPhones.has(digits)
+            ) {
+              return;
             }
-          } catch (error) {
-            console.warn(
-              "Excel date parse error:",
-              value
-            );
-          }
+
+            globalPhones.add(digits);
+
+            records.push({
+              ...row,
+              sourceSheet: sheet.name,
+              sourceSheetId: sheet.id,
+              sourceFile:
+                sheet.fileName || null,
+            });
+          });
         }
+      );
 
-        // String date
-        const stringValue = String(value).trim();
+      return records;
+    }, [selectedSheetObjects]);
 
-        if (!stringValue) {
-          return null;
-        }
+  /* =======================================================
+     FILTERED HISTORY
+  ======================================================= */
 
-        // YYYY-MM-DD
-        const directMatch =
-          stringValue.match(
-            /^(\d{4})-(\d{1,2})-(\d{1,2})$/
-          );
+  const filteredHistory = useMemo(() => {
+    const query = safeString(
+      searchQuery
+    ).toLowerCase();
 
-        if (directMatch) {
-          const year = directMatch[1];
-
-          const month = String(
-            directMatch[2]
-          ).padStart(2, "0");
-
-          const day = String(
-            directMatch[3]
-          ).padStart(2, "0");
-
-          return `${year}-${month}-${day}`;
-        }
-
-        const parsedDate = new Date(stringValue);
-
-        if (!isNaN(parsedDate.getTime())) {
-          const year =
-            parsedDate.getFullYear();
-
-          const month = String(
-            parsedDate.getMonth() + 1
-          ).padStart(2, "0");
-
-          const day = String(
-            parsedDate.getDate()
-          ).padStart(2, "0");
-
-          return `${year}-${month}-${day}`;
-        }
-
-        return null;
-      };
-
-      // -----------------------------------------
-      // Phone Normalizer
-      // -----------------------------------------
-
-      const normalizePhone = (value) => {
-        if (
-          value === null ||
-          value === undefined
-        ) {
-          return "";
-        }
-
-        return String(value)
-          .trim()
-          .replace(/[^\d+]/g, "");
-      };
-
-      // -----------------------------------------
-      // Status Normalizer
-      // -----------------------------------------
-
-      const normalizeStatus = (value) => {
-        return String(value || "")
-          .trim()
-          .replace(/\s+/g, " ");
-      };
-
-      // -----------------------------------------
-      // Check Required Columns
-      // -----------------------------------------
-
-      const firstRow = rows[0];
-
-      const businessColumn = findColumn(firstRow, [
-        "business name",
-        "business",
-        "company name",
-        "company",
-      ]);
-
-      const nameColumn = findColumn(firstRow, [
-        "name",
-        "full name",
-        "contact name",
-      ]);
-
-      const phoneColumn = findColumn(firstRow, [
-        "phone number",
-        "phone",
-        "mobile",
-        "mobile number",
-        "contact number",
-        "contact",
-      ]);
-
-      const dateColumn = findColumn(firstRow, [
-        "date",
-        "task date",
-      ]);
-
-      const statusColumn = findColumn(firstRow, [
-        "status",
-        "call status",
-        "lead status",
-      ]);
-
-      const commentColumn = findColumn(firstRow, [
-        "comment",
-        "comments",
-        "note",
-        "notes",
-      ]);
-
-      // -----------------------------------------
-      // Required Columns Missing
-      // -----------------------------------------
-
-      const missingColumns = [];
-
-      if (!businessColumn) {
-        missingColumns.push("Business Name");
-      }
-
-      if (!nameColumn) {
-        missingColumns.push("Name");
-      }
-
-      if (!phoneColumn) {
-        missingColumns.push("Phone Number");
-      }
-
-      if (!dateColumn) {
-        missingColumns.push("Date");
-      }
-
-      if (!statusColumn) {
-        missingColumns.push("Status");
-      }
-
-      console.log("Detected Columns:", {
-        businessColumn,
-        nameColumn,
-        phoneColumn,
-        dateColumn,
-        statusColumn,
-        commentColumn,
-      });
-
-      // -----------------------------------------
-      // Process Rows
-      // -----------------------------------------
-
-      const validRows = [];
-      const invalidRows = [];
-
-      const phoneSet = new Set();
-
-      rows.forEach((row, index) => {
-        const excelRowNumber = index + 2;
-
-        // -----------------------------------------
-        // Raw Values
-        // -----------------------------------------
-
-        const businessName = businessColumn
-          ? String(
-            row[businessColumn] || ""
-          ).trim()
-          : "";
-
-        const name = nameColumn
-          ? String(
-            row[nameColumn] || ""
-          ).trim()
-          : "";
-
-        const phone = phoneColumn
-          ? normalizePhone(row[phoneColumn])
-          : "";
-
-        const status = statusColumn
-          ? normalizeStatus(row[statusColumn])
-          : "";
-
-        const rawDate = dateColumn
-          ? row[dateColumn]
-          : "";
-
-        const date = formatExcelDate(
-          rawDate
+    return selectedSheetRecords.filter(
+      (record) => {
+        const status = normalizeStatus(
+          record.status
         );
 
-        const comment = commentColumn
-          ? String(
-            row[commentColumn] || ""
-          ).trim()
-          : "";
-
-        // -----------------------------------------
-        // Row Validation
-        // -----------------------------------------
-
-        const errors = [];
-
-        // Missing required column
-        if (!businessColumn) {
-          errors.push("Business Name column missing");
+        if (
+          statusFilter !== "all" &&
+          status.toLowerCase() !==
+            statusFilter.toLowerCase()
+        ) {
+          return false;
         }
 
-        if (!nameColumn) {
-          errors.push("Name column missing");
-        }
+        if (!query) return true;
 
-        if (!phoneColumn) {
-          errors.push("Phone Number column missing");
-        }
+        const searchableText = [
+          record.businessName,
+          record.name,
+          record.phoneNumber,
+          record.phone,
+          record.status,
+          record.comment,
+          record.sourceSheet,
+          record.sourceFile,
+          record.date,
+        ]
+          .map(safeString)
+          .join(" ")
+          .toLowerCase();
 
-        if (!dateColumn) {
-          errors.push("Date column missing");
-        }
+        return searchableText.includes(
+          query
+        );
+      }
+    );
+  }, [
+    selectedSheetRecords,
+    searchQuery,
+    statusFilter,
+  ]);
 
-        if (!statusColumn) {
-          errors.push("Status column missing");
-        }
+  /* =======================================================
+     PAGINATION
+  ======================================================= */
 
-        // Missing row data
-        if (businessColumn && !businessName) {
-          errors.push("Business Name missing");
-        }
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredHistory.length /
+        PAGE_SIZE
+    )
+  );
 
-        if (nameColumn && !name) {
-          errors.push("Name missing");
-        }
+  const safeCurrentPage = Math.min(
+    currentPage,
+    totalPages
+  );
 
-        if (phoneColumn && !phone) {
-          errors.push("Phone Number missing");
-        }
+  const paginatedHistory = useMemo(() => {
+    const start =
+      (safeCurrentPage - 1) *
+      PAGE_SIZE;
 
-        if (dateColumn && !date) {
-          errors.push("Invalid or missing Date");
-        }
+    return filteredHistory.slice(
+      start,
+      start + PAGE_SIZE
+    );
+  }, [
+    filteredHistory,
+    safeCurrentPage,
+  ]);
 
-        if (statusColumn && !status) {
-          errors.push("Status missing");
-        }
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchQuery,
+    statusFilter,
+    selectedSheets,
+  ]);
 
-        // -----------------------------------------
-        // Phone Validation
-        // -----------------------------------------
+  /* =======================================================
+     HISTORY STATS
+  ======================================================= */
 
-        if (phone) {
-          const phoneDigits =
-            phone.replace(/\D/g, "");
+  const historyStats = useMemo(() => {
+    const rows = selectedSheetRecords;
 
-          if (phoneDigits.length < 10) {
-            errors.push(
-              "Invalid Phone Number"
-            );
-          }
-        }
+    return {
+      total: rows.length,
 
-        // -----------------------------------------
-        // Duplicate Phone
-        // -----------------------------------------
+      completed: rows.filter(
+        (row) =>
+          normalizeStatus(
+            row.status
+          ) === "Completed"
+      ).length,
 
-        if (phone && phoneSet.has(phone)) {
-          errors.push(
-            "Duplicate Phone Number"
+      pending: rows.filter(
+        (row) =>
+          normalizeStatus(
+            row.status
+          ) === "Pending"
+      ).length,
+
+      inProgress: rows.filter(
+        (row) =>
+          normalizeStatus(
+            row.status
+          ) === "In Progress"
+      ).length,
+
+      cancelled: rows.filter(
+        (row) =>
+          normalizeStatus(
+            row.status
+          ) === "Cancelled"
+      ).length,
+    };
+  }, [selectedSheetRecords]);
+
+  /* =======================================================
+     UPLOAD EXCEL
+  ======================================================= */
+
+  const handleFileUpload =
+    useCallback(
+      async (event) => {
+        const selectedFile =
+          event.target.files?.[0];
+
+        if (!selectedFile) return;
+
+        const extension =
+          selectedFile.name
+            .split(".")
+            .pop()
+            ?.toLowerCase();
+
+        const allowedExtensions = [
+          "xlsx",
+          "xls",
+          "csv",
+        ];
+
+        if (
+          !allowedExtensions.includes(
+            extension
+          )
+        ) {
+          showAlert(
+            "error",
+            "Please upload an Excel or CSV file."
           );
-        }
 
-        // -----------------------------------------
-        // Invalid Row
-        // Skip this row only
-        // -----------------------------------------
-
-        if (errors.length > 0) {
-          invalidRows.push({
-            row: excelRowNumber,
-            data: {
-              businessName,
-              name,
-              phone,
-              phoneNumber: phone,
-              date,
-              status,
-              comment,
-            },
-            errors,
-          });
-
+          event.target.value = "";
           return;
         }
 
-        // -----------------------------------------
-        // Valid Row
-        // -----------------------------------------
+        try {
+          setIsSubmitting(true);
+          setMessage("");
 
-        phoneSet.add(phone);
+          const XLSX =
+            await import("xlsx");
 
-        validRows.push({
-          taskId: null,
+          const arrayBuffer =
+            await selectedFile.arrayBuffer();
 
-          businessName,
-          name,
+          const workbook = XLSX.read(
+            arrayBuffer,
+            {
+              type: "array",
+              cellDates: true,
+            }
+          );
 
-          // API expects phoneNumber
-          phoneNumber: phone,
+          if (
+            !workbook.SheetNames ||
+            workbook.SheetNames.length === 0
+          ) {
+            throw new Error(
+              "No worksheet was found in this file."
+            );
+          }
 
-          // Keep phone too if your UI uses it
-          phone,
+          const baseCount =
+            excelSheets.length;
 
-          date,
-          status,
-          comment,
-        });
-      });
+          const newSheets = [];
 
-      // -----------------------------------------
-      // Log Invalid Rows
-      // -----------------------------------------
+          workbook.SheetNames.forEach(
+            (
+              originalSheetName,
+              index
+            ) => {
+              const worksheet =
+                workbook.Sheets[
+                  originalSheetName
+                ];
 
-      if (invalidRows.length > 0) {
-        console.warn(
-          `${invalidRows.length} invalid row(s) skipped.`,
-          invalidRows
-        );
-      }
+              const rows =
+                XLSX.utils.sheet_to_json(
+                  worksheet,
+                  {
+                    defval: "",
+                    raw: true,
+                  }
+                );
 
-      // -----------------------------------------
-      // No Valid Records
-      // -----------------------------------------
+              const processed =
+                processSheetRows(rows);
 
-      if (validRows.length === 0) {
-        setNumbers([]);
-        setCsvData([]);
+              newSheets.push({
+                id: createSheetId(),
 
-        setMessage(
-          "Excel mein koi valid record nahi mila."
-        );
+                name: `Sheet ${
+                  baseCount + index + 1
+                }`,
 
-        const firstErrors = invalidRows
-          .slice(0, 5)
-          .map(
-            (item) =>
-              `Row ${item.row}: ${item.errors.join(
-                ", "
-              )}`
-          )
-          .join("\n");
+                order:
+                  baseCount + index,
 
-        showAlert(
-          "No Valid Records",
-          `Excel mein koi valid record nahi mila.\n\n${firstErrors}`,
-          "error"
-        );
+                originalSheetName,
 
-        return;
-      }
+                fileName:
+                  selectedFile.name,
 
-      // -----------------------------------------
-      // Save Valid Data Only
-      // -----------------------------------------
+                fileSize:
+                  selectedFile.size,
 
-      setCsvData(validRows);
+                uploadedAt:
+                  new Date().toISOString(),
 
-      setNumbers(validRows);
+                records:
+                  processed.records,
 
-      // -----------------------------------------
-      // Message
-      // -----------------------------------------
+                totalRows:
+                  processed.totalRows,
 
-      if (invalidRows.length > 0) {
-        setMessage(
-          `${validRows.length} valid records loaded. ${invalidRows.length} invalid row(s) skipped.`
-        );
+                validRows:
+                  processed.records.length,
 
-        showAlert(
-          "Excel Processed",
-          `${validRows.length} valid records loaded.\n${invalidRows.length} invalid row(s) skipped.`,
-          "success"
-        );
-      } else {
-        setMessage(
-          `${validRows.length} records loaded successfully.`
-        );
+                invalidRows:
+                  processed.invalidRows,
 
-        showAlert(
-          "Excel Loaded",
-          `${validRows.length} records processed successfully.`,
-          "success"
-        );
-      }
+                missingColumns:
+                  processed.missingColumns,
+              });
+            }
+          );
 
-      console.log(
-        "Valid Excel Data:",
-        validRows
-      );
+          const combined =
+            normalizeSheetNames([
+              ...excelSheets,
+              ...newSheets,
+            ]);
 
-      console.log(
-        "Skipped Invalid Rows:",
-        invalidRows
-      );
-    } catch (error) {
-      console.error(
-        "Excel Upload Error:",
-        error
-      );
+          await putSheetsToDB(
+            newSheets
+          );
 
-      setNumbers([]);
-      setCsvData([]);
+          if (
+            combined.length !==
+            excelSheets.length +
+              newSheets.length
+          ) {
+            await replaceAllSheetsInDB(
+              combined
+            );
+          }
 
-      setMessage(
-        error?.message ||
-        "Excel file read nahi ho saki."
-      );
+          setExcelSheets(combined);
 
-      showAlert(
-        "Upload Error",
-        error?.message ||
-        "Excel file read nahi ho saki.",
-        "error"
-      );
-    }
-  };
+          setSelectedSheets(
+            (previous) => [
+              ...previous,
+              ...newSheets.map(
+                (sheet) => sheet.id
+              ),
+            ]
+          );
 
+          setFile(selectedFile);
+          setSavedFileName(
+            selectedFile.name
+          );
 
-  const toggleStaff = (id) => {
-    setSelectedStaff((prev) =>
-      prev.includes(id) ? prev.filter((staffId) => staffId !== id) : [...prev, id]
+          const totalNewRows =
+            newSheets.reduce(
+              (sum, sheet) =>
+                sum +
+                Number(
+                  sheet.validRows || 0
+                ),
+              0
+            );
+
+          const totalInvalidRows =
+            newSheets.reduce(
+              (sum, sheet) =>
+                sum +
+                Number(
+                  sheet.invalidRows || 0
+                ),
+              0
+            );
+
+          showAlert(
+            "success",
+            `${newSheets.length} sheet${
+              newSheets.length === 1
+                ? ""
+                : "s"
+            } added successfully. Existing sheets were preserved.`
+          );
+
+          setMessage(
+            `${newSheets.length} sheet${
+              newSheets.length === 1
+                ? ""
+                : "s"
+            } added • ${totalNewRows.toLocaleString()} valid rows • ${totalInvalidRows.toLocaleString()} invalid rows`
+          );
+        } catch (error) {
+          console.error(
+            "Excel upload error:",
+            error
+          );
+
+          showAlert(
+            "error",
+            error.message ||
+              "Unable to process the uploaded file."
+          );
+        } finally {
+          setIsSubmitting(false);
+
+          if (event.target) {
+            event.target.value = "";
+          }
+        }
+      },
+      [excelSheets, showAlert]
     );
-  };
 
-  const selectAllStaff = () => {
-    if (selectedStaff.length === staff.length) {
+  /* =======================================================
+     SHEET SELECT
+  ======================================================= */
+
+  const toggleSheet = useCallback(
+    (sheetId) => {
+      setSelectedSheets(
+        (previous) => {
+          if (
+            previous.includes(sheetId)
+          ) {
+            return previous.filter(
+              (id) => id !== sheetId
+            );
+          }
+
+          return [
+            ...previous,
+            sheetId,
+          ];
+        }
+      );
+    },
+    []
+  );
+
+  const selectAllSheets =
+    useCallback(() => {
+      setSelectedSheets(
+        excelSheets.map(
+          (sheet) => sheet.id
+        )
+      );
+    }, [excelSheets]);
+
+  const unselectAllSheets =
+    useCallback(() => {
+      setSelectedSheets([]);
+    }, []);
+
+  /* =======================================================
+     DELETE SHEET
+  ======================================================= */
+
+  const handleDeleteSheet =
+    useCallback(
+      async (sheetId) => {
+        const sheet =
+          excelSheets.find(
+            (item) =>
+              item.id === sheetId
+          );
+
+        if (!sheet) return;
+
+        const confirmed =
+          window.confirm(
+            `${sheet.name} will be removed permanently from this browser. Continue?`
+          );
+
+        if (!confirmed) return;
+
+        try {
+          await deleteSheetFromDB(
+            sheetId
+          );
+
+          const remaining =
+            normalizeSheetNames(
+              excelSheets.filter(
+                (item) =>
+                  item.id !== sheetId
+              )
+            );
+
+          await replaceAllSheetsInDB(
+            remaining
+          );
+
+          setExcelSheets(
+            remaining
+          );
+
+          setSelectedSheets(
+            (previous) =>
+              previous.filter(
+                (id) => id !== sheetId
+              )
+          );
+
+          if (
+            file?.name ===
+            sheet.fileName
+          ) {
+            setFile(null);
+
+            const remainingSameFile =
+              remaining.some(
+                (item) =>
+                  item.fileName ===
+                  sheet.fileName
+              );
+
+            if (!remainingSameFile) {
+              setSavedFileName("");
+            }
+          }
+
+          showAlert(
+            "success",
+            `${sheet.name} removed. Remaining sheets have been renumbered automatically.`
+          );
+        } catch (error) {
+          console.error(
+            "Delete sheet error:",
+            error
+          );
+
+          showAlert(
+            "error",
+            "Unable to remove this sheet."
+          );
+        }
+      },
+      [
+        excelSheets,
+        file,
+        showAlert,
+      ]
+    );
+
+  /* =======================================================
+     CLEAR ALL
+  ======================================================= */
+
+  const handleClearAllSheets =
+    useCallback(async () => {
+      if (excelSheets.length === 0)
+        return;
+
+      const confirmed =
+        window.confirm(
+          "This will permanently remove all uploaded sheets from this browser. Continue?"
+        );
+
+      if (!confirmed) return;
+
+      try {
+        await clearSheetsFromDB();
+
+        setExcelSheets([]);
+        setSelectedSheets([]);
+        setFile(null);
+        setSavedFileName("");
+
+        showAlert(
+          "success",
+          "All uploaded sheets have been removed."
+        );
+      } catch (error) {
+        console.error(
+          "Clear sheets error:",
+          error
+        );
+
+        showAlert(
+          "error",
+          "Unable to clear uploaded sheets."
+        );
+      }
+    }, [
+      excelSheets.length,
+      showAlert,
+    ]);
+
+  /* =======================================================
+     STAFF
+  ======================================================= */
+
+  const toggleStaff =
+    useCallback((staffId) => {
+      const id = String(staffId);
+
+      setSelectedStaff(
+        (previous) => {
+          const normalized =
+            previous.map(String);
+
+          if (
+            normalized.includes(id)
+          ) {
+            return previous.filter(
+              (item) =>
+                String(item) !== id
+            );
+          }
+
+          return [
+            ...previous,
+            id,
+          ];
+        }
+      );
+    }, []);
+
+  const selectAllStaff =
+    useCallback(() => {
+      setSelectedStaff(
+        staff.map((user) =>
+          String(user.id)
+        )
+      );
+    }, [staff]);
+
+  const unselectAllStaff =
+    useCallback(() => {
       setSelectedStaff([]);
-    } else {
-      setSelectedStaff(staff.map((user) => user.id || user._id));
-    }
-  };
+    }, []);
 
-  const distributeNumbers = () => {
-    if (!numbers.length) {
-      showAlert("Error", "Pehle Excel file upload karein!", "error");
-      return null;
-    }
+  /* =======================================================
+     CREATE TASK POOLS
+  ======================================================= */
 
-    if (!selectedStaff.length) {
-      showAlert("Error", "Kam az kam 1 staff member select karein!", "error");
-      return null;
-    }
+  const handleAssignTasks =
+    useCallback(async () => {
+      /* -----------------------------------------------
+         VALIDATION
+      ----------------------------------------------- */
 
-    const assignments = {};
-    selectedStaff.forEach((staffId) => {
-      assignments[staffId] = [];
-    });
+      if (
+        selectedSheetObjects.length ===
+        0
+      ) {
+        showAssignmentModal(
+          "error",
+          "Assignment Failed",
+          "Please select at least one sheet before creating task pools."
+        );
 
-    if (distribution === "equal") {
-      const chunkSize = Math.ceil(numbers.length / selectedStaff.length);
-      selectedStaff.forEach((staffId, index) => {
-        const start = index * chunkSize;
-        const end = start + chunkSize;
-        assignments[staffId] = numbers.slice(start, end);
-      });
-    } else {
-      // Round Robin distribution
-      numbers.forEach((item, index) => {
-        const staffId = selectedStaff[index % selectedStaff.length];
-        assignments[staffId].push(item);
-      });
-    }
-
-    return assignments;
-  };
-
-  const handleConfirmLogout = async () => {
-    setLoggingOut(true);
-
-    try {
-      localStorage.removeItem("crm_login_time");
-
-      const response = await fetch("/api/logout", {
-        method: "POST",
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        alert(data.message || "Logout failed");
-        setLoggingOut(false);
-        setShowLogoutModal(false);
         return;
       }
 
-      router.push("/login");
-    } catch (error) {
-      console.error("Logout error:", error);
-      alert("Something went wrong during logout.");
-      setLoggingOut(false);
-      setShowLogoutModal(false);
-    }
-  };
+      if (
+        selectedSheetRecords.length ===
+        0
+      ) {
+        showAssignmentModal(
+          "error",
+          "Assignment Failed",
+          "Selected sheets do not contain valid records. Please select a sheet with valid task records."
+        );
 
-  const handleAssign2 = async () => {
-    const assignments = distributeNumbers();
-    if (!assignments) return;
-
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/admin/daily-desk/assign", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          numbers,
-          selectedStaff,
-          distribution,
-          assignments,
-          sourceFile: file?.name || null,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Numbers assign nahi ho sake.");
+        return;
       }
 
-      const successMsg = `${data.data?.tasksSaved || numbers.length} tasks successfully assigned to ${data.data?.staffCount || selectedStaff.length
-        } staff members!`;
+      if (
+        selectedStaff.length === 0
+      ) {
+        showAssignmentModal(
+          "error",
+          "Assignment Failed",
+          "Please select at least one staff member who should receive the tasks."
+        );
 
-      setMessage(successMsg);
-      showAlert("Success!", successMsg, "success");
-
-      fetchDateWiseTasks(selectedDate);
-    } catch (error) {
-      console.error("Assignment error:", error);
-      const errorMsg = error.message || "Numbers assign nahi ho sake.";
-      setMessage(errorMsg);
-      showAlert("Assignment Failed", errorMsg, "error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  // ===== POST request
-  const handleAssign = async () => {
-    try {
-      setIsSubmitting(true);
-      const response = await fetch("/api/admin/create-task-pools", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          // title,
-          selectedEmployees: selectedStaff,
-          csvData,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create task pool");
+        return;
       }
 
-      toast.success("Tasks assigned to selected staff.")
-      console.log("Task Pool Created:", data);
+      try {
+        setIsSubmitting(true);
 
-      // Example:
-      // data.poolId
-      // data.totalAssigned
+        const response =
+          await fetch(
+            "/api/admin/create-task-pools",
+            {
+              method: "POST",
 
-      return data;
-    } catch (error) {
-      toast.error(error.message || "Failed to Assign tasks")
-      console.error("Create Task Pool Error:", error);
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
 
-      throw error;
-    } finally {
-      setIsSubmitting(false)
+              body: JSON.stringify({
+                selectedEmployees:
+                  selectedStaff,
+
+                csvData:
+                  selectedSheetRecords,
+
+                selectedSheets:
+                  selectedSheetObjects.map(
+                    (sheet) => ({
+                      id: sheet.id,
+                      name: sheet.name,
+                      originalSheetName:
+                        sheet.originalSheetName ||
+                        null,
+                      fileName:
+                        sheet.fileName ||
+                        null,
+                    })
+                  ),
+
+                sourceFile:
+                  file?.name ||
+                  savedFileName ||
+                  null,
+
+                selectedDate,
+              }),
+            }
+          );
+
+        let data = {};
+
+        try {
+          data =
+            await response.json();
+        } catch {
+          data = {};
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Unable to create task pools."
+          );
+        }
+
+        /* ---------------------------------------------
+           SUCCESS MODAL
+        --------------------------------------------- */
+
+        showAssignmentModal(
+          "success",
+          "Tasks Assigned Successfully",
+          "Your tasks have been successfully assigned."
+        );
+      } catch (error) {
+        console.error(
+          "Create task pool error:",
+          error
+        );
+
+        /* ---------------------------------------------
+           ERROR MODAL
+        --------------------------------------------- */
+
+        showAssignmentModal(
+          "error",
+          "Task Assignment Failed",
+          error.message ||
+            "Unable to assign tasks. Please try again."
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
+    }, [
+      selectedSheetObjects,
+      selectedSheetRecords,
+      selectedStaff,
+      file,
+      savedFileName,
+      selectedDate,
+      showAssignmentModal,
+    ]);
+
+  /* =======================================================
+     REFRESH
+  ======================================================= */
+
+  const handleRefresh =
+    useCallback(async () => {
+      try {
+        setLoading(true);
+
+        const sheets =
+          await getAllSheetsFromDB();
+
+        const normalized =
+          normalizeSheetNames(
+            sheets
+          );
+
+        await replaceAllSheetsInDB(
+          normalized
+        );
+
+        setExcelSheets(
+          normalized
+        );
+
+        const validIds = new Set(
+          normalized.map(
+            (sheet) => sheet.id
+          )
+        );
+
+        setSelectedSheets(
+          (previous) =>
+            previous.filter(
+              (id) =>
+                validIds.has(id)
+            )
+        );
+
+        await fetchStaff();
+
+        showAlert(
+          "success",
+          "Daily Desk refreshed successfully."
+        );
+      } catch (error) {
+        console.error(
+          "Refresh error:",
+          error
+        );
+
+        showAlert(
+          "error",
+          "Unable to refresh Daily Desk."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }, [
+      fetchStaff,
+      showAlert,
+    ]);
+
+  /* =======================================================
+     FILTER RESET
+  ======================================================= */
+
+  const clearFilters =
+    useCallback(() => {
+      setSearchQuery("");
+      setStatusFilter("all");
+      setCurrentPage(1);
+    }, []);
+
+  /* =======================================================
+     STATUS COUNTS
+  ======================================================= */
+
+  const availableStatuses =
+    useMemo(() => {
+      const statuses = new Set();
+
+      selectedSheetRecords.forEach(
+        (row) => {
+          const status =
+            normalizeStatus(
+              row.status
+            );
+
+          if (status) {
+            statuses.add(status);
+          }
+        }
+      );
+
+      return Array.from(
+        statuses
+      ).sort();
+    }, [selectedSheetRecords]);
+
+  /* =======================================================
+     UI HELPERS
+  ======================================================= */
+
+  function statusClasses(status) {
+    const normalized =
+      normalizeStatus(
+        status
+      ).toLowerCase();
+
+    if (
+      normalized ===
+      "completed"
+    ) {
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
     }
-  };
 
+    if (
+      normalized ===
+      "pending"
+    ) {
+      return "bg-amber-50 text-amber-700 border-amber-200";
+    }
 
+    if (
+      normalized ===
+      "in progress"
+    ) {
+      return "bg-blue-50 text-blue-700 border-blue-200";
+    }
 
+    if (
+      normalized ===
+      "cancelled"
+    ) {
+      return "bg-red-50 text-red-700 border-red-200";
+    }
+
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  }
+
+  /* =======================================================
+     LOADER
+  ======================================================= */
+
+  if (
+    loading &&
+    !storageReady
+  ) {
+    return (
+      <div className="min-h-screen bg-[#f7f8fa] flex items-center justify-center">
+        <Loader />
+      </div>
+    );
+  }
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
-    <div className="min-h-screen bg-slate-50 flex relative">
+    <div className="min-h-screen bg-[#f7f8fa] text-slate-900">
       <Sidebar
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        setShowLogoutModal={setShowLogoutModal}
+        open={sidebarOpen}
+        setOpen={setSidebarOpen}
+        onLogout={() =>
+          setShowLogoutModal(true)
+        }
       />
 
-      <div className="flex-1 lg:ml-64 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* CUSTOM ALERT */}
-        {alertConfig.show && (
-          <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-            <div
-              className={`flex items-start gap-4 p-4 rounded-2xl shadow-xl border max-w-md ${alertConfig.type === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                : "bg-red-50 border-red-200 text-red-900"
-                }`}
+      <div className="lg:pl-[260px]">
+        {/* =================================================
+            MOBILE HEADER
+        ================================================= */}
+
+        <div className="lg:hidden sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className="h-16 px-4 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() =>
+                setSidebarOpen(true)
+              }
+              className="h-10 w-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50"
             >
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${alertConfig.type === "success"
-                  ? "bg-emerald-500 text-white"
-                  : "bg-red-500 text-white"
-                  }`}
-              >
-                {alertConfig.type === "success" ? (
-                  <CheckCircle2 size={22} />
-                ) : (
-                  <XCircle size={22} />
-                )}
+              <Menu size={20} />
+            </button>
+
+            <div className="text-center">
+              <div className="font-bold text-sm">
+                Daily Desk
               </div>
 
-              <div className="flex-1">
-                <h3 className="font-extrabold text-sm">{alertConfig.title}</h3>
-                <p className="text-xs mt-1 text-slate-600">{alertConfig.message}</p>
+              <div className="text-[11px] text-slate-500">
+                Task Management
               </div>
-
-              <button
-                onClick={closeAlert}
-                className="text-slate-400 hover:text-slate-600 transition"
-              >
-                <X size={18} />
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="h-10 w-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center hover:bg-slate-50"
+            >
+              <RefreshCw
+                size={18}
+              />
+            </button>
           </div>
-        )}
+        </div>
 
-        <div className="max-w-7xl mx-auto space-y-6">
-          {/* HEADER */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-              >
-                <Menu size={20} />
-              </button>
-              <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <ShieldCheck size={24} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                  Daily Desk Admin
-                </h1>
-                <p className="text-xs font-medium text-slate-500 mt-0.5">
-                  Call List Distribution & Historical Records
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* =================================================
+            MAIN
+        ================================================= */}
 
-          {/* MAIN FORM GRID */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <FileSpreadsheet size={20} />
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900">Upload Daily Call List</h2>
-                  <p className="text-xs text-slate-500">Import phone records via Excel file</p>
-                </div>
-              </div>
+        <main className="p-4 sm:p-6 lg:p-8 max-w-[1700px] mx-auto">
+          {/* =================================================
+              HEADER
+          ================================================= */}
 
-              <label className="block cursor-pointer">
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={handleExcelUpload}
-                  className="hidden"
-                />
-                <div className="border-2 border-dashed border-slate-200 hover:border-blue-500 hover:bg-blue-50/20 rounded-2xl p-8 text-center transition group">
-                  <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto group-hover:scale-110 transition duration-200">
-                    <Upload size={24} />
-                  </div>
-                  <p className="mt-3 text-sm font-bold text-slate-700">
-                    {file ? file.name : "Click to upload Excel file"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">XLSX, XLS or CSV</p>
-                </div>
-              </label>
-
-              <div className="mt-5 flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
-                    <Phone size={17} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-800">Phone Records Loaded</p>
-                    <p className="text-[11px] text-slate-400">Unique numbers with Task IDs</p>
-                  </div>
-                </div>
-                <span className="text-xl font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-                  {numbers.length}
-                </span>
-              </div>
-
-
-
-              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-5">
-                <div>
-                  {message && <p className="text-xs font-semibold text-blue-600">{message}</p>}
-                </div>
-
-                <button
-                  onClick={handleAssign}
-                  disabled={loading || !numbers.length || !selectedStaff.length}
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-500/20"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Assigning Tasks...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={16} />
-                      Assign Numbers
-                    </>
-                  )}
-                </button>
-              </div>
-
-
-            </div>
-
-            {/* STAFF SELECTION */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 flex flex-col">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                    <Users size={20} />
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-slate-900">Select Staff</h2>
-                    <p className="text-xs text-slate-500">Active team members</p>
-                  </div>
-                </div>
-                <button
-                  onClick={selectAllStaff}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline transition"
-                >
-                  {selectedStaff.length === staff.length ? "Unselect All" : "Select All"}
-                </button>
-              </div>
-
-              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 flex-1">
-                {staff.map((user) => {
-                  const id = user.id || user._id;
-                  const selected = selectedStaff.includes(id);
-
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => toggleStaff(id)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition duration-150 ${selected
-                        ? "border-blue-300 bg-blue-50/60 shadow-sm"
-                        : "border-slate-100 hover:bg-slate-50"
-                        }`}
-                    >
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${selected
-                          ? "bg-blue-600 text-white"
-                          : "bg-slate-100 text-slate-600"
-                          }`}
-                      >
-                        {(user.name || user.fullName || "U").charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-slate-800 truncate">
-                          {user.name || user.fullName}
-                        </p>
-                        <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-                      </div>
-                      {selected && (
-                        <CheckCircle2 size={18} className="text-blue-600 shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* DISTRIBUTION OPTIONS & SUBMIT */}
-          {/* <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6">
-            <h2 className="font-bold text-slate-900">Number Distribution</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Select how tasks should be distributed among chosen staff members.
-            </p>
-
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                onClick={() => setDistribution("equal")}
-                className={`p-4 rounded-xl border text-left transition ${
-                  distribution === "equal"
-                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                    : "border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <p className="text-sm font-bold text-slate-800">Equal Distribution</p>
-                <p className="text-xs text-slate-500 mt-1">Divides records in continuous blocks evenly.</p>
-              </button>
-
-              <button
-                onClick={() => setDistribution("round")}
-                className={`p-4 rounded-xl border text-left transition ${
-                  distribution === "round"
-                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20"
-                    : "border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <p className="text-sm font-bold text-slate-800">Round Robin</p>
-                <p className="text-xs text-slate-500 mt-1">Sequential rotation through selected staff.</p>
-              </button>
-            </div>
-
-            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-5">
-              <div>
-                {message && <p className="text-xs font-semibold text-blue-600">{message}</p>}
-              </div>
-
-              <button
-                onClick={handleAssign}
-                disabled={loading || !numbers.length || !selectedStaff.length}
-                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-blue-500/20"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Assigning Tasks...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 size={16} />
-                    Assign Numbers
-                  </>
-                )}
-              </button>
-            </div>
-          </div> */}
-
-          {/* DATE-WISE HISTORY / RECORDS VIEW SECTION */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm p-6 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 mb-7">
+            <div>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                  <Calendar size={20} />
+                <div
+                  className="h-11 w-11 rounded-2xl flex items-center justify-center text-white shadow-sm"
+                  style={{
+                    backgroundColor:
+                      ACCENT,
+                  }}
+                >
+                  <Layers3
+                    size={22}
+                  />
                 </div>
+
                 <div>
-                  <h2 className="font-bold text-slate-900">Date-wise Assigned History</h2>
-                  <p className="text-xs text-slate-500">Check and filter tasks assigned on a specific date</p>
+                  <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+                    Daily Desk
+                  </h1>
+
+                  <p className="text-sm text-slate-500 mt-1">
+                    Manage uploaded
+                    sheets, records,
+                    staff distribution
+                    and daily tasks.
+                  </p>
                 </div>
               </div>
+            </div>
 
-              {/* Date Filter & Actions */}
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="relative flex items-center">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+                <Calendar
+                  size={18}
+                  className="text-slate-500"
+                />
+
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-400">
+                    Task Date
+                  </div>
+
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="pl-3 pr-2 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(
+                      event
+                    ) =>
+                      setSelectedDate(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="text-sm font-semibold bg-transparent outline-none"
                   />
-                  {selectedDate !== todayStr && (
-                    <button
-                      onClick={() => setSelectedDate(todayStr)}
-                      className="ml-2 text-[11px] font-semibold text-blue-600 hover:underline"
-                    >
-                      Today
-                    </button>
-                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  handleRefresh
+                }
+                className="hidden lg:flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white border border-slate-200 font-semibold text-sm hover:bg-slate-50 transition"
+              >
+                <RefreshCw
+                  size={17}
+                />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* =================================================
+              NORMAL ALERT
+          ================================================= */}
+
+          {alert.show && (
+            <div
+              className={`mb-6 rounded-2xl border px-4 py-3 flex items-start gap-3 ${
+                alert.type ===
+                "error"
+                  ? "bg-red-50 border-red-200 text-red-800"
+                  : "bg-emerald-50 border-emerald-200 text-emerald-800"
+              }`}
+            >
+              {alert.type ===
+              "error" ? (
+                <XCircle
+                  size={19}
+                  className="mt-0.5 shrink-0"
+                />
+              ) : (
+                <CheckCircle2
+                  size={19}
+                  className="mt-0.5 shrink-0"
+                />
+              )}
+
+              <div className="text-sm font-medium flex-1">
+                {alert.message}
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setAlert(
+                    (
+                      previous
+                    ) => ({
+                      ...previous,
+                      show: false,
+                    })
+                  )
+                }
+                className="opacity-60 hover:opacity-100"
+              >
+                <X size={17} />
+              </button>
+            </div>
+          )}
+
+          {/* =================================================
+              STORAGE STATUS
+          ================================================= */}
+
+          <div
+            className={`mb-6 rounded-2xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 ${
+              storageError
+                ? "bg-amber-50 border-amber-200"
+                : "bg-white border-slate-200"
+            }`}
+          >
+            <div
+              className={`h-9 w-9 rounded-xl flex items-center justify-center ${
+                storageError
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {storageError ? (
+                <AlertCircle
+                  size={18}
+                />
+              ) : (
+                <Database
+                  size={18}
+                />
+              )}
+            </div>
+
+            <div className="flex-1">
+              <div className="text-sm font-semibold">
+                {storageError
+                  ? "Browser storage warning"
+                  : "Persistent sheet storage active"}
+              </div>
+
+              <div className="text-xs text-slate-500 mt-0.5">
+                {storageError ||
+                  "Uploaded sheets are stored individually in IndexedDB. Refreshing the page will not remove them."}
+              </div>
+            </div>
+
+            {!storageError && (
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-3 py-1.5">
+                <ShieldCheck
+                  size={14}
+                />
+                IndexedDB
+              </div>
+            )}
+          </div>
+
+          {/* =================================================
+              STATS
+          ================================================= */}
+
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-7">
+            <StatCard
+              icon={
+                <FileSpreadsheet
+                  size={20}
+                />
+              }
+              label="Saved Sheets"
+              value={
+                excelSheets.length
+              }
+              description="Persistent uploads"
+            />
+
+            <StatCard
+              icon={
+                <CheckCircle2
+                  size={20}
+                />
+              }
+              label="Selected Records"
+              value={
+                selectedSheetRecords.length
+              }
+              description="Ready from selected sheets"
+            />
+
+            <StatCard
+              icon={
+                <Users size={20} />
+              }
+              label="Selected Staff"
+              value={
+                selectedStaff.length
+              }
+              description="Agents selected"
+            />
+
+            <StatCard
+              icon={
+                <Clock3
+                  size={20}
+                />
+              }
+              label="Filtered History"
+              value={
+                filteredHistory.length
+              }
+              description="Current table results"
+            />
+          </div>
+
+          {/* =================================================
+              UPLOAD SECTION
+          ================================================= */}
+
+          <section className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden mb-7">
+            <div className="px-5 sm:px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-lg">
+                  Upload Daily Sheets
+                </h2>
+
+                <p className="text-sm text-slate-500 mt-1">
+                  Add new Excel sheets
+                  without replacing
+                  previously uploaded
+                  data.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <FileSpreadsheet
+                  size={15}
+                />
+                XLSX • XLS • CSV
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <label
+                htmlFor="daily-desk-file"
+                className="group block cursor-pointer"
+              >
+                <div className="rounded-3xl border-2 border-dashed p-8 sm:p-10 text-center transition border-slate-200">
+                  <div
+                    className="mx-auto h-16 w-16 rounded-2xl flex items-center justify-center mb-4 transition group-hover:scale-105"
+                    style={{
+                      backgroundColor:
+                        "#fff1f1",
+                      color: ACCENT,
+                    }}
+                  >
+                    {isSubmitting ? (
+                      <Loader2
+                        size={27}
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Upload
+                        size={27}
+                      />
+                    )}
+                  </div>
+
+                  <div className="text-base font-bold">
+                    {isSubmitting
+                      ? "Processing workbook..."
+                      : "Click to upload your workbook"}
+                  </div>
+
+                  <div className="text-sm text-slate-500 mt-2">
+                    Each worksheet will
+                    be added as a separate
+                    sheet.
+                  </div>
+
+                  <div className="inline-flex items-center gap-2 mt-5 px-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-600">
+                    <ShieldCheck
+                      size={14}
+                    />
+                    Existing sheets
+                    remain untouched
+                  </div>
                 </div>
 
+                <input
+                  id="daily-desk-file"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={
+                    handleFileUpload
+                  }
+                  disabled={
+                    isSubmitting
+                  }
+                />
+              </label>
+
+              {(file ||
+                savedFileName) && (
+                <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 flex items-center gap-3">
+                  <div
+                    className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor:
+                        "#fff1f1",
+                      color: ACCENT,
+                    }}
+                  >
+                    <FileText
+                      size={18}
+                    />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate">
+                      {file?.name ||
+                        savedFileName}
+                    </div>
+
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Saved in browser
+                      storage
+                    </div>
+                  </div>
+
+                  <Check
+                    size={18}
+                    className="text-emerald-600"
+                  />
+                </div>
+              )}
+
+              {message && (
+                <div className="mt-4 text-sm font-medium text-slate-600">
+                  {message}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* =================================================
+              SHEETS
+          ================================================= */}
+
+          <section className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden mb-7">
+            <div className="px-5 sm:px-6 py-5 border-b border-slate-100">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Layers3
+                      size={19}
+                      style={{
+                        color: ACCENT,
+                      }}
+                    />
+
+                    <h2 className="font-bold text-lg">
+                      Select Sheets
+                    </h2>
+                  </div>
+
+                  <p className="text-sm text-slate-500 mt-1">
+                    Choose which uploaded
+                    sheets should be
+                    included in the task
+                    desk.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={
+                      selectAllSheets
+                    }
+                    disabled={
+                      excelSheets.length ===
+                      0
+                    }
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Select All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      unselectAllSheets
+                    }
+                    disabled={
+                      selectedSheets.length ===
+                      0
+                    }
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Unselect
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleClearAllSheets
+                    }
+                    disabled={
+                      excelSheets.length ===
+                      0
+                    }
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-40"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Trash2
+                        size={14}
+                      />
+                      Clear All
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <MiniMetric
+                  label="Total Sheets"
+                  value={
+                    excelSheets.length
+                  }
+                />
+
+                <MiniMetric
+                  label="Selected"
+                  value={
+                    selectedSheets.length
+                  }
+                />
+
+                <MiniMetric
+                  label="Valid Rows"
+                  value={excelSheets
+                    .filter(
+                      (sheet) =>
+                        selectedSheets.includes(
+                          sheet.id
+                        )
+                    )
+                    .reduce(
+                      (
+                        sum,
+                        sheet
+                      ) =>
+                        sum +
+                        Number(
+                          sheet.validRows ||
+                            0
+                        ),
+                      0
+                    )}
+                />
+
+                <MiniMetric
+                  label="Invalid Rows"
+                  value={excelSheets
+                    .filter(
+                      (sheet) =>
+                        selectedSheets.includes(
+                          sheet.id
+                        )
+                    )
+                    .reduce(
+                      (
+                        sum,
+                        sheet
+                      ) =>
+                        sum +
+                        Number(
+                          sheet.invalidRows ||
+                            0
+                        ),
+                      0
+                    )}
+                />
+              </div>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              {excelSheets.length ===
+              0 ? (
+                <EmptyState
+                  icon={
+                    <FileSpreadsheet
+                      size={27}
+                    />
+                  }
+                  title="No sheets uploaded yet"
+                  description="Upload an Excel workbook to start building your Daily Desk."
+                />
+              ) : (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {excelSheets.map(
+                    (sheet) => {
+                      const selected =
+                        selectedSheets.includes(
+                          sheet.id
+                        );
+
+                      return (
+                        <div
+                          key={
+                            sheet.id
+                          }
+                          className={`rounded-2xl border p-4 transition ${
+                            selected
+                              ? "border-red-200 bg-red-50/30 shadow-sm"
+                              : "border-slate-200 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                toggleSheet(
+                                  sheet.id
+                                )
+                              }
+                              className={`h-6 w-6 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
+                                selected
+                                  ? "text-white border-transparent"
+                                  : "bg-white border-slate-300"
+                              }`}
+                              style={
+                                selected
+                                  ? {
+                                      backgroundColor:
+                                        ACCENT,
+                                    }
+                                  : undefined
+                              }
+                            >
+                              {selected && (
+                                <Check
+                                  size={
+                                    15
+                                  }
+                                />
+                              )}
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="font-bold"
+                                    style={{
+                                      color:
+                                        selected
+                                          ? ACCENT
+                                          : undefined,
+                                    }}
+                                  >
+                                    {
+                                      sheet.name
+                                    }
+                                  </span>
+
+                                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+                                    #
+                                    {sheet.order +
+                                      1}
+                                  </span>
+                                </div>
+
+                                {selected && (
+                                  <span className="w-fit inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
+                                    <Check
+                                      size={
+                                        11
+                                      }
+                                    />
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-2 text-xs text-slate-500 truncate">
+                                {
+                                  sheet.fileName
+                                }
+                              </div>
+
+                              <div className="mt-1 text-xs text-slate-400">
+                                Excel tab:{" "}
+                                <span className="font-semibold text-slate-500">
+                                  {sheet.originalSheetName ||
+                                    "—"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteSheet(
+                                  sheet.id
+                                )
+                              }
+                              className="h-9 w-9 rounded-xl border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 flex items-center justify-center shrink-0"
+                              title="Remove sheet"
+                            >
+                              <Trash2
+                                size={
+                                  16
+                                }
+                              />
+                            </button>
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-3 gap-2">
+                            <SheetMetric
+                              label="Rows"
+                              value={
+                                sheet.totalRows
+                              }
+                            />
+
+                            <SheetMetric
+                              label="Valid"
+                              value={
+                                sheet.validRows
+                              }
+                              success
+                            />
+
+                            <SheetMetric
+                              label="Invalid"
+                              value={
+                                sheet.invalidRows
+                              }
+                              danger={
+                                Number(
+                                  sheet.invalidRows ||
+                                    0
+                                ) > 0
+                              }
+                            />
+                          </div>
+
+                          {sheet
+                            .missingColumns
+                            ?.length >
+                            0 && (
+                            <div className="mt-3 rounded-xl bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-700">
+                              <span className="font-bold">
+                                Missing
+                                columns:
+                              </span>{" "}
+                              {sheet.missingColumns.join(
+                                ", "
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* =================================================
+              STAFF
+          ================================================= */}
+
+          <section className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden mb-7">
+            <div className="px-5 sm:px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Users
+                    size={19}
+                    style={{
+                      color: ACCENT,
+                    }}
+                  />
+
+                  <h2 className="font-bold text-lg">
+                    Staff Distribution
+                  </h2>
+                </div>
+
+                <p className="text-sm text-slate-500 mt-1">
+                  Select the agents who
+                  should receive today's
+                  tasks.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => fetchDateWiseTasks(selectedDate)}
-                  className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
-                  title="Refresh Data"
+                  type="button"
+                  onClick={
+                    selectAllStaff
+                  }
+                  disabled={
+                    staff.length ===
+                    0
+                  }
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
                 >
-                  <RefreshCw size={16} className={fetchingHistory ? "animate-spin" : ""} />
+                  Select All
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    unselectAllStaff
+                  }
+                  disabled={
+                    selectedStaff.length ===
+                    0
+                  }
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Clear
                 </button>
               </div>
             </div>
 
-            {/* Search and Status Filters Sub-Bar */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-              <div className="relative w-full sm:w-72">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search Task ID, Phone, Staff..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <div className="p-5 sm:p-6">
+              {staff.length ===
+              0 ? (
+                <EmptyState
+                  icon={
+                    <Users
+                      size={27}
+                    />
+                  }
+                  title="No staff found"
+                  description="No staff or agent users are currently available."
                 />
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                  {staff.map(
+                    (user) => {
+                      const selected =
+                        selectedStaff.includes(
+                          String(
+                            user.id
+                          )
+                        );
 
-              {/* Status Filter Tabs */}
-              <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1 w-full sm:w-auto justify-center">
-                {["all", "pending", "completed"].map((st) => (
-                  <button
-                    key={st}
-                    onClick={() => setStatusFilter(st)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition ${statusFilter === st
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                      }`}
-                  >
-                    {st}
-                  </button>
-                ))}
+                      return (
+                        <button
+                          key={
+                            user.id
+                          }
+                          type="button"
+                          onClick={() =>
+                            toggleStaff(
+                              user.id
+                            )
+                          }
+                          className={`text-left rounded-2xl border p-4 transition ${
+                            selected
+                              ? "border-red-200 bg-red-50/40"
+                              : "border-slate-200 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0"
+                              style={{
+                                backgroundColor:
+                                  selected
+                                    ? "#ffe4e4"
+                                    : "#f1f5f9",
+                                color:
+                                  selected
+                                    ? ACCENT
+                                    : "#475569",
+                              }}
+                            >
+                              {safeString(
+                                user.name
+                              )
+                                .slice(
+                                  0,
+                                  2
+                                )
+                                .toUpperCase() ||
+                                "U"}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-sm truncate">
+                                {user.name ||
+                                  "Unnamed User"}
+                              </div>
+
+                              <div className="text-xs text-slate-500 truncate mt-0.5">
+                                {user.email ||
+                                  user.phone ||
+                                  user.role ||
+                                  "Staff"}
+                              </div>
+                            </div>
+
+                            <div
+                              className={`h-6 w-6 rounded-lg flex items-center justify-center border ${
+                                selected
+                                  ? "border-transparent text-white"
+                                  : "border-slate-300 text-transparent"
+                              }`}
+                              style={
+                                selected
+                                  ? {
+                                      backgroundColor:
+                                        ACCENT,
+                                    }
+                                  : undefined
+                              }
+                            >
+                              <Check
+                                size={
+                                  14
+                                }
+                              />
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* =================================================
+              READY TO ASSIGN
+          ================================================= */}
+
+          <section className="mb-7">
+            <div
+              className="rounded-3xl p-5 sm:p-6 text-white shadow-lg"
+              style={{
+                background:
+                  "linear-gradient(135deg, #ec3737 0%, #b91c1c 100%)",
+              }}
+            >
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <UserCheck
+                      size={21}
+                    />
+
+                    <h2 className="font-bold text-xl">
+                      Ready to Assign
+                    </h2>
+                  </div>
+
+                  <p className="text-sm text-white/80 mt-1">
+                    Review your selection
+                    before creating
+                    today's task pools.
+                  </p>
+
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <ReadyPill
+                      label="Sheets"
+                      value={
+                        selectedSheets.length
+                      }
+                    />
+
+                    <ReadyPill
+                      label="Records"
+                      value={
+                        selectedSheetRecords.length
+                      }
+                    />
+
+                    <ReadyPill
+                      label="Staff"
+                      value={
+                        selectedStaff.length
+                      }
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleAssignTasks
+                  }
+                  disabled={
+                    isSubmitting ||
+                    selectedSheetRecords.length ===
+                      0 ||
+                    selectedStaff.length ===
+                      0
+                  }
+                  className="w-full xl:w-auto px-6 py-3.5 rounded-2xl bg-white text-red-700 font-bold text-sm shadow-sm hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2
+                        size={18}
+                        className="animate-spin"
+                      />
+                      Assigning...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2
+                        size={18}
+                      />
+                      Create Task
+                      Pools
+                    </>
+                  )}
+                </button>
               </div>
             </div>
+          </section>
 
-            {/* History Table */}
-            {fetchingHistory ? (
-              <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2">
-                <Loader2 size={24} className="animate-spin text-blue-600" />
-                <span className="text-xs">Loading records for {selectedDate}...</span>
-              </div>
-            ) : filteredRecords.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider">
-                      <th className="p-3">Task ID</th>
-                      <th className="p-3">Phone Number</th>
-                      <th className="p-3">Assigned Staff</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredRecords.map((item, idx) => (
-                      <tr key={item._id || item.id || idx} className="hover:bg-slate-50/50">
-                        <td className="p-3 font-mono font-bold text-slate-800">
-                          {item.taskId || "N/A"}
-                        </td>
-                        <td className="p-3 font-semibold text-slate-700">{item.phone}</td>
-                        <td className="p-3">
-                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md font-bold">
-                            {item.assignedToName || item.assignedTo || "Staff Member"}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-1 rounded-md font-bold text-[10px] ${item.status === "completed"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-amber-50 text-amber-700"
-                              }`}
-                          >
-                            {(item.status || "Pending").toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right text-slate-400">
-                          {item.createdAt
-                            ? new Date(item.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                            : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="py-12 text-center text-slate-400 text-xs">
-                Is date (<b>{selectedDate}</b>) ke liye koi assigned tasks nahi mile ya search result empty hai.
-              </div>
-            )}
+          {/* =================================================
+              DAILY TASK HISTORY
+          ================================================= */}
+
+
+<section className="bg-white border border-slate-200 rounded-3xl shadow-[0_8px_30px_rgba(15,23,42,0.05)] overflow-hidden">
+  {/* =========================================================
+      HEADER
+  ========================================================= */}
+
+  <div className="px-5 sm:px-6 py-5 border-b border-slate-100">
+    <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+      <div>
+        <div className="flex items-center gap-2">
+          <div
+            className="h-9 w-9 rounded-xl flex items-center justify-center"
+            style={{
+              backgroundColor: "#fff1f1",
+              color: ACCENT,
+            }}
+          >
+            <Clock3 size={18} />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-lg text-slate-900">
+              Daily Task History
+            </h2>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-[10px] font-bold text-emerald-700 uppercase tracking-wide">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Live Data
+            </span>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-500 mt-2">
+          Showing records from your{" "}
+          <span className="font-semibold text-slate-700">
+            selected sheets
+          </span>
+          . Review the latest status and comments updated by users.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {/* SHEETS */}
+        <div className="px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+            Sheets
+          </div>
+
+          <div className="text-sm font-bold text-slate-800 mt-0.5">
+            {selectedSheetObjects.length}
+          </div>
+        </div>
+
+        {/* RECORDS */}
+        <div className="px-3.5 py-2 rounded-xl bg-red-50 border border-red-100">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-red-400">
+            Records
+          </div>
+
+          <div
+            className="text-sm font-bold mt-0.5"
+            style={{
+              color: ACCENT,
+            }}
+          >
+            {historyStats.total.toLocaleString()}
           </div>
         </div>
       </div>
+    </div>
 
-      {/* LOGOUT MODAL */}
-      <LogoutModal
-        show={showLogoutModal}
-        loggingOut={loggingOut}
-        onCancel={() => setShowLogoutModal(false)}
-        onConfirm={handleConfirmLogout}
+    {/* =========================================================
+        STAT CARDS
+    ========================================================= */}
+
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+      <HistoryStat
+        label="Total Records"
+        value={historyStats.total}
       />
 
+      <HistoryStat
+        label="Completed"
+        value={historyStats.completed}
+        type="success"
+      />
 
-      {isSubmitting && (
-        <Loader />
+      <HistoryStat
+        label="Pending"
+        value={historyStats.pending}
+        type="warning"
+      />
+
+      <HistoryStat
+        label="In Progress"
+        value={historyStats.inProgress}
+        type="info"
+      />
+    </div>
+  </div>
+
+  {/* =========================================================
+      FILTER BAR
+  ========================================================= */}
+
+  <div className="px-5 sm:px-6 py-5 border-b border-slate-100 bg-slate-50/60">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_220px_auto] gap-3">
+      {/* SEARCH */}
+      <div className="relative">
+        <Search
+          size={18}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+        />
+
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            setCurrentPage(1);
+          }}
+          placeholder="Search business, name, phone, status, sheet, comment..."
+          className="w-full h-12 rounded-2xl border border-slate-200 bg-white pl-11 pr-10 text-sm text-slate-700 placeholder:text-slate-400 outline-none transition focus:border-red-300 focus:ring-4 focus:ring-red-50"
+        />
+
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("");
+              setCurrentPage(1);
+            }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+          >
+            <X size={15} />
+          </button>
+        )}
+      </div>
+
+      {/* STATUS FILTER */}
+      <div className="relative">
+        <Filter
+          size={16}
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+        />
+
+        <select
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setCurrentPage(1);
+          }}
+          className="w-full h-12 rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-medium text-slate-700 outline-none appearance-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
+        >
+          <option value="all">
+            All Statuses
+          </option>
+
+          {availableStatuses.map((status) => (
+            <option
+              key={status}
+              value={status}
+            >
+              {status}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* CLEAR FILTERS */}
+      <button
+        type="button"
+        onClick={clearFilters}
+        disabled={
+          !searchQuery &&
+          statusFilter === "all"
+        }
+        className="h-12 px-5 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition"
+      >
+        Clear Filters
+      </button>
+    </div>
+
+    {/* ACTIVE FILTERS */}
+    {(searchQuery || statusFilter !== "all") && (
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-semibold text-slate-500">
+          Active filters:
+        </span>
+
+        {searchQuery && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600">
+            Search:
+            <span className="font-bold text-slate-800">
+              “{searchQuery}”
+            </span>
+          </span>
+        )}
+
+        {statusFilter !== "all" && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600">
+            Status:
+            <span className="font-bold text-slate-800">
+              {statusFilter}
+            </span>
+          </span>
+        )}
+      </div>
+    )}
+
+    {/* =========================================================
+        SELECTED SHEETS
+    ========================================================= */}
+
+    {selectedSheetObjects.length > 0 && (
+      <div className="mt-4">
+        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-2">
+          Selected Sheets
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {selectedSheetObjects.map((sheet) => (
+            <div
+              key={sheet.id}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 shadow-sm"
+            >
+              <div
+                className="h-6 w-6 rounded-lg flex items-center justify-center"
+                style={{
+                  backgroundColor: "#fff1f1",
+                  color: ACCENT,
+                }}
+              >
+                <FileSpreadsheet size={13} />
+              </div>
+
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-700">
+                  {sheet.name}
+                </div>
+
+                <div className="text-[10px] text-slate-400">
+                  {(sheet.records || []).length.toLocaleString()} records
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* =========================================================
+      TABLE
+  ========================================================= */}
+
+
+<div className="overflow-x-auto">
+  {selectedSheetObjects.length === 0 ? (
+    <div className="p-8 sm:p-14">
+      <EmptyState
+        icon={<Layers3 size={27} />}
+        title="No sheet selected"
+        description="Select one or more sheets above and their records will appear here automatically."
+      />
+    </div>
+  ) : filteredHistory.length === 0 ? (
+    <div className="p-8 sm:p-14">
+      <EmptyState
+        icon={<Search size={27} />}
+        title="No matching records"
+        description={
+          searchQuery || statusFilter !== "all"
+            ? "Try changing your search text or status filter."
+            : "The selected sheets do not contain any displayable records."
+        }
+        action={
+          searchQuery || statusFilter !== "all"
+            ? clearFilters
+            : undefined
+        }
+        actionLabel="Clear Filters"
+      />
+    </div>
+  ) : (
+    <table className="w-full min-w-[1200px] text-left">
+      <thead>
+        <tr className="border-b border-slate-200 bg-slate-50">
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            #
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Business
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Contact
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Phone
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Task Date
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Status
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Source
+          </th>
+
+          <th className="px-5 py-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Notes
+          </th>
+        </tr>
+      </thead>
+
+      <tbody className="divide-y divide-slate-100">
+        {paginatedHistory.map((record, index) => {
+          const globalIndex =
+            (safeCurrentPage - 1) * PAGE_SIZE +
+            index +
+            1;
+
+          const contactName =
+            safeString(record?.name) ||
+            "Unknown";
+
+          const initials =
+            contactName
+              .split(" ")
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) =>
+                part.charAt(0).toUpperCase()
+              )
+              .join("") || "—";
+
+          /*
+           * ============================================================
+           * IMPORTANT STATUS LOGIC
+           * ============================================================
+           *
+           * assignment_status = user ka actual saved status
+           *
+           * Isko FIRST priority di ja rahi hai.
+           *
+           * Example:
+           *
+           * User selected:
+           *   No Answer
+           *
+           * Database:
+           *   assignment_status = "No Answer"
+           *
+           * Admin History:
+           *   No Answer
+           *
+           * Isi tarah:
+           *   Callback
+           *   Follow Up
+           *   No Answer
+           *   Straight to Voicemail
+           *   Interested
+           *   Not Interested
+           *   Busy
+           *   Wrong Number
+           *   etc.
+           *
+           * IMPORTANT:
+           * normalizeStatus() yahan use NAHI karna.
+           * Status ko Pending/Completed mein convert NAHI karna.
+           * ============================================================
+           */
+
+          const rawAssignmentStatus = safeString(
+            record?.assignment_status
+          );
+
+          const rawStatus = safeString(
+            record?.status
+          );
+
+          const rawTaskStatus = safeString(
+            record?.task_status
+          );
+
+          const rawCallStatus = safeString(
+            record?.call_status
+          );
+
+          const rawDisposition = safeString(
+            record?.disposition
+          );
+
+          const displayStatus =
+            rawAssignmentStatus ||
+            rawStatus ||
+            rawTaskStatus ||
+            rawCallStatus ||
+            rawDisposition ||
+            "Pending";
+
+          const phoneValue =
+            record?.phoneNumber ||
+            record?.phone ||
+            record?.phone_number ||
+            "";
+
+          const businessName =
+            safeString(record?.businessName) ||
+            safeString(record?.business_name) ||
+            "—";
+
+          const taskDate =
+            record?.date ||
+            record?.assignment_date ||
+            record?.taskDate ||
+            "";
+
+          const notes =
+            safeString(record?.comment) ||
+            safeString(record?.notes) ||
+            "";
+
+          const sourceSheet =
+            safeString(record?.sourceSheet) ||
+            safeString(record?.source_sheet) ||
+            "—";
+
+          const sourceFile =
+            safeString(record?.sourceFile) ||
+            safeString(record?.source_file) ||
+            "";
+
+          const taskId =
+            record?.taskId ||
+            record?.task_id ||
+            record?.id ||
+            globalIndex;
+
+          return (
+            <tr
+              key={`${record?.sourceSheetId || "sheet"}-${
+                phoneValue || "phone"
+              }-${taskId}`}
+              className="hover:bg-slate-50/80 transition-colors"
+            >
+              {/* ======================================================
+                  #
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <span className="text-xs font-bold text-slate-400">
+                  {globalIndex}
+                </span>
+              </td>
+
+              {/* ======================================================
+                  BUSINESS
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <div className="max-w-[240px]">
+                  <div
+                    className="text-sm font-bold text-slate-800 truncate"
+                    title={businessName}
+                  >
+                    {businessName}
+                  </div>
+
+                  {sourceFile && (
+                    <div
+                      className="text-[11px] text-slate-400 mt-1 truncate"
+                      title={sourceFile}
+                    >
+                      {sourceFile}
+                    </div>
+                  )}
+                </div>
+              </td>
+
+              {/* ======================================================
+                  CONTACT
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="h-9 w-9 rounded-xl flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{
+                      backgroundColor: "#fff1f1",
+                      color: ACCENT,
+                    }}
+                  >
+                    {initials}
+                  </div>
+
+                  <div
+                    className="text-sm font-semibold text-slate-700 max-w-[180px] truncate"
+                    title={contactName}
+                  >
+                    {contactName}
+                  </div>
+                </div>
+              </td>
+
+              {/* ======================================================
+                  PHONE
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                    <Phone
+                      size={14}
+                      className="text-slate-500"
+                    />
+                  </div>
+
+                  <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">
+                    {formatPhone(phoneValue)}
+                  </span>
+                </div>
+              </td>
+
+              {/* ======================================================
+                  TASK DATE
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <Calendar
+                    size={14}
+                    className="text-slate-400"
+                  />
+
+                  <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                    {formatDate(taskDate)}
+                  </span>
+                </div>
+              </td>
+
+              {/* ======================================================
+                  USER UPDATED STATUS
+                  ======================================================= */}
+              <td className="px-5 py-4">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-bold whitespace-nowrap ${statusClasses(
+                    displayStatus
+                  )}`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+
+                  {displayStatus}
+                </span>
+              </td>
+
+              {/* ======================================================
+                  SOURCE
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 whitespace-nowrap">
+                  <Layers3 size={13} />
+
+                  {sourceSheet}
+                </span>
+              </td>
+
+              {/* ======================================================
+                  NOTES
+              ======================================================= */}
+              <td className="px-5 py-4">
+                <div
+                  className="max-w-[280px] truncate text-sm text-slate-500"
+                  title={notes}
+                >
+                  {notes || "—"}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  )}
+</div>
+
+
+
+  {/* =========================================================
+      PAGINATION
+  ========================================================= */}
+
+  {filteredHistory.length > 0 && (
+    <div className="px-5 sm:px-6 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="text-xs text-slate-500">
+        Showing{" "}
+        <span className="font-bold text-slate-700">
+          {(safeCurrentPage - 1) *
+              PAGE_SIZE +
+            1}
+        </span>{" "}
+        to{" "}
+        <span className="font-bold text-slate-700">
+          {Math.min(
+            safeCurrentPage * PAGE_SIZE,
+            filteredHistory.length
+          )}
+        </span>{" "}
+        of{" "}
+        <span className="font-bold text-slate-700">
+          {filteredHistory.length}
+        </span>{" "}
+        records
+      </div>
+
+      <div className="flex items-center gap-2">
+        {/* PREVIOUS */}
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentPage((page) =>
+              Math.max(1, page - 1)
+            )
+          }
+          disabled={safeCurrentPage <= 1}
+          className="h-9 w-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          <ChevronLeft size={17} />
+        </button>
+
+        {/* PAGE */}
+        <div className="min-w-[110px] h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+          Page {safeCurrentPage} of{" "}
+          {totalPages}
+        </div>
+
+        {/* NEXT */}
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentPage((page) =>
+              Math.min(
+                totalPages,
+                page + 1
+              )
+            )
+          }
+          disabled={
+            safeCurrentPage >= totalPages
+          }
+          className="h-9 w-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          <ChevronRight size={17} />
+        </button>
+      </div>
+    </div>
+  )}
+</section>
+
+        </main>
+      </div>
+
+      {/* =====================================================
+          ASSIGNMENT SUCCESS / ERROR MODAL
+      ===================================================== */}
+
+      {assignmentModal.show && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="assignment-modal-title"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              closeAssignmentModal();
+            }
+          }}
+        >
+          {/* BACKDROP */}
+
+          <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
+
+          {/* MODAL */}
+
+          <div className="relative w-full max-w-[440px] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.25)] animate-in fade-in zoom-in-95 duration-200">
+            {/* TOP ACCENT */}
+
+            <div
+              className="h-1.5 w-full"
+              style={{
+                backgroundColor:
+                  assignmentModal.type ===
+                  "error"
+                    ? "#dc2626"
+                    : "#10b981",
+              }}
+            />
+
+            <div className="p-6 sm:p-8">
+              {/* CLOSE */}
+
+              <button
+                type="button"
+                onClick={
+                  closeAssignmentModal
+                }
+                className="absolute right-4 top-4 h-9 w-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+
+              {/* ICON */}
+
+              <div
+                className={`mx-auto h-[76px] w-[76px] rounded-[24px] flex items-center justify-center ${
+                  assignmentModal.type ===
+                  "error"
+                    ? "bg-red-50 text-red-600"
+                    : "bg-emerald-50 text-emerald-600"
+                }`}
+              >
+                {assignmentModal.type ===
+                "error" ? (
+                  <XCircle
+                    size={38}
+                    strokeWidth={2}
+                  />
+                ) : (
+                  <CheckCircle2
+                    size={38}
+                    strokeWidth={2}
+                  />
+                )}
+              </div>
+
+              {/* CONTENT */}
+
+              <div className="text-center mt-6">
+                <h3
+                  id="assignment-modal-title"
+                  className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900"
+                >
+                  {
+                    assignmentModal.title
+                  }
+                </h3>
+
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  {
+                    assignmentModal.message
+                  }
+                </p>
+              </div>
+
+              {/* SUCCESS DETAILS */}
+
+              {assignmentModal.type ===
+                "success" && (
+                <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 h-7 w-7 rounded-lg bg-white flex items-center justify-center text-emerald-600 shrink-0 shadow-sm">
+                      <Check
+                        size={15}
+                        strokeWidth={
+                          3
+                        }
+                      />
+                    </div>
+
+                    <div className="text-left">
+                      <div className="text-xs font-bold text-emerald-800">
+                        Assignment
+                        completed
+                      </div>
+
+                      <div className="text-[11px] text-emerald-700 mt-0.5">
+                        The selected records
+                        have been sent to the
+                        selected staff members.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ERROR DETAILS */}
+
+              {assignmentModal.type ===
+                "error" && (
+                <div className="mt-5 rounded-2xl border border-red-100 bg-red-50/70 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 h-7 w-7 rounded-lg bg-white flex items-center justify-center text-red-600 shrink-0 shadow-sm">
+                      <AlertCircle
+                        size={16}
+                      />
+                    </div>
+
+                    <div className="text-left">
+                      <div className="text-xs font-bold text-red-800">
+                        Please review
+                        the error
+                      </div>
+
+                      <div className="text-[11px] text-red-700 mt-0.5 leading-5 break-words">
+                        The task assignment
+                        could not be completed.
+                        You can close this
+                        message and try again.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* BUTTON */}
+
+              <button
+                type="button"
+                onClick={
+                  closeAssignmentModal
+                }
+                className={`w-full mt-6 h-12 rounded-2xl text-sm font-bold text-white shadow-sm transition ${
+                  assignmentModal.type ===
+                  "error"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {assignmentModal.type ===
+                "error"
+                  ? "Close"
+                  : "Done"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
+      {/* =====================================================
+          LOGOUT
+      ===================================================== */}
 
+      {showLogoutModal && (
+        <LogoutModal
+          onClose={() =>
+            setShowLogoutModal(false)
+          }
+          onConfirm={() => {
+            setShowLogoutModal(false);
+            router.push("/login");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
+   STAT CARD
+========================================================= */
+
+function StatCard({
+  icon,
+  label,
+  value,
+  description,
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold text-slate-500">
+            {label}
+          </div>
+
+          <div className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+            {Number(
+              value || 0
+            ).toLocaleString()}
+          </div>
+
+          <div className="text-[11px] text-slate-400 mt-1">
+            {description}
+          </div>
+        </div>
+
+        <div
+          className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+          style={{
+            backgroundColor:
+              "#fff1f1",
+            color: ACCENT,
+          }}
+        >
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   MINI METRIC
+========================================================= */
+
+function MiniMetric({
+  label,
+  value,
+}) {
+  return (
+    <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3">
+      <div className="text-[10px] uppercase tracking-wide font-bold text-slate-400">
+        {label}
+      </div>
+
+      <div className="text-lg font-bold text-slate-800 mt-1">
+        {Number(
+          value || 0
+        ).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   SHEET METRIC
+========================================================= */
+
+function SheetMetric({
+  label,
+  value,
+  success,
+  danger,
+}) {
+  return (
+    <div
+      className={`rounded-xl px-3 py-2 border ${
+        success
+          ? "bg-emerald-50 border-emerald-100"
+          : danger
+          ? "bg-red-50 border-red-100"
+          : "bg-slate-50 border-slate-100"
+      }`}
+    >
+      <div className="text-[10px] uppercase tracking-wide font-bold text-slate-400">
+        {label}
+      </div>
+
+      <div
+        className={`text-sm font-bold mt-0.5 ${
+          success
+            ? "text-emerald-700"
+            : danger
+            ? "text-red-700"
+            : "text-slate-700"
+        }`}
+      >
+        {Number(
+          value || 0
+        ).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   HISTORY STAT
+========================================================= */
+
+function HistoryStat({
+  label,
+  value,
+  type = "default",
+}) {
+  const classes = {
+    default:
+      "bg-slate-50 border-slate-100 text-slate-700",
+
+    success:
+      "bg-emerald-50 border-emerald-100 text-emerald-700",
+
+    warning:
+      "bg-amber-50 border-amber-100 text-amber-700",
+
+    info:
+      "bg-blue-50 border-blue-100 text-blue-700",
+  };
+
+  return (
+    <div
+      className={`rounded-2xl border px-4 py-3 ${classes[type]}`}
+    >
+      <div className="text-[10px] uppercase tracking-wide font-bold opacity-60">
+        {label}
+      </div>
+
+      <div className="text-lg font-bold mt-1">
+        {Number(
+          value || 0
+        ).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   READY PILL
+========================================================= */
+
+function ReadyPill({
+  label,
+  value,
+}) {
+  return (
+    <div className="rounded-xl bg-white/10 border border-white/15 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-white/60 font-bold">
+        {label}
+      </div>
+
+      <div className="text-base font-bold mt-0.5">
+        {Number(
+          value || 0
+        ).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+  actionLabel,
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-5">
+      <div className="h-14 w-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+        {icon}
+      </div>
+
+      <h3 className="font-bold text-slate-800 mt-4">
+        {title}
+      </h3>
+
+      <p className="text-sm text-slate-500 max-w-md mt-1.5">
+        {description}
+      </p>
+
+      {action && (
+        <button
+          type="button"
+          onClick={action}
+          className="mt-4 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+        >
+          {actionLabel ||
+            "Continue"}
+        </button>
+      )}
     </div>
   );
 }

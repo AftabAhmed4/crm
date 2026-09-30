@@ -104,50 +104,135 @@
 
 
 
+// import { NextResponse } from "next/server";
+// import { query } from "../../../lib/db";
+
+// export async function GET(request) {
+//   try {
+//     const { searchParams } = new URL(request.url);
+//     const dateStr = searchParams.get("date"); // e.g. "2026-08-18"
+
+//     let sql = `
+//       SELECT 
+//         dda.id AS id,
+//         ddt.task_id AS taskId,
+//         ddt.phone AS phone,
+//         u.id AS staffId,
+//         u.name AS assignedToName,
+//         u.email AS staffEmail,
+//         dda.assigned_date AS assignedDate,
+//         dda.assigned_at AS createdAt,
+//         dda.status AS status
+//       FROM daily_desk_assignments dda
+//       INNER JOIN daily_desk_tasks ddt ON dda.task_id = ddt.id
+//       INNER JOIN users u ON dda.staff_id = u.id
+//     `;
+
+//     const params = [];
+
+//     if (dateStr) {
+//       sql += ` WHERE dda.assigned_date = ?`;
+//       params.push(dateStr);
+//     }
+
+//     sql += ` ORDER BY dda.assigned_at DESC`;
+
+//     const tasks = await query(sql, params);
+
+//     return NextResponse.json({
+//       success: true,
+//       data: tasks,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching tasks history:", error);
+//     return NextResponse.json(
+//       { success: false, message: error.message },
+//       { status: 500 }
+//     );
+//   }
+// }
+
+
 import { NextResponse } from "next/server";
 import { query } from "../../../lib/db";
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const dateStr = searchParams.get("date"); // e.g. "2026-08-18"
+
+    const dateStr = searchParams.get("date"); // YYYY-MM-DD
 
     let sql = `
-      SELECT 
+      SELECT
         dda.id AS id,
+
+        /* Daily Desk Task */
+        ddt.id AS deskTaskId,
         ddt.task_id AS taskId,
         ddt.phone AS phone,
+
+        /* Staff */
         u.id AS staffId,
         u.name AS assignedToName,
         u.email AS staffEmail,
-        dda.assigned_date AS assignedDate,
+
+        /* Assignment */
+        DATE(dda.assigned_date) AS assignedDate,
         dda.assigned_at AS createdAt,
+
+        /* User selected status */
         dda.status AS status
+
       FROM daily_desk_assignments dda
-      INNER JOIN daily_desk_tasks ddt ON dda.task_id = ddt.id
-      INNER JOIN users u ON dda.staff_id = u.id
+
+      INNER JOIN daily_desk_tasks ddt
+        ON dda.task_id = ddt.id
+
+      INNER JOIN users u
+        ON dda.staff_id = u.id
     `;
 
     const params = [];
 
+    /*
+      Date filter
+      Example:
+      /api/admin/history?date=2026-09-30
+    */
     if (dateStr) {
-      sql += ` WHERE dda.assigned_date = ?`;
+      sql += `
+        WHERE DATE(dda.assigned_date) = ?
+      `;
+
       params.push(dateStr);
     }
 
-    sql += ` ORDER BY dda.assigned_at DESC`;
+    sql += `
+      ORDER BY
+        dda.assigned_date DESC,
+        dda.assigned_at DESC
+    `;
 
     const tasks = await query(sql, params);
 
     return NextResponse.json({
       success: true,
       data: tasks,
+      count: tasks.length,
+      date: dateStr || null,
     });
   } catch (error) {
     console.error("Error fetching tasks history:", error);
+
     return NextResponse.json(
-      { success: false, message: error.message },
-      { status: 500 }
+      {
+        success: false,
+        message: error.message,
+      },
+      {
+        status: 500,
+      }
     );
   }
 }
+

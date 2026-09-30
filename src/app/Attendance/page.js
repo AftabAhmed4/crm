@@ -1,5 +1,5 @@
 "use client";
-
+import React, { useRef } from "react";
 import {
   CalendarDays,
   Search,
@@ -62,6 +62,10 @@ function getCaliforniaDateInput() {
 
   return `${values.year}-${values.month}-${values.day}`;
 }
+
+/* =========================================================
+   CALIFORNIA MONTH START
+========================================================= */
 
 function getCaliforniaMonthStart() {
   const today = getCaliforniaDateInput();
@@ -195,9 +199,11 @@ function formatCaliforniaTime(value) {
 
   const hour = p.hour;
 
-  const suffix = hour >= 12 ? "PM" : "AM";
+  const suffix =
+    hour >= 12 ? "PM" : "AM";
 
-  const hour12 = hour % 12 || 12;
+  const hour12 =
+    hour % 12 || 12;
 
   return `${hour12}:${String(
     p.minute
@@ -320,7 +326,8 @@ function getStatus(row) {
 ========================================================= */
 
 function getDefaultForm() {
-  const today = getCaliforniaDateInput();
+  const today =
+    getCaliforniaDateInput();
 
   return {
     user_id: "",
@@ -467,12 +474,15 @@ export default function AttendancePage() {
         return;
       }
 
-      const parsed = JSON.parse(saved);
+      const parsed =
+        JSON.parse(saved);
 
       if (Array.isArray(parsed)) {
         setHiddenAttendanceIds(
           parsed
-            .map((id) => String(id))
+            .map((id) =>
+              String(id)
+            )
             .filter(Boolean)
         );
       }
@@ -504,7 +514,9 @@ export default function AttendancePage() {
         err
       );
     }
-  }, [hiddenAttendanceIds]);
+  }, [
+    hiddenAttendanceIds,
+  ]);
 
   /* =======================================================
      HIDE RECORD
@@ -513,20 +525,29 @@ export default function AttendancePage() {
   function hideAttendanceRecord(row) {
     if (
       !row?.id ||
-      row?.row_type === "weekend_off"
+      row?.row_type ===
+        "weekend_off"
     ) {
       return;
     }
 
-    const id = String(row.id);
+    const id =
+      String(row.id);
 
-    setHiddenAttendanceIds((prev) => {
-      if (prev.includes(id)) {
-        return prev;
+    setHiddenAttendanceIds(
+      (prev) => {
+        if (
+          prev.includes(id)
+        ) {
+          return prev;
+        }
+
+        return [
+          ...prev,
+          id,
+        ];
       }
-
-      return [...prev, id];
-    });
+    );
 
     setSuccess(
       `${
@@ -542,14 +563,19 @@ export default function AttendancePage() {
      UNHIDE RECORD
   ======================================================= */
 
-  function unhideAttendanceRecord(id) {
-    const recordId = String(id);
+  function unhideAttendanceRecord(
+    id
+  ) {
+    const recordId =
+      String(id);
 
-    setHiddenAttendanceIds((prev) =>
-      prev.filter(
-        (item) =>
-          String(item) !== recordId
-      )
+    setHiddenAttendanceIds(
+      (prev) =>
+        prev.filter(
+          (item) =>
+            String(item) !==
+            recordId
+        )
     );
 
     setSuccess(
@@ -576,13 +602,16 @@ export default function AttendancePage() {
   const loadCurrentUser =
     useCallback(async () => {
       try {
-        const response = await fetch(
-          "/api/auth/me",
-          {
-            credentials: "include",
-            cache: "no-store",
-          }
-        );
+        const response =
+          await fetch(
+            "/api/auth/me",
+            {
+              credentials:
+                "include",
+              cache:
+                "no-store",
+            }
+          );
 
         const data =
           await response.json();
@@ -597,7 +626,9 @@ export default function AttendancePage() {
           return null;
         }
 
-        setCurrentUser(data.user);
+        setCurrentUser(
+          data.user
+        );
 
         return data.user;
       } catch (err) {
@@ -697,129 +728,119 @@ export default function AttendancePage() {
      USER OPTIONS
   ======================================================= */
 
-  const userOptions = useMemo(() => {
-    const map = new Map();
+  const userOptions =
+    useMemo(() => {
+      const map =
+        new Map();
 
-    /*
-     * API se complete users aaye hon
-     */
-    if (
-      Array.isArray(
-        attendanceUsers
-      )
-    ) {
-      attendanceUsers.forEach(
-        (user) => {
-          if (!user) {
-            return;
-          }
-
-          /*
-           * Agar API sirf ID return karti hai
-           */
-          if (
-            typeof user ===
-              "number" ||
-            typeof user ===
-              "string"
-          ) {
-            const id =
-              String(user);
-
-            const employee =
-              staff.find(
-                (item) =>
-                  String(
-                    item.id
-                  ) === id
-              );
-
-            if (
-              employee
-            ) {
-              map.set(
-                id,
-                employee
-              );
+      if (
+        Array.isArray(
+          attendanceUsers
+        )
+      ) {
+        attendanceUsers.forEach(
+          (user) => {
+            if (!user) {
+              return;
             }
 
+            if (
+              typeof user ===
+                "number" ||
+              typeof user ===
+                "string"
+            ) {
+              const id =
+                String(user);
+
+              const employee =
+                staff.find(
+                  (item) =>
+                    String(
+                      item.id
+                    ) === id
+                );
+
+              if (
+                employee
+              ) {
+                map.set(
+                  id,
+                  employee
+                );
+              }
+
+              return;
+            }
+
+            if (user.id) {
+              map.set(
+                String(
+                  user.id
+                ),
+                {
+                  id: user.id,
+
+                  name:
+                    user.name ||
+                    user.full_name ||
+                    "Unknown",
+
+                  email:
+                    user.email ||
+                    "",
+
+                  team:
+                    user.team ||
+                    "",
+
+                  role:
+                    user.role ||
+                    "",
+                }
+              );
+            }
+          }
+        );
+      }
+
+      staff.forEach(
+        (employee) => {
+          if (!employee?.id) {
             return;
           }
 
-          /*
-           * Agar API object return karti hai
-           */
-          if (user.id) {
+          const id =
+            String(
+              employee.id
+            );
+
+          if (
+            !map.has(id)
+          ) {
             map.set(
-              String(
-                user.id
-              ),
-              {
-                id: user.id,
-
-                name:
-                  user.name ||
-                  user.full_name ||
-                  "Unknown",
-
-                email:
-                  user.email ||
-                  "",
-
-                team:
-                  user.team ||
-                  "",
-
-                role:
-                  user.role ||
-                  "",
-              }
+              id,
+              employee
             );
           }
         }
       );
-    }
 
-    /*
-     * Staff list ko bhi include karein
-     */
-    staff.forEach(
-      (employee) => {
-        if (!employee?.id) {
-          return;
-        }
-
-        const id =
-          String(
-            employee.id
-          );
-
-        if (
-          !map.has(id)
-        ) {
-          map.set(
-            id,
-            employee
-          );
-        }
-      }
-    );
-
-    return Array.from(
-      map.values()
-    ).sort((a, b) =>
-      String(
-        a.name || ""
-      ).localeCompare(
+      return Array.from(
+        map.values()
+      ).sort((a, b) =>
         String(
-          b.name || ""
+          a.name || ""
+        ).localeCompare(
+          String(
+            b.name || ""
+          )
         )
-      )
-    );
-  }, [
-    attendanceUsers,
-    staff,
-  ]);
+      );
+    }, [
+      attendanceUsers,
+      staff,
+    ]);
 
   /* =======================================================
      LOAD ATTENDANCE
@@ -839,9 +860,6 @@ export default function AttendancePage() {
 
           setError("");
 
-          /*
-           * Date validation
-           */
           if (
             fromDate &&
             toDate &&
@@ -869,15 +887,6 @@ export default function AttendancePage() {
             );
           }
 
-          /*
-           * ADMIN USER FILTER
-           *
-           * All Users:
-           * user_id nahi bhejna
-           *
-           * Specific User:
-           * selected user_id API ko bhejna
-           */
           if (
             isAdmin &&
             userFilter !==
@@ -903,9 +912,6 @@ export default function AttendancePage() {
             }
           }
 
-          /*
-           * Cache bust
-           */
           params.set(
             "_",
             String(
@@ -1067,9 +1073,6 @@ export default function AttendancePage() {
         return;
       }
 
-      /*
-       * Initial attendance
-       */
       await loadAttendance(
         true
       );
@@ -1111,17 +1114,11 @@ export default function AttendancePage() {
     useMemo(() => {
       let employees = [];
 
-      /*
-       * ADMIN
-       */
       if (isAdmin) {
         employees =
           staff
             .filter(
               (employee) => {
-                /*
-                 * Selected user filter
-                 */
                 if (
                   userFilter !==
                   "All Users"
@@ -1136,9 +1133,6 @@ export default function AttendancePage() {
                   );
                 }
 
-                /*
-                 * API configured attendance users
-                 */
                 if (
                   attendanceUsers.length ===
                   0
@@ -1189,9 +1183,6 @@ export default function AttendancePage() {
             );
       }
 
-      /*
-       * NORMAL USER
-       */
       if (
         !isAdmin &&
         currentUser?.id
@@ -1221,9 +1212,6 @@ export default function AttendancePage() {
         ];
       }
 
-      /*
-       * FALLBACK
-       */
       if (
         employees.length ===
         0
@@ -1363,7 +1351,8 @@ export default function AttendancePage() {
                 attendance_status:
                   "OFF",
 
-                status: "OFF",
+                status:
+                  "OFF",
               });
             }
           );
@@ -1549,6 +1538,14 @@ export default function AttendancePage() {
             return true;
           }
 
+          /*
+           * Absent records have id=null.
+           * They must remain visible.
+           */
+          if (!row.id) {
+            return true;
+          }
+
           return !hiddenAttendanceIds.includes(
             String(row.id)
           );
@@ -1655,11 +1652,6 @@ export default function AttendancePage() {
     setForm({
       ...getDefaultForm(),
 
-      /*
-       * Agar user filter selected hai
-       * to Add modal mein wahi employee
-       * default select hoga.
-       */
       user_id:
         userFilter !==
         "All Users"
@@ -1697,6 +1689,10 @@ export default function AttendancePage() {
         row.user_id || ""
       );
 
+    /*
+     * Ensure employee exists
+     * in staff dropdown.
+     */
     if (employeeId) {
       setStaff((prev) => {
         const alreadyExists =
@@ -1740,6 +1736,29 @@ export default function AttendancePage() {
       });
     }
 
+    /*
+     * Important:
+     *
+     * Existing attendance:
+     * login_time available.
+     *
+     * Absent:
+     * login_time = null
+     * attendance_date available.
+     *
+     * So for Absent we create
+     * default 08:00 on the SAME date.
+     */
+    const attendanceDate =
+      normalizeDateOnly(
+        row.attendance_date
+      );
+
+    const defaultLogin =
+      attendanceDate
+        ? `${attendanceDate}T08:00:00`
+        : "";
+
     setEditingRecord(row);
 
     setForm({
@@ -1747,9 +1766,11 @@ export default function AttendancePage() {
         employeeId,
 
       login_time:
-        toDateTimeLocal(
-          row.login_time
-        ),
+        row.login_time
+          ? toDateTimeLocal(
+              row.login_time
+            )
+          : defaultLogin,
 
       logout_time:
         row.logout_time
@@ -1785,6 +1806,18 @@ export default function AttendancePage() {
       row?.row_type ===
         "weekend_off"
     ) {
+      return;
+    }
+
+    /*
+     * Absent has no DB id.
+     * There is nothing stored to delete.
+     */
+    if (!row?.id) {
+      setError(
+        "This Absent row has no attendance record to delete. You can edit it instead."
+      );
+
       return;
     }
 
@@ -1975,6 +2008,53 @@ export default function AttendancePage() {
       return;
     }
 
+    /*
+     * Determine attendance date.
+     *
+     * For an Absent row:
+     * attendance_date already exists.
+     *
+     * For normal record:
+     * derive from login_time.
+     */
+    const attendanceDate =
+      editingRecord?.attendance_date
+        ? normalizeDateOnly(
+            editingRecord.attendance_date
+          )
+        : normalizeDateOnly(
+            form.login_time
+          );
+
+    if (!attendanceDate) {
+      setError(
+        "Invalid attendance date."
+      );
+
+      return;
+    }
+
+    /*
+     * Important:
+     * login date must match attendance date.
+     */
+    const loginDate =
+      normalizeDateOnly(
+        form.login_time
+      );
+
+    if (
+      loginDate &&
+      loginDate !==
+        attendanceDate
+    ) {
+      setError(
+        `Login date must be ${attendanceDate}.`
+      );
+
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -1982,15 +2062,26 @@ export default function AttendancePage() {
       setSuccess("");
 
       const payload = {
-        user_id: Number(
-          form.user_id
-        ),
+        user_id:
+          Number(
+            form.user_id
+          ),
+
+        /*
+         * IMPORTANT:
+         * API needs this when converting
+         * Absent -> actual attendance.
+         */
+        attendance_date:
+          attendanceDate,
 
         login_time:
-          form.login_time.replace(
-            "T",
-            " "
-          ),
+          form.login_time
+            ? form.login_time.replace(
+                "T",
+                " "
+              )
+            : null,
 
         logout_time:
           form.logout_time
@@ -2012,6 +2103,18 @@ export default function AttendancePage() {
       let response;
 
       if (editingRecord) {
+        /*
+         * IMPORTANT:
+         *
+         * Existing record:
+         * id = actual DB id
+         *
+         * Absent generated row:
+         * id = null
+         *
+         * Do NOT use Number(null)
+         * because Number(null) = 0.
+         */
         response =
           await fetch(
             "/api/login-history",
@@ -2031,9 +2134,12 @@ export default function AttendancePage() {
                 JSON.stringify({
                   ...payload,
 
-                  id: Number(
-                    editingRecord.id
-                  ),
+                  id:
+                    editingRecord?.id
+                      ? Number(
+                          editingRecord.id
+                        )
+                      : null,
                 }),
             }
           );
@@ -2081,11 +2187,21 @@ export default function AttendancePage() {
 
       setEditingRecord(null);
 
+      setForm(
+        getDefaultForm()
+      );
+
+      /*
+       * Refresh API immediately.
+       */
       await loadAttendance(
         false
       );
     } catch (err) {
-      console.error(err);
+      console.error(
+        "SAVE ATTENDANCE ERROR:",
+        err
+      );
 
       setError(
         err?.message ||
@@ -2097,7 +2213,7 @@ export default function AttendancePage() {
   }
 
   /* =======================================================
-     PDF
+     PDF EXPORT
   ======================================================= */
 
   async function exportPDF() {
@@ -2350,15 +2466,24 @@ export default function AttendancePage() {
                 row
               );
 
+            /*
+             * IMPORTANT:
+             *
+             * Absent:
+             * attendance_date exists
+             * login_time is null
+             *
+             * Weekend:
+             * attendance_date exists
+             *
+             * Present/Late:
+             * attendance_date or login_time
+             */
             const date =
-              row.row_type ===
-              "weekend_off"
-                ? formatCaliforniaDate(
-                    row.attendance_date
-                  )
-                : formatCaliforniaDate(
-                    row.login_time
-                  );
+              formatCaliforniaDate(
+                row.attendance_date ||
+                  row.login_time
+              );
 
             const day =
               row.day_name ||
@@ -2582,6 +2707,24 @@ export default function AttendancePage() {
                 hookData.cell.styles.fontStyle =
                   "bold";
               }
+
+              /*
+               * Highlight Absent
+               */
+              if (
+                rowData?.[8] ===
+                "Absent"
+              ) {
+                hookData.cell.styles.textColor =
+                  [
+                    180,
+                    0,
+                    0,
+                  ];
+
+                hookData.cell.styles.fontStyle =
+                  "bold";
+              }
             }
           },
       });
@@ -2797,11 +2940,13 @@ export default function AttendancePage() {
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
+
           <div className="w-10 h-10 border-4 border-[#741C29]/20 border-t-[#741C29] rounded-full animate-spin" />
 
           <p className="text-sm text-slate-500">
             Loading attendance...
           </p>
+
         </div>
       </div>
     );
@@ -2813,6 +2958,7 @@ export default function AttendancePage() {
 
   return (
     <div className="min-h-screen lg:pl-[270px]">
+
       <div className="p-4 sm:p-6 lg:p-8">
 
         {/* SIDEBAR */}
@@ -2826,13 +2972,17 @@ export default function AttendancePage() {
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 mb-6">
 
           <div>
+
             <div className="flex items-center gap-3">
 
               <div className="w-11 h-11 rounded-xl bg-[#741C29] flex items-center justify-center shadow-sm">
+
                 <CalendarDays className="w-5 h-5 text-white" />
+
               </div>
 
               <div>
+
                 <h1 className="text-2xl font-bold text-slate-900">
                   Attendance
                 </h1>
@@ -2840,6 +2990,7 @@ export default function AttendancePage() {
                 <p className="text-sm text-slate-500">
                   Employee attendance and login history
                 </p>
+
               </div>
 
               {isAdmin && (
@@ -2849,6 +3000,7 @@ export default function AttendancePage() {
               )}
 
             </div>
+
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -2863,6 +3015,7 @@ export default function AttendancePage() {
               disabled={refreshing}
               className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-60"
             >
+
               <RefreshCw
                 className={`w-4 h-4 ${
                   refreshing
@@ -2872,6 +3025,7 @@ export default function AttendancePage() {
               />
 
               Refresh
+
             </button>
 
             {/* PDF */}
@@ -2881,9 +3035,11 @@ export default function AttendancePage() {
               onClick={exportPDF}
               className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
             >
+
               <Download className="w-4 h-4" />
 
               Export PDF
+
             </button>
 
             {/* ADMIN ADD */}
@@ -2896,13 +3052,16 @@ export default function AttendancePage() {
                 }
                 className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl bg-[#741C29] text-white text-sm font-semibold shadow-sm hover:bg-[#611621] transition"
               >
+
                 <Plus className="w-4 h-4" />
 
                 Add Attendance
+
               </button>
             )}
 
           </div>
+
         </div>
 
         {/* =================================================
@@ -3075,16 +3234,14 @@ export default function AttendancePage() {
               <div className="relative">
 
                 <select
-                  value={userFilter}
+                  value={
+                    userFilter
+                  }
                   onChange={(e) => {
                     setUserFilter(
                       e.target.value
                     );
 
-                    /*
-                     * User change par team
-                     * filter reset
-                     */
                     setTeamFilter(
                       "All Teams"
                     );
@@ -3137,7 +3294,7 @@ export default function AttendancePage() {
                 className="appearance-none w-full h-11 rounded-xl border border-[#DDD6D2] bg-[#FCFBFA] px-3 pr-9 text-sm text-gray-700 outline-none focus:bg-white focus:border-[#741C29] focus:ring-4 focus:ring-[#741C29]/10"
               >
 
-                <option>
+                <option value="All Teams">
                   All Teams
                 </option>
 
@@ -3260,8 +3417,6 @@ export default function AttendancePage() {
 
               </button>
 
-              {/* HIDDEN MENU */}
-
               {showHiddenMenu && (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-[100] w-full sm:w-[420px] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
 
@@ -3296,7 +3451,9 @@ export default function AttendancePage() {
                         }
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-white hover:text-slate-700"
                       >
+
                         <X className="w-4 h-4" />
+
                       </button>
 
                     </div>
@@ -3336,6 +3493,7 @@ export default function AttendancePage() {
                             >
 
                               <div className="w-9 h-9 shrink-0 rounded-full bg-[#741C29]/10 text-[#741C29] flex items-center justify-center font-bold text-xs">
+
                                 {String(
                                   row.name ||
                                     "U"
@@ -3345,6 +3503,7 @@ export default function AttendancePage() {
                                     1
                                   )
                                   .toUpperCase()}
+
                               </div>
 
                               <div className="min-w-0 flex-1">
@@ -3355,13 +3514,18 @@ export default function AttendancePage() {
                                 </p>
 
                                 <p className="text-xs text-slate-400 truncate">
+
                                   {formatCaliforniaDate(
-                                    row.login_time
-                                  )}{" "}
-                                  •{" "}
+                                    row.attendance_date ||
+                                      row.login_time
+                                  )}
+
+                                  {" "}•{" "}
+
                                   {formatCaliforniaTime(
                                     row.login_time
                                   )}
+
                                 </p>
 
                               </div>
@@ -3419,7 +3583,7 @@ export default function AttendancePage() {
 
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
 
-          <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto h-[600px]">
 
             <table className="w-full min-w-[1150px]">
 
@@ -3512,9 +3676,11 @@ export default function AttendancePage() {
                               }
                               className="mt-4 inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-[#741C29] text-white text-xs font-semibold hover:bg-[#611621] transition"
                             >
+
                               <Eye className="w-3.5 h-3.5" />
 
                               Show Hidden Lines
+
                             </button>
                           </>
                         ) : (
@@ -3548,7 +3714,9 @@ export default function AttendancePage() {
                         row.row_type ===
                         "weekend_off"
                           ? `off-${row.user_id}-${row.attendance_date}`
-                          : row.id;
+                          : row.id
+                          ? `attendance-${row.id}`
+                          : `absent-${row.user_id}-${row.attendance_date}`;
 
                       return (
                         <tr
@@ -3559,6 +3727,9 @@ export default function AttendancePage() {
                             row.row_type ===
                             "weekend_off"
                               ? "bg-slate-50 hover:bg-slate-100 transition"
+                              : status ===
+                                "Absent"
+                              ? "bg-red-50/30 hover:bg-red-50 transition"
                               : "hover:bg-slate-50/70 transition"
                           }
                         >
@@ -3575,9 +3746,13 @@ export default function AttendancePage() {
                                     row.row_type ===
                                     "weekend_off"
                                       ? "bg-slate-200 text-slate-600"
+                                      : status ===
+                                        "Absent"
+                                      ? "bg-red-100 text-red-600"
                                       : "bg-[#741C29]/10 text-[#741C29]"
                                   }`}
                                 >
+
                                   {String(
                                     row.name ||
                                       "U"
@@ -3587,6 +3762,7 @@ export default function AttendancePage() {
                                       1
                                     )
                                     .toUpperCase()}
+
                                 </div>
 
                                 <div>
@@ -3611,57 +3787,63 @@ export default function AttendancePage() {
                           {/* DATE */}
 
                           <td className="px-5 py-4 text-sm text-slate-700 whitespace-nowrap">
-                            {row.row_type ===
-                            "weekend_off"
-                              ? formatCaliforniaDate(
-                                  row.attendance_date
-                                )
-                              : formatCaliforniaDate(
-                                  row.login_time
-                                )}
+
+                            {formatCaliforniaDate(
+                              row.attendance_date ||
+                                row.login_time
+                            )}
+
                           </td>
 
                           {/* DAY */}
 
                           <td className="px-5 py-4 text-sm font-medium text-slate-600 whitespace-nowrap">
+
                             {row.day_name ||
                               getDayName(
                                 row.attendance_date ||
                                   row.login_time
                               )}
+
                           </td>
 
                           {/* LOGIN */}
 
                           <td className="px-5 py-4 text-sm font-medium text-slate-700 whitespace-nowrap">
+
                             {row.row_type ===
                             "weekend_off"
                               ? "—"
                               : formatCaliforniaTime(
                                   row.login_time
                                 )}
+
                           </td>
 
                           {/* LOGOUT */}
 
                           <td className="px-5 py-4 text-sm font-medium text-slate-700 whitespace-nowrap">
+
                             {row.row_type ===
                             "weekend_off"
                               ? "—"
                               : formatCaliforniaTime(
                                   row.logout_time
                                 )}
+
                           </td>
 
                           {/* DURATION */}
 
                           <td className="px-5 py-4 text-sm text-slate-600 whitespace-nowrap">
+
                             {row.row_type ===
                             "weekend_off"
                               ? "OFF"
                               : formatDuration(
                                   row.duration_seconds
                                 )}
+
                           </td>
 
                           {/* STATUS */}
@@ -3715,9 +3897,11 @@ export default function AttendancePage() {
                                     }
                                     className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold hover:border-[#741C29] hover:text-[#741C29] transition"
                                   >
+
                                     <Pencil className="w-3.5 h-3.5" />
 
                                     Edit
+
                                   </button>
 
                                   {/* DELETE */}
@@ -3731,27 +3915,33 @@ export default function AttendancePage() {
                                     }
                                     className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg border border-red-200 bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 hover:border-red-300 transition"
                                   >
+
                                     <Trash2 className="w-3.5 h-3.5" />
 
                                     Delete
+
                                   </button>
 
                                   {/* HIDE */}
 
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      hideAttendanceRecord(
-                                        row
-                                      )
-                                    }
-                                    className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 text-xs font-semibold hover:bg-slate-100 hover:border-[#741C29]/30 hover:text-[#741C29] transition"
-                                    title="Hide this attendance record"
-                                  >
-                                    <EyeOff className="w-3.5 h-3.5" />
+                                  {row.id && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        hideAttendanceRecord(
+                                          row
+                                        )
+                                      }
+                                      className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 text-xs font-semibold hover:bg-slate-100 hover:border-[#741C29]/30 hover:text-[#741C29] transition"
+                                      title="Hide this attendance record"
+                                    >
 
-                                    Hide
-                                  </button>
+                                      <EyeOff className="w-3.5 h-3.5" />
+
+                                      Hide
+
+                                    </button>
+                                  )}
 
                                 </div>
                               )}
@@ -3870,7 +4060,12 @@ export default function AttendancePage() {
                     </h2>
 
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Time is saved using California timezone
+
+                      {editingRecord?.attendance_status ===
+                      "Absent"
+                        ? "Editing Absent attendance"
+                        : "Time is saved using California timezone"}
+
                     </p>
 
                   </div>
@@ -3887,7 +4082,9 @@ export default function AttendancePage() {
                   }
                   className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
                 >
+
                   <X className="w-5 h-5" />
+
                 </button>
 
               </div>
@@ -3994,6 +4191,15 @@ export default function AttendancePage() {
                       className="w-full h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none focus:bg-white focus:border-[#741C29] focus:ring-4 focus:ring-[#741C29]/10"
                     />
 
+                    {editingRecord?.attendance_date && (
+                      <p className="text-xs text-slate-400 mt-1.5">
+                        Attendance date:{" "}
+                        {formatCaliforniaDate(
+                          editingRecord.attendance_date
+                        )}
+                      </p>
+                    )}
+
                   </div>
 
                   {/* LOGOUT */}
@@ -4086,6 +4292,37 @@ export default function AttendancePage() {
 
                 </div>
 
+                {/* ABSENT INFO */}
+
+                {editingRecord?.attendance_status ===
+                  "Absent" && (
+                  <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+
+                    <div className="flex gap-2">
+
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+
+                      <div>
+
+                        <p className="text-sm font-semibold text-amber-800">
+                          Absent record
+                        </p>
+
+                        <p className="text-xs text-amber-700 mt-1">
+                          This row does not have a database attendance ID yet. Saving it will create the attendance record for{" "}
+                          {formatCaliforniaDate(
+                            editingRecord.attendance_date
+                          )}
+                          .
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </div>
+                )}
+
                 {/* MODAL ERROR */}
 
                 {error && (
@@ -4148,6 +4385,7 @@ export default function AttendancePage() {
               </form>
 
             </div>
+
           </div>
         )}
 
@@ -4229,9 +4467,12 @@ export default function AttendancePage() {
                       </p>
 
                       <p className="text-sm font-medium text-slate-700 mt-1">
+
                         {formatCaliforniaDate(
-                          deleteRecord.login_time
+                          deleteRecord.attendance_date ||
+                            deleteRecord.login_time
                         )}
+
                       </p>
 
                     </div>
@@ -4243,9 +4484,11 @@ export default function AttendancePage() {
                       </p>
 
                       <p className="text-sm font-medium text-slate-700 mt-1">
+
                         {formatCaliforniaTime(
                           deleteRecord.login_time
                         )}
+
                       </p>
 
                     </div>
@@ -4301,6 +4544,7 @@ export default function AttendancePage() {
               </div>
 
             </div>
+
           </div>
         )}
 

@@ -1,2193 +1,25 @@
-
-
-
-
-
-
-
-// import { NextResponse } from "next/server";
-// import bcrypt from "bcryptjs";
-// import db from "../../lib/db";
-// import { writeFile, mkdir } from "fs/promises";
-// import path from "path";
-
-// // 1. GET ALL USERS
-// export async function GET() {
-//   try {
-// const [users] = await db.query(`
-//   SELECT 
-//     id, 
-//     name, 
-//     email, 
-//     phone, 
-//     role, 
-//     team, 
-//     status, 
-//     avatar, 
-//     last_login, 
-//     login_time, 
-//     logout_time,
-//     break_start,
-//     break_end,
-//     created_at 
-//   FROM users
-//   ORDER BY id DESC
-// `);
-
-//     return NextResponse.json({
-//       success: true,
-//       users,
-//     });
-//   } catch (error) {
-//     console.error("GET USERS ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message: error.message || "Failed to fetch users",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-// // 2. CREATE NEW USER (With Image Support)
-// export async function POST(request) {
-//   try {
-//     // FIX: JSON ki jagah FormData read karein
-//     const formData = await request.formData();
-
-//     const fullName = formData.get("fullName");
-//     const email = formData.get("email");
-//     const phone = formData.get("phone");
-//     const role = formData.get("role");
-//     const team = formData.get("team");
-//     const status = formData.get("status");
-//     const password = formData.get("password");
-    
-//     // File object extract karein
-//     const avatarFile = formData.get("avatar"); 
-
-//     // Required fields check
-//     if (!fullName || !email || !password) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "Name, email and password are required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // Check existing email
-//     const [existing] = await db.query(
-//       "SELECT id FROM users WHERE email = ? LIMIT 1",
-//       [email]
-//     );
-
-//     if (existing.length > 0) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "Email already exists",
-//         },
-//         { status: 409 }
-//       );
-//     }
-
-//     // Hash password
-//     const passwordHash = await bcrypt.hash(password, 10);
-
-//     // Clean role
-//     const cleanRole = String(role || "agent").toLowerCase();
-//     const allowedRoles = ["admin", "staff", "agent"];
-
-//     if (!allowedRoles.includes(cleanRole)) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "Invalid role. Allowed roles: admin, staff, agent",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // Status validation
-//     const cleanStatus = status || "Active";
-//     if (!["Active", "Inactive"].includes(cleanStatus)) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "Invalid status. Allowed status: Active, Inactive",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // --- IMAGE UPLOADING LOGIC ---
-
-
-
-
-
-         
-//     let avatarUrl = null;
-
-//     if (avatarFile && typeof avatarFile === "object" && avatarFile.name) {
-//       const bytes = await avatarFile.arrayBuffer();
-//       const buffer = Buffer.from(bytes);
-
-
-//       // Unique filename create karein
-//       const uniqueFilename = `${Date.now()}-${avatarFile.name.replace(/\s+/g, "_")}`;
-      
-//       // Save folder path (public/uploads)
-//       const uploadDir = path.join(process.cwd(), "public/uploads");
-
-//       // Check karein agar uploads folder nahi hai toh auto-create ho jaye
-//       await mkdir(uploadDir, { recursive: true });
-
-//       // File system me save karein
-//       const filePath = path.join(uploadDir, uniqueFilename);
-//       await writeFile(filePath, buffer);
-
-//       // Relative path for database storing
-//       avatarUrl = `/uploads/${uniqueFilename}`;
-//     }
-
-//     // --- CREATE USER IN DATABASE ---
-//     const [result] = await db.query(
-//       `
-//       INSERT INTO users
-//       (
-//         name,
-//         email,
-//         phone,
-//         password_hash,
-//         role,
-//         team,
-//         status,
-//         avatar
-//       )
-//       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-//       `,
-//       [
-//         fullName,
-//         email,
-//         phone || null,
-//         passwordHash,
-//         cleanRole,
-//         team || "Sales",
-//         cleanStatus,
-//         avatarUrl,
-//       ]
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         message: "User created successfully",
-//         userId: result.insertId,
-//         avatarUrl,
-//       },
-//       { status: 201 }
-//     );
-//   } catch (error) {
-//     console.error("CREATE USER ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message: error.message || "Failed to create user",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // 3. UPDATE USER BREAK TIME
-// export async function PATCH(request) {
-//   try {
-//     const body = await request.json();
-
-//     const {
-//       userId,
-//       applyAll,
-//       break_start,
-//       break_end,
-//     } = body;
-
-//     const normalizedBreakStart = break_start || null;
-//     const normalizedBreakEnd = break_end || null;
-
-//     if (applyAll) {
-//       await db.query(
-//         `
-//         UPDATE users
-//         SET
-//           break_start = ?,
-//           break_end = ?
-//         `,
-//         [
-//           normalizedBreakStart,
-//           normalizedBreakEnd,
-//         ]
-//       );
-
-//       return NextResponse.json({
-//         success: true,
-//         message: "Break time updated for all users successfully",
-//       });
-//     }
-
-//     if (!userId) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "User ID is required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     await db.query(
-//       `
-//       UPDATE users
-//       SET
-//         break_start = ?,
-//         break_end = ?
-//       WHERE id = ?
-//       `,
-//       [
-//         normalizedBreakStart,
-//         normalizedBreakEnd,
-//         userId,
-//       ]
-//     );
-
-//     return NextResponse.json({
-//       success: true,
-//       message: "Break time updated successfully",
-//     });
-
-//   } catch (error) {
-//     console.error("UPDATE BREAK TIME ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message:
-//           error.message ||
-//           "Failed to update break time",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { NextResponse } from "next/server";
-// import bcrypt from "bcryptjs";
-// import db from "../../lib/db";
-// import { writeFile, mkdir } from "fs/promises";
-// import path from "path";
-
-// // ======================================================
-// // 1. GET ALL USERS
-// // ======================================================
-
-// export async function GET() {
-//   try {
-//     const [users] = await db.query(`
-//       SELECT
-//         id,
-//         name,
-//         email,
-//         phone,
-//         role,
-//         team,
-
-//         -- Old status field
-//         status,
-
-//         -- New availability status
-//         availability_status,
-//         status_started_at,
-
-//         avatar,
-//         last_login,
-//         login_time,
-//         logout_time,
-//         break_start,
-//         break_end,
-//         created_at
-
-//       FROM users
-//       ORDER BY id DESC
-//     `);
-
-//     // Keep frontend compatible
-//     const formattedUsers = users.map((user) => ({
-//       ...user,
-
-//       // availability_status is now the MAIN status
-//       availability_status:
-//         user.availability_status ||
-//         user.status ||
-//         "Active",
-
-//       // Also return status using availability_status
-//       // so old frontend code does not break
-//       status:
-//         user.availability_status ||
-//         user.status ||
-//         "Active",
-
-//       status_started_at:
-//         user.status_started_at || null,
-//     }));
-
-//     return NextResponse.json({
-//       success: true,
-//       users: formattedUsers,
-//     });
-
-//   } catch (error) {
-//     console.error("GET USERS ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message:
-//           error.message ||
-//           "Failed to fetch users",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-// // ======================================================
-// // 2. CREATE NEW USER
-// // ======================================================
-
-// export async function POST(request) {
-//   try {
-//     // FormData read karein
-//     const formData = await request.formData();
-
-//     const fullName = formData.get("fullName");
-//     const email = formData.get("email");
-//     const phone = formData.get("phone");
-//     const role = formData.get("role");
-//     const team = formData.get("team");
-//     const status = formData.get("status");
-//     const password = formData.get("password");
-
-//     // File object
-//     const avatarFile = formData.get("avatar");
-
-//     // Required fields
-//     if (!fullName || !email || !password) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Name, email and password are required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // Check existing email
-//     const [existing] = await db.query(
-//       `
-//         SELECT id
-//         FROM users
-//         WHERE email = ?
-//         LIMIT 1
-//       `,
-//       [email]
-//     );
-
-//     if (existing.length > 0) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message: "Email already exists",
-//         },
-//         { status: 409 }
-//       );
-//     }
-
-//     // Hash password
-//     const passwordHash = await bcrypt.hash(
-//       password,
-//       10
-//     );
-
-//     // Clean role
-//     const cleanRole = String(
-//       role || "agent"
-//     ).toLowerCase();
-
-//     const allowedRoles = [
-//       "admin",
-//       "staff",
-//       "agent",
-//     ];
-
-//     if (!allowedRoles.includes(cleanRole)) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Invalid role. Allowed roles: admin, staff, agent",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // STATUS
-//     // ==================================================
-
-//     const cleanStatus =
-//       status || "Active";
-
-//     if (
-//       ![
-//         "Active",
-//         "Inactive",
-//       ].includes(cleanStatus)
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Invalid status. Allowed status: Active, Inactive",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // IMAGE UPLOAD
-//     // ==================================================
-
-//     let avatarUrl = null;
-
-//     if (
-//       avatarFile &&
-//       typeof avatarFile === "object" &&
-//       avatarFile.name
-//     ) {
-//       const bytes =
-//         await avatarFile.arrayBuffer();
-
-//       const buffer =
-//         Buffer.from(bytes);
-
-//       // Unique filename
-//       const uniqueFilename =
-//         `${Date.now()}-${avatarFile.name.replace(
-//           /\s+/g,
-//           "_"
-//         )}`;
-
-//       // Upload directory
-//       const uploadDir =
-//         path.join(
-//           process.cwd(),
-//           "public/uploads"
-//         );
-
-//       // Create folder if missing
-//       await mkdir(
-//         uploadDir,
-//         {
-//           recursive: true,
-//         }
-//       );
-
-//       // File path
-//       const filePath =
-//         path.join(
-//           uploadDir,
-//           uniqueFilename
-//         );
-
-//       // Save file
-//       await writeFile(
-//         filePath,
-//         buffer
-//       );
-
-//       // DB path
-//       avatarUrl =
-//         `/uploads/${uniqueFilename}`;
-//     }
-
-//     // ==================================================
-//     // CREATE USER
-//     // ==================================================
-
-//     const [result] =
-//       await db.query(
-//         `
-//           INSERT INTO users
-//           (
-//             name,
-//             email,
-//             phone,
-//             password_hash,
-//             role,
-//             team,
-
-//             status,
-//             availability_status,
-//             status_started_at,
-
-//             avatar
-//           )
-//           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-//         `,
-//         [
-//           fullName,
-//           email,
-//           phone || null,
-//           passwordHash,
-//           cleanRole,
-//           team || "Sales",
-
-//           // Old status
-//           cleanStatus,
-
-//           // New availability status
-//           cleanStatus,
-
-//           // New user starts without timer
-//           null,
-
-//           avatarUrl,
-//         ]
-//       );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         message:
-//           "User created successfully",
-//         userId:
-//           result.insertId,
-//         avatarUrl,
-//       },
-//       { status: 201 }
-//     );
-
-//   } catch (error) {
-//     console.error(
-//       "CREATE USER ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message:
-//           error.message ||
-//           "Failed to create user",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-// // ======================================================
-// // 3. UPDATE USER BREAK TIME
-// // ======================================================
-
-// export async function PATCH(request) {
-//   try {
-//     const body =
-//       await request.json();
-
-//     const {
-//       userId,
-//       applyAll,
-//       break_start,
-//       break_end,
-//     } = body;
-
-//     const normalizedBreakStart =
-//       break_start || null;
-
-//     const normalizedBreakEnd =
-//       break_end || null;
-
-//     // ==================================================
-//     // APPLY TO ALL USERS
-//     // ==================================================
-
-//     if (applyAll) {
-//       await db.query(
-//         `
-//           UPDATE users
-//           SET
-//             break_start = ?,
-//             break_end = ?
-//         `,
-//         [
-//           normalizedBreakStart,
-//           normalizedBreakEnd,
-//         ]
-//       );
-
-//       return NextResponse.json({
-//         success: true,
-//         message:
-//           "Break time updated for all users successfully",
-//       });
-//     }
-
-//     // ==================================================
-//     // SINGLE USER
-//     // ==================================================
-
-//     if (!userId) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "User ID is required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     const [result] =
-//       await db.query(
-//         `
-//           UPDATE users
-//           SET
-//             break_start = ?,
-//             break_end = ?
-//           WHERE id = ?
-//         `,
-//         [
-//           normalizedBreakStart,
-//           normalizedBreakEnd,
-//           userId,
-//         ]
-//       );
-
-//     if (result.affectedRows === 0) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "User not found",
-//         },
-//         { status: 404 }
-//       );
-//     }
-
-//     return NextResponse.json({
-//       success: true,
-//       message:
-//         "Break time updated successfully",
-//     });
-
-//   } catch (error) {
-//     console.error(
-//       "UPDATE BREAK TIME ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         message:
-//           error.message ||
-//           "Failed to update break time",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-
-
-
-
-
-
-
-
-
-// import { NextResponse } from "next/server";
-// import db from "../../lib/db";
-
-// // ======================================================
-// // GET - ALL USERS
-// // ======================================================
-// export async function GET() {
-//   try {
-//     const [users] = await db.query(`
-//       SELECT
-//         id,
-//         name,
-//         email,
-//         phone,
-//         role,
-//         team,
-//         status,
-//         availability_status,
-//         status_started_at,
-//         avatar,
-//         last_login,
-//         login_time,
-//         logout_time,
-//         break_start,
-//         break_end,
-//         created_at,
-//         updated_at
-//       FROM users
-//       ORDER BY id DESC
-//     `);
-
-//     const formattedUsers = users.map((user) => ({
-//       id: user.id,
-//       name: user.name || "",
-//       email: user.email || "",
-//       phone: user.phone || "",
-//       role: user.role || "agent",
-//       team: user.team || null,
-
-//       // Account status
-//       status: user.status || "Active",
-
-//       // Current/live availability
-//       availability_status:
-//         user.availability_status ||
-//         user.status ||
-//         "Active",
-
-//       // Status timer
-//       status_started_at:
-//         user.status_started_at || null,
-
-//       avatar: user.avatar || null,
-
-//       // Login information
-//       last_login: user.last_login || null,
-//       login_time: user.login_time || null,
-//       logout_time: user.logout_time || null,
-
-//       // ==================================================
-//       // BREAK DATA FROM DATABASE
-//       // ==================================================
-//       break_start: user.break_start
-//         ? String(user.break_start)
-//         : null,
-
-//       break_end: user.break_end
-//         ? String(user.break_end)
-//         : null,
-
-//       // Frontend helper
-//       has_break:
-//         user.break_start !== null ||
-//         user.break_end !== null,
-
-//       created_at: user.created_at || null,
-//       updated_at: user.updated_at || null,
-//     }));
-
-//     console.log(
-//       "GET /api/new-users BREAK DATA:",
-//       formattedUsers.map((user) => ({
-//         id: user.id,
-//         name: user.name,
-//         availability_status: user.availability_status,
-//         break_start: user.break_start,
-//         break_end: user.break_end,
-//         has_break: user.has_break,
-//       }))
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         users: formattedUsers,
-//       },
-//       {
-//         status: 200,
-//         headers: {
-//           "Cache-Control":
-//             "no-store, no-cache, must-revalidate, proxy-revalidate",
-//           Pragma: "no-cache",
-//           Expires: "0",
-//         },
-//       }
-//     );
-//   } catch (error) {
-//     console.error("GET /api/new-users ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to fetch users",
-//         details: error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // ======================================================
-// // POST - CREATE NEW USER
-// // ======================================================
-// export async function POST(request) {
-//   try {
-//     const body = await request.json();
-
-//     const {
-//       name,
-//       email,
-//       phone,
-//       role,
-//       team,
-//       password,
-//       status,
-//       availability_status,
-//       avatar,
-//     } = body;
-
-//     // ==================================================
-//     // VALIDATION
-//     // ==================================================
-//     if (!name || !email || !password) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "Name, email and password are required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // CHECK DUPLICATE EMAIL
-//     // ==================================================
-//     const [existingUsers] = await db.query(
-//       `
-//       SELECT id
-//       FROM users
-//       WHERE email = ?
-//       LIMIT 1
-//       `,
-//       [email]
-//     );
-
-//     if (existingUsers.length > 0) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "Email already exists",
-//         },
-//         { status: 409 }
-//       );
-//     }
-
-//     // ==================================================
-//     // DEFAULT VALUES
-//     // ==================================================
-//     const finalStatus = status || "Active";
-
-//     const finalAvailability =
-//       availability_status || finalStatus;
-
-//     // ==================================================
-//     // CREATE USER
-//     // ==================================================
-//     const [result] = await db.query(
-//       `
-//       INSERT INTO users (
-//         name,
-//         email,
-//         phone,
-//         role,
-//         team,
-//         password,
-//         status,
-//         availability_status,
-//         status_started_at,
-//         avatar,
-//         break_start,
-//         break_end,
-//         created_at,
-//         updated_at
-//       )
-//       VALUES (
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         NULL,
-//         ?,
-//         NULL,
-//         NULL,
-//         NOW(),
-//         NOW()
-//       )
-//       `,
-//       [
-//         name,
-//         email,
-//         phone || null,
-//         role || "agent",
-//         team || null,
-//         password,
-//         finalStatus,
-//         finalAvailability,
-//         avatar || null,
-//       ]
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         message: "User created successfully",
-//         userId: result.insertId,
-//       },
-//       { status: 201 }
-//     );
-//   } catch (error) {
-//     console.error("POST /api/new-users ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to create user",
-//         details: error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // ======================================================
-// // PATCH - UPDATE USER / BREAK / LIVE STATUS
-// // ======================================================
-// export async function PATCH(request) {
-//   try {
-//     const body = await request.json();
-
-//     const {
-//       userId,
-//       applyAll,
-
-//       // Break
-//       break_start,
-//       break_end,
-
-//       // Live status
-//       availability_status,
-//       status,
-//       status_started_at,
-//     } = body;
-
-//     // ==================================================
-//     // VALIDATE USER ID WHEN NEEDED
-//     // ==================================================
-//     const hasBreakUpdate =
-//       break_start !== undefined ||
-//       break_end !== undefined;
-
-//     const hasStatusUpdate =
-//       availability_status !== undefined ||
-//       status !== undefined ||
-//       status_started_at !== undefined;
-
-//     if (!hasBreakUpdate && !hasStatusUpdate) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "No valid update data provided",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // BREAK UPDATE
-//     // ==================================================
-//     if (hasBreakUpdate) {
-//       // ------------------------------------------------
-//       // APPLY BREAK TO ALL USERS
-//       // ------------------------------------------------
-//       if (applyAll === true) {
-//         await db.query(
-//           `
-//           UPDATE users
-//           SET
-//             break_start = ?,
-//             break_end = ?,
-//             updated_at = NOW()
-//           `,
-//           [
-//             break_start || null,
-//             break_end || null,
-//           ]
-//         );
-
-//         return NextResponse.json({
-//           success: true,
-//           message: "Break updated for all users",
-//         });
-//       }
-
-//       // ------------------------------------------------
-//       // SINGLE USER
-//       // ------------------------------------------------
-//       if (!userId) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "userId is required",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       const [result] = await db.query(
-//         `
-//         UPDATE users
-//         SET
-//           break_start = ?,
-//           break_end = ?,
-//           updated_at = NOW()
-//         WHERE id = ?
-//         `,
-//         [
-//           break_start || null,
-//           break_end || null,
-//           userId,
-//         ]
-//       );
-
-//       if (result.affectedRows === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "User not found",
-//           },
-//           { status: 404 }
-//         );
-//       }
-
-//       // Get updated break data
-//       const [updatedUsers] = await db.query(
-//         `
-//         SELECT
-//           id,
-//           name,
-//           break_start,
-//           break_end,
-//           availability_status
-//         FROM users
-//         WHERE id = ?
-//         LIMIT 1
-//         `,
-//         [userId]
-//       );
-
-//       return NextResponse.json({
-//         success: true,
-//         message: "Break updated successfully",
-//         user: updatedUsers[0] || null,
-//       });
-//     }
-
-//     // ==================================================
-//     // LIVE AVAILABILITY / STATUS UPDATE
-//     // ==================================================
-//     if (hasStatusUpdate) {
-//       if (!userId) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "userId is required",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       const updates = [];
-//       const values = [];
-
-//       // ------------------------------------------------
-//       // Availability
-//       // ------------------------------------------------
-//       if (availability_status !== undefined) {
-//         updates.push("availability_status = ?");
-//         values.push(availability_status);
-//       }
-
-//       // ------------------------------------------------
-//       // Main status
-//       // ------------------------------------------------
-//       if (status !== undefined) {
-//         updates.push("status = ?");
-//         values.push(status);
-//       }
-
-//       // ------------------------------------------------
-//       // Status started time
-//       // ------------------------------------------------
-//       if (status_started_at !== undefined) {
-//         updates.push("status_started_at = ?");
-//         values.push(
-//           status_started_at || null
-//         );
-//       }
-
-//       if (updates.length === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "Nothing to update",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       updates.push("updated_at = NOW()");
-//       values.push(userId);
-
-//       const [result] = await db.query(
-//         `
-//         UPDATE users
-//         SET ${updates.join(", ")}
-//         WHERE id = ?
-//         `,
-//         values
-//       );
-
-//       if (result.affectedRows === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "User not found",
-//           },
-//           { status: 404 }
-//         );
-//       }
-
-//       // Get updated user
-//       const [updatedUsers] = await db.query(
-//         `
-//         SELECT
-//           id,
-//           name,
-//           status,
-//           availability_status,
-//           status_started_at,
-//           break_start,
-//           break_end
-//         FROM users
-//         WHERE id = ?
-//         LIMIT 1
-//         `,
-//         [userId]
-//       );
-
-//       return NextResponse.json({
-//         success: true,
-//         message: "User status updated successfully",
-//         user: updatedUsers[0] || null,
-//       });
-//     }
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "No valid update data provided",
-//       },
-//       { status: 400 }
-//     );
-//   } catch (error) {
-//     console.error("PATCH /api/new-users ERROR:", error);
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to update user",
-//         details: error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { NextResponse } from "next/server";
-// import db from "../../lib/db";
-
-// // ======================================================
-// // ALLOWED ROLES & TEAMS
-// // ======================================================
-
-// const ALLOWED_ROLES = [
-//   "agent",
-//   "HR",
-//   "Supervisor",
-//   "Management",
-//   "Team Lead",
-// ];
-
-// const ALLOWED_TEAMS = [
-//   "Design",
-//   "Sales",
-//   "Developer",
-//   "SMM",
-// ];
-
-// // ======================================================
-// // GET - ALL USERS
-// // ======================================================
-
-// export async function GET() {
-//   try {
-//     const [users] = await db.query(`
-//       SELECT
-//         id,
-//         name,
-//         email,
-//         phone,
-//         role,
-//         team,
-//         status,
-//         availability_status,
-//         status_started_at,
-//         avatar,
-//         last_login,
-//         login_time,
-//         logout_time,
-//         break_start,
-//         break_end,
-//         created_at,
-//         updated_at
-//       FROM users
-//       ORDER BY id DESC
-//     `);
-
-//     const formattedUsers = users.map((user) => ({
-//       id: user.id,
-
-//       name: user.name || "",
-
-//       email: user.email || "",
-
-//       phone: user.phone || "",
-
-//       // ==================================================
-//       // ROLE
-//       // ==================================================
-
-//       role: user.role || "agent",
-
-//       // ==================================================
-//       // TEAM
-//       // ==================================================
-
-//       team: user.team || null,
-
-//       // ==================================================
-//       // ACCOUNT STATUS
-//       // ==================================================
-
-//       status: user.status || "Active",
-
-//       // ==================================================
-//       // CURRENT / LIVE AVAILABILITY
-//       // ==================================================
-
-//       availability_status:
-//         user.availability_status ||
-//         user.status ||
-//         "Active",
-
-//       // ==================================================
-//       // STATUS TIMER
-//       // ==================================================
-
-//       status_started_at:
-//         user.status_started_at || null,
-
-//       // ==================================================
-//       // AVATAR
-//       // ==================================================
-
-//       avatar: user.avatar || null,
-
-//       // ==================================================
-//       // LOGIN INFORMATION
-//       // ==================================================
-
-//       last_login: user.last_login || null,
-
-//       login_time: user.login_time || null,
-
-//       logout_time: user.logout_time || null,
-
-//       // ==================================================
-//       // BREAK DATA
-//       // ==================================================
-
-//       break_start: user.break_start
-//         ? String(user.break_start)
-//         : null,
-
-//       break_end: user.break_end
-//         ? String(user.break_end)
-//         : null,
-
-//       // ==================================================
-//       // FRONTEND HELPER
-//       // ==================================================
-
-//       has_break:
-//         user.break_start !== null ||
-//         user.break_end !== null,
-
-//       // ==================================================
-//       // TIMESTAMPS
-//       // ==================================================
-
-//       created_at: user.created_at || null,
-
-//       updated_at: user.updated_at || null,
-//     }));
-
-//     console.log(
-//       "GET /api/new-users:",
-//       formattedUsers.map((user) => ({
-//         id: user.id,
-//         name: user.name,
-//         role: user.role,
-//         team: user.team,
-//         availability_status:
-//           user.availability_status,
-//         break_start: user.break_start,
-//         break_end: user.break_end,
-//         has_break: user.has_break,
-//       }))
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-//         users: formattedUsers,
-//       },
-//       {
-//         status: 200,
-//         headers: {
-//           "Cache-Control":
-//             "no-store, no-cache, must-revalidate, proxy-revalidate",
-//           Pragma: "no-cache",
-//           Expires: "0",
-//         },
-//       }
-//     );
-//   } catch (error) {
-//     console.error(
-//       "GET /api/new-users ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to fetch users",
-//         details:
-//           error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // ======================================================
-// // POST - CREATE NEW USER
-// // ======================================================
-
-// export async function POST(request) {
-//   try {
-//     const body = await request.json();
-
-//     const {
-//       name,
-//       email,
-//       phone,
-//       role,
-//       team,
-//       password,
-//       status,
-//       availability_status,
-//       avatar,
-//     } = body;
-
-//     // ==================================================
-//     // VALIDATION
-//     // ==================================================
-
-//     if (!name || !email || !password) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "Name, email and password are required",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // NORMALIZE ROLE / TEAM
-//     // ==================================================
-
-//     const finalRole =
-//       role && String(role).trim()
-//         ? String(role).trim()
-//         : "agent";
-
-//     const finalTeam =
-//       team && String(team).trim()
-//         ? String(team).trim()
-//         : null;
-
-//     // ==================================================
-//     // ROLE VALIDATION
-//     // ==================================================
-
-//     if (!ALLOWED_ROLES.includes(finalRole)) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "Invalid role",
-//           allowedRoles: ALLOWED_ROLES,
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // TEAM VALIDATION
-//     // ==================================================
-
-//     if (
-//       finalTeam !== null &&
-//       !ALLOWED_TEAMS.includes(finalTeam)
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "Invalid team",
-//           allowedTeams: ALLOWED_TEAMS,
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ==================================================
-//     // CHECK DUPLICATE EMAIL
-//     // ==================================================
-
-//     const [existingUsers] = await db.query(
-//       `
-//       SELECT id
-//       FROM users
-//       WHERE email = ?
-//       LIMIT 1
-//       `,
-//       [email]
-//     );
-
-//     if (existingUsers.length > 0) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error: "Email already exists",
-//         },
-//         { status: 409 }
-//       );
-//     }
-
-//     // ==================================================
-//     // DEFAULT VALUES
-//     // ==================================================
-
-//     const finalStatus =
-//       status || "Active";
-
-//     const finalAvailability =
-//       availability_status ||
-//       finalStatus;
-
-//     // ==================================================
-//     // CREATE USER
-//     // ==================================================
-
-//     const [result] = await db.query(
-//       `
-//       INSERT INTO users (
-//         name,
-//         email,
-//         phone,
-//         role,
-//         team,
-//         password,
-//         status,
-//         availability_status,
-//         status_started_at,
-//         avatar,
-//         break_start,
-//         break_end,
-//         created_at,
-//         updated_at
-//       )
-//       VALUES (
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         ?,
-//         NULL,
-//         ?,
-//         NULL,
-//         NULL,
-//         NOW(),
-//         NOW()
-//       )
-//       `,
-//       [
-//         String(name).trim(),
-
-//         String(email)
-//           .trim()
-//           .toLowerCase(),
-
-//         phone || null,
-
-//         finalRole,
-
-//         finalTeam,
-
-//         password,
-
-//         finalStatus,
-
-//         finalAvailability,
-
-//         avatar || null,
-//       ]
-//     );
-
-//     // ==================================================
-//     // GET CREATED USER
-//     // ==================================================
-
-//     const [createdUsers] =
-//       await db.query(
-//         `
-//         SELECT
-//           id,
-//           name,
-//           email,
-//           phone,
-//           role,
-//           team,
-//           status,
-//           availability_status,
-//           status_started_at,
-//           avatar,
-//           last_login,
-//           login_time,
-//           logout_time,
-//           break_start,
-//           break_end,
-//           created_at,
-//           updated_at
-//         FROM users
-//         WHERE id = ?
-//         LIMIT 1
-//         `,
-//         [result.insertId]
-//       );
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-
-//         message:
-//           "User created successfully",
-
-//         userId: result.insertId,
-
-//         user:
-//           createdUsers[0] || null,
-//       },
-//       { status: 201 }
-//     );
-//   } catch (error) {
-//     console.error(
-//       "POST /api/new-users ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to create user",
-//         details:
-//           error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // ======================================================
-// // PATCH - UPDATE USER / BREAK / LIVE STATUS
-// // ======================================================
-
-// export async function PATCH(request) {
-//   try {
-//     const body = await request.json();
-
-//     const {
-//       userId,
-//       applyAll,
-
-//       // ==================================================
-//       // BREAK
-//       // ==================================================
-
-//       break_start,
-//       break_end,
-
-//       // ==================================================
-//       // LIVE STATUS
-//       // ==================================================
-
-//       availability_status,
-//       status,
-//       status_started_at,
-
-//       // ==================================================
-//       // ROLE / TEAM
-//       // ==================================================
-
-//       role,
-//       team,
-//     } = body;
-
-//     // ==================================================
-//     // CHECK WHAT IS BEING UPDATED
-//     // ==================================================
-
-//     const hasBreakUpdate =
-//       break_start !== undefined ||
-//       break_end !== undefined;
-
-//     const hasStatusUpdate =
-//       availability_status !== undefined ||
-//       status !== undefined ||
-//       status_started_at !== undefined;
-
-//     const hasRoleTeamUpdate =
-//       role !== undefined ||
-//       team !== undefined;
-
-//     // ==================================================
-//     // NOTHING TO UPDATE
-//     // ==================================================
-
-//     if (
-//       !hasBreakUpdate &&
-//       !hasStatusUpdate &&
-//       !hasRoleTeamUpdate
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "No valid update data provided",
-//         },
-//         { status: 400 }
-//       );
-//     }
-
-//     // ======================================================
-//     // ROLE / TEAM UPDATE
-//     // ======================================================
-
-//     if (hasRoleTeamUpdate) {
-//       // --------------------------------------------------
-//       // USER ID REQUIRED
-//       // --------------------------------------------------
-
-//       if (!userId) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "userId is required",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // ROLE VALIDATION
-//       // --------------------------------------------------
-
-//       if (
-//         role !== undefined &&
-//         !ALLOWED_ROLES.includes(role)
-//       ) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "Invalid role",
-//             allowedRoles: ALLOWED_ROLES,
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // TEAM VALIDATION
-//       // --------------------------------------------------
-
-//       if (
-//         team !== undefined &&
-//         team !== null &&
-//         team !== "" &&
-//         !ALLOWED_TEAMS.includes(team)
-//       ) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "Invalid team",
-//             allowedTeams: ALLOWED_TEAMS,
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       const updates = [];
-//       const values = [];
-
-//       if (role !== undefined) {
-//         updates.push("role = ?");
-//         values.push(role);
-//       }
-
-//       if (team !== undefined) {
-//         updates.push("team = ?");
-//         values.push(team || null);
-//       }
-
-//       updates.push("updated_at = NOW()");
-
-//       values.push(userId);
-
-//       const [result] = await db.query(
-//         `
-//         UPDATE users
-//         SET ${updates.join(", ")}
-//         WHERE id = ?
-//         `,
-//         values
-//       );
-
-//       if (result.affectedRows === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "User not found",
-//           },
-//           { status: 404 }
-//         );
-//       }
-
-//       const [updatedUsers] =
-//         await db.query(
-//           `
-//           SELECT
-//             id,
-//             name,
-//             email,
-//             role,
-//             team,
-//             status,
-//             availability_status,
-//             status_started_at,
-//             break_start,
-//             break_end
-//           FROM users
-//           WHERE id = ?
-//           LIMIT 1
-//           `,
-//           [userId]
-//         );
-
-//       return NextResponse.json({
-//         success: true,
-//         message:
-//           "User role/team updated successfully",
-//         user:
-//           updatedUsers[0] || null,
-//       });
-//     }
-
-//     // ======================================================
-//     // BREAK UPDATE
-//     // ======================================================
-
-//     if (hasBreakUpdate) {
-//       // --------------------------------------------------
-//       // APPLY BREAK TO ALL USERS
-//       // --------------------------------------------------
-
-//       if (applyAll === true) {
-//         await db.query(
-//           `
-//           UPDATE users
-//           SET
-//             break_start = ?,
-//             break_end = ?,
-//             updated_at = NOW()
-//           `,
-//           [
-//             break_start || null,
-//             break_end || null,
-//           ]
-//         );
-
-//         return NextResponse.json({
-//           success: true,
-//           message:
-//             "Break updated for all users",
-//         });
-//       }
-
-//       // --------------------------------------------------
-//       // SINGLE USER
-//       // --------------------------------------------------
-
-//       if (!userId) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "userId is required",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       const [result] = await db.query(
-//         `
-//         UPDATE users
-//         SET
-//           break_start = ?,
-//           break_end = ?,
-//           updated_at = NOW()
-//         WHERE id = ?
-//         `,
-//         [
-//           break_start || null,
-//           break_end || null,
-//           userId,
-//         ]
-//       );
-
-//       if (result.affectedRows === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "User not found",
-//           },
-//           { status: 404 }
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // GET UPDATED USER
-//       // --------------------------------------------------
-
-//       const [updatedUsers] =
-//         await db.query(
-//           `
-//           SELECT
-//             id,
-//             name,
-//             role,
-//             team,
-//             break_start,
-//             break_end,
-//             availability_status,
-//             status_started_at
-//           FROM users
-//           WHERE id = ?
-//           LIMIT 1
-//           `,
-//           [userId]
-//         );
-
-//       return NextResponse.json({
-//         success: true,
-//         message:
-//           "Break updated successfully",
-//         user:
-//           updatedUsers[0] || null,
-//       });
-//     }
-
-//     // ======================================================
-//     // LIVE AVAILABILITY / STATUS UPDATE
-//     // ======================================================
-
-//     if (hasStatusUpdate) {
-//       // --------------------------------------------------
-//       // USER ID
-//       // --------------------------------------------------
-
-//       if (!userId) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "userId is required",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       const updates = [];
-//       const values = [];
-
-//       // --------------------------------------------------
-//       // AVAILABILITY
-//       // --------------------------------------------------
-
-//       if (
-//         availability_status !== undefined
-//       ) {
-//         updates.push(
-//           "availability_status = ?"
-//         );
-
-//         values.push(
-//           availability_status
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // MAIN STATUS
-//       // --------------------------------------------------
-
-//       if (status !== undefined) {
-//         updates.push("status = ?");
-//         values.push(status);
-//       }
-
-//       // --------------------------------------------------
-//       // STATUS STARTED TIME
-//       // --------------------------------------------------
-
-//       if (
-//         status_started_at !== undefined
-//       ) {
-//         updates.push(
-//           "status_started_at = ?"
-//         );
-
-//         values.push(
-//           status_started_at || null
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // NOTHING TO UPDATE
-//       // --------------------------------------------------
-
-//       if (updates.length === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "Nothing to update",
-//           },
-//           { status: 400 }
-//         );
-//       }
-
-//       updates.push("updated_at = NOW()");
-
-//       values.push(userId);
-
-//       // --------------------------------------------------
-//       // UPDATE
-//       // --------------------------------------------------
-
-//       const [result] = await db.query(
-//         `
-//         UPDATE users
-//         SET ${updates.join(", ")}
-//         WHERE id = ?
-//         `,
-//         values
-//       );
-
-//       if (result.affectedRows === 0) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             error: "User not found",
-//           },
-//           { status: 404 }
-//         );
-//       }
-
-//       // --------------------------------------------------
-//       // GET UPDATED USER
-//       // --------------------------------------------------
-
-//       const [updatedUsers] =
-//         await db.query(
-//           `
-//           SELECT
-//             id,
-//             name,
-//             role,
-//             team,
-//             status,
-//             availability_status,
-//             status_started_at,
-//             break_start,
-//             break_end
-//           FROM users
-//           WHERE id = ?
-//           LIMIT 1
-//           `,
-//           [userId]
-//         );
-
-//       return NextResponse.json({
-//         success: true,
-//         message:
-//           "User status updated successfully",
-//         user:
-//           updatedUsers[0] || null,
-//       });
-//     }
-
-//     // ======================================================
-//     // FALLBACK
-//     // ======================================================
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error:
-//           "No valid update data provided",
-//       },
-//       { status: 400 }
-//     );
-//   } catch (error) {
-//     console.error(
-//       "PATCH /api/new-users ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-//         error: "Failed to update user",
-//         details:
-//           error?.message || "Unknown error",
-//       },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { NextResponse } from "next/server";
 import db from "../../lib/db";
+import bcrypt from "bcryptjs";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
 
-// ======================================================
-// ALLOWED ROLES & TEAMS
-// ======================================================
+export const runtime = "nodejs";
+
+/*
+=========================================================
+CONFIG
+=========================================================
+*/
 
 const ALLOWED_ROLES = [
   "agent",
+  "staff",
+  "admin",
   "HR",
   "Supervisor",
   "Management",
   "Team Lead",
-  "staff",
 ];
 
 const ALLOWED_TEAMS = [
@@ -2199,20 +31,48 @@ const ALLOWED_TEAMS = [
   "Supervisor",
   "Management",
   "Team Lead",
+  "Support",
+  "Marketing",
 ];
 
-// ======================================================
-// GET - ALL USERS
-// ======================================================
+/*
+=========================================================
+HELPERS
+=========================================================
+*/
+
+function cleanString(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function jsonResponse(data, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+/*
+=========================================================
+GET USERS
+=========================================================
+*/
 
 export async function GET() {
   try {
-    const [users] = await db.query(`
+    const [rows] = await db.query(`
       SELECT
         id,
         name,
         email,
         phone,
+        zoom_extension,
         role,
         team,
         status,
@@ -2230,333 +90,377 @@ export async function GET() {
       ORDER BY id DESC
     `);
 
-    const formattedUsers = users.map((user) => ({
-      id: user.id,
-
-      name: user.name || "",
-
-      email: user.email || "",
-
-      phone: user.phone || "",
-
-      // ==================================================
-      // ROLE
-      // ==================================================
-
-      role: user.role || "agent",
-
-      // ==================================================
-      // TEAM
-      // ==================================================
-
-      team: user.team || null,
-
-      // ==================================================
-      // ACCOUNT STATUS
-      // ==================================================
-
-      status: user.status || "Active",
-
-      // ==================================================
-      // CURRENT / LIVE AVAILABILITY
-      // ==================================================
-
-      availability_status:
-        user.availability_status ||
-        user.status ||
-        "Active",
-
-      // ==================================================
-      // STATUS TIMER
-      // ==================================================
-
-      status_started_at:
-        user.status_started_at || null,
-
-      // ==================================================
-      // AVATAR
-      // ==================================================
-
-      avatar: user.avatar || null,
-
-      // ==================================================
-      // LOGIN INFORMATION
-      // ==================================================
-
-      last_login: user.last_login || null,
-
-      login_time: user.login_time || null,
-
-      logout_time: user.logout_time || null,
-
-      // ==================================================
-      // BREAK DATA
-      // ==================================================
-
-      break_start: user.break_start
-        ? String(user.break_start)
-        : null,
-
-      break_end: user.break_end
-        ? String(user.break_end)
-        : null,
-
-      // ==================================================
-      // FRONTEND HELPER
-      // ==================================================
-
-      has_break:
-        user.break_start !== null ||
-        user.break_end !== null,
-
-      // ==================================================
-      // TIMESTAMPS
-      // ==================================================
-
-      created_at: user.created_at || null,
-
-      updated_at: user.updated_at || null,
-    }));
-
-    // console.log(
-    //   "GET /api/new-users:",
-    //   formattedUsers.map((user) => ({
-    //     id: user.id,
-    //     name: user.name,
-    //     role: user.role,
-    //     team: user.team,
-    //     availability_status:
-    //       user.availability_status,
-    //     break_start: user.break_start,
-    //     break_end: user.break_end,
-    //     has_break: user.has_break,
-    //   }))
-    // );
-
-    return NextResponse.json(
-      {
-        success: true,
-        users: formattedUsers,
-      },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control":
-            "no-store, no-cache, must-revalidate, proxy-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-      }
-    );
+    return jsonResponse({
+      success: true,
+      users: rows,
+    });
   } catch (error) {
-    console.error(
-      "GET /api/new-users ERROR:",
-      error
-    );
+    console.error("GET /api/new-users ERROR:", error);
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: false,
-        error: "Failed to fetch users",
-        details:
-          error?.message || "Unknown error",
+        message: error?.message || "Failed to fetch users",
+        error: error?.sqlMessage || error?.message || "Unknown database error",
+        code: error?.code || null,
       },
-      { status: 500 }
+      500
     );
   }
 }
 
-// ======================================================
-// POST - CREATE NEW USER
-// ======================================================
+/*
+=========================================================
+POST - CREATE USER
+=========================================================
+*/
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+    let name = "";
+    let email = "";
+    let phone = "";
+    let zoom_extension = "";
+    let role = "";
+    let team = "";
+    let password = "";
+    let status = "Active";
+    let availability_status = "Active";
+    let avatarPath = null;
+    let avatarFile = null;
 
-    const {
-      name,
-      email,
-      phone,
-      role,
-      team,
-      password,
-      status,
-      availability_status,
-      avatar,
-    } = body;
+    /*
+    -------------------------------------------------------
+    SUPPORT BOTH:
+    1. multipart/form-data
+    2. application/json
+    -------------------------------------------------------
+    */
 
-    // ==================================================
-    // VALIDATION
-    // ==================================================
+    const contentType = request.headers.get("content-type") || "";
 
-    if (!name || !email || !password) {
-      return NextResponse.json(
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+
+      name = cleanString(
+        formData.get("name") || formData.get("fullName")
+      );
+
+      email = cleanString(formData.get("email"));
+      phone = cleanString(formData.get("phone"));
+
+      zoom_extension = cleanString(
+        formData.get("zoom_extension") ||
+        formData.get("zoomExtension")
+      );
+
+      role = cleanString(formData.get("role"));
+      team = cleanString(formData.get("team"));
+      password = cleanString(formData.get("password"));
+
+      status = cleanString(formData.get("status")) || "Active";
+
+      availability_status =
+        cleanString(formData.get("availability_status")) || "Active";
+
+      const uploadedAvatar = formData.get("avatar");
+
+      if (
+        uploadedAvatar &&
+        typeof uploadedAvatar === "object" &&
+        typeof uploadedAvatar.arrayBuffer === "function"
+      ) {
+        avatarFile = uploadedAvatar;
+      }
+    } else {
+      const body = await request.json();
+
+      name = cleanString(body.name || body.fullName);
+      email = cleanString(body.email);
+      phone = cleanString(body.phone);
+
+      zoom_extension = cleanString(
+        body.zoom_extension || body.zoomExtension
+      );
+
+      role = cleanString(body.role);
+      team = cleanString(body.team);
+      password = cleanString(body.password);
+
+      status = cleanString(body.status) || "Active";
+
+      availability_status =
+        cleanString(body.availability_status) || "Active";
+
+      if (body.avatar) {
+        avatarPath = cleanString(body.avatar) || null;
+      }
+    }
+
+    /*
+    -------------------------------------------------------
+    VALIDATION
+    -------------------------------------------------------
+    */
+
+    if (!name) {
+      return jsonResponse(
         {
           success: false,
-          error:
-            "Name, email and password are required",
+          message: "Full name is required",
         },
-        { status: 400 }
+        400
       );
     }
 
-    // ==================================================
-    // NORMALIZE ROLE / TEAM
-    // ==================================================
-
-    const finalRole =
-      role && String(role).trim()
-        ? String(role).trim()
-        : "agent";
-
-    const finalTeam =
-      team && String(team).trim()
-        ? String(team).trim()
-        : null;
-
-    // ==================================================
-    // ROLE VALIDATION
-    // ==================================================
-
-    if (!ALLOWED_ROLES.includes(finalRole)) {
-      return NextResponse.json(
+    if (!email) {
+      return jsonResponse(
         {
           success: false,
-          error: "Invalid role",
+          message: "Email is required",
+        },
+        400
+      );
+    }
+
+    if (!password) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "Password is required",
+        },
+        400
+      );
+    }
+
+    if (password.length < 6) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "Password must be at least 6 characters",
+        },
+        400
+      );
+    }
+
+    const emailRegex =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(email)) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "Please enter a valid email address",
+        },
+        400
+      );
+    }
+
+    if (!role) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "Role is required",
+        },
+        400
+      );
+    }
+
+    if (!team) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "Team is required",
+        },
+        400
+      );
+    }
+
+    if (!ALLOWED_ROLES.includes(role)) {
+      return jsonResponse(
+        {
+          success: false,
+          message: `Invalid role: ${role}`,
           allowedRoles: ALLOWED_ROLES,
         },
-        { status: 400 }
+        400
       );
     }
 
-    // ==================================================
-    // TEAM VALIDATION
-    // ==================================================
-
-    if (
-      finalTeam !== null &&
-      !ALLOWED_TEAMS.includes(finalTeam)
-    ) {
-      return NextResponse.json(
+    if (!ALLOWED_TEAMS.includes(team)) {
+      return jsonResponse(
         {
           success: false,
-          error: "Invalid team",
+          message: `Invalid team: ${team}`,
           allowedTeams: ALLOWED_TEAMS,
         },
-        { status: 400 }
+        400
       );
     }
 
-    // ==================================================
-    // CHECK DUPLICATE EMAIL
-    // ==================================================
+    /*
+    -------------------------------------------------------
+    CHECK DUPLICATE EMAIL
+    -------------------------------------------------------
+    */
 
     const [existingUsers] = await db.query(
       `
-      SELECT id
-      FROM users
-      WHERE email = ?
-      LIMIT 1
+        SELECT id
+        FROM users
+        WHERE LOWER(email) = LOWER(?)
+        LIMIT 1
       `,
       [email]
     );
 
     if (existingUsers.length > 0) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           success: false,
-          error: "Email already exists",
+          message: "A user with this email already exists",
         },
-        { status: 409 }
+        409
       );
     }
 
-    // ==================================================
-    // DEFAULT VALUES
-    // ==================================================
+    /*
+    -------------------------------------------------------
+    PASSWORD HASH
+    -------------------------------------------------------
+    IMPORTANT:
+    Database column is password_hash
+    NOT password
+    -------------------------------------------------------
+    */
 
-    const finalStatus =
-      status || "Active";
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const finalAvailability =
-      availability_status ||
-      finalStatus;
+    /*
+    -------------------------------------------------------
+    AVATAR UPLOAD
+    -------------------------------------------------------
+    */
 
-    // ==================================================
-    // CREATE USER
-    // ==================================================
+    if (avatarFile) {
+      const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+
+      if (avatarFile.size > MAX_FILE_SIZE) {
+        return jsonResponse(
+          {
+            success: false,
+            message: "Avatar image must be less than 2MB",
+          },
+          400
+        );
+      }
+
+      const uploadsDir = path.join(
+        process.cwd(),
+        "public",
+        "uploads"
+      );
+
+      await mkdir(uploadsDir, {
+        recursive: true,
+      });
+
+      const originalName =
+        cleanString(avatarFile.name) || "avatar";
+
+      const safeName = originalName
+        .replace(/[^a-zA-Z0-9._-]/g, "-")
+        .replace(/-+/g, "-");
+
+      const fileName = `${Date.now()}-${safeName}`;
+
+      const filePath = path.join(
+        uploadsDir,
+        fileName
+      );
+
+      const buffer = Buffer.from(
+        await avatarFile.arrayBuffer()
+      );
+
+      await writeFile(filePath, buffer);
+
+      avatarPath = `/uploads/${fileName}`;
+    }
+
+    /*
+    -------------------------------------------------------
+    CREATE USER
+    -------------------------------------------------------
+    */
 
     const [result] = await db.query(
       `
-      INSERT INTO users (
-        name,
-        email,
-        phone,
-        role,
-        team,
-        password,
-        status,
-        availability_status,
-        status_started_at,
-        avatar,
-        break_start,
-        break_end,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        ?,
-        NULL,
-        ?,
-        NULL,
-        NULL,
-        NOW(),
-        NOW()
-      )
+        INSERT INTO users
+        (
+          name,
+          email,
+          phone,
+          zoom_extension,
+          role,
+          team,
+          password_hash,
+          status,
+          availability_status,
+          status_started_at,
+          avatar,
+          break_start,
+          break_end,
+          created_at,
+          updated_at
+        )
+        VALUES
+        (
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          NULL,
+          ?,
+          NULL,
+          NULL,
+          NOW(),
+          NOW()
+        )
       `,
       [
-        String(name).trim(),
-
-        String(email)
-          .trim()
-          .toLowerCase(),
-
+        name,
+        email,
         phone || null,
-
-        finalRole,
-
-        finalTeam,
-
-        password,
-
-        finalStatus,
-
-        finalAvailability,
-
-        avatar || null,
+        zoom_extension || null,
+        role,
+        team,
+        hashedPassword,
+        status || "Active",
+        availability_status || "Active",
+        avatarPath,
       ]
     );
 
-    // ==================================================
-    // GET CREATED USER
-    // ==================================================
+    /*
+    -------------------------------------------------------
+    GET CREATED USER
+    -------------------------------------------------------
+    */
 
-    const [createdUsers] =
-      await db.query(
-        `
+    const [createdRows] = await db.query(
+      `
         SELECT
           id,
           name,
           email,
           phone,
+          zoom_extension,
           role,
           team,
           status,
@@ -2573,23 +477,28 @@ export async function POST(request) {
         FROM users
         WHERE id = ?
         LIMIT 1
-        `,
-        [result.insertId]
-      );
+      `,
+      [result.insertId]
+    );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: true,
-
-        message:
-          "User created successfully",
-
-        userId: result.insertId,
-
-        user:
-          createdUsers[0] || null,
+        message: "User created successfully",
+        user: createdRows[0] || {
+          id: result.insertId,
+          name,
+          email,
+          phone,
+          zoom_extension,
+          role,
+          team,
+          status,
+          availability_status,
+          avatar: avatarPath,
+        },
       },
-      { status: 201 }
+      201
     );
   } catch (error) {
     console.error(
@@ -2597,479 +506,346 @@ export async function POST(request) {
       error
     );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: false,
-        error: "Failed to create user",
-        details:
-          error?.message || "Unknown error",
+        message:
+          error?.sqlMessage ||
+          error?.message ||
+          "Failed to create user",
+        error:
+          error?.sqlMessage ||
+          error?.message ||
+          "Unknown database error",
+        code: error?.code || null,
+        errno: error?.errno || null,
+        sqlState: error?.sqlState || null,
       },
-      { status: 500 }
+      500
     );
   }
 }
 
-// ======================================================
-// PATCH - UPDATE USER / BREAK / LIVE STATUS
-// ======================================================
+/*
+=========================================================
+PATCH - UPDATE USER
+=========================================================
+*/
 
 export async function PATCH(request) {
   try {
     const body = await request.json();
 
-    const {
-      userId,
-      applyAll,
+    const id = Number(body.id);
 
-      // ==================================================
-      // BREAK
-      // ==================================================
-
-      break_start,
-      break_end,
-
-      // ==================================================
-      // LIVE STATUS
-      // ==================================================
-
-      availability_status,
-      status,
-      status_started_at,
-
-      // ==================================================
-      // ROLE / TEAM
-      // ==================================================
-
-      role,
-      team,
-    } = body;
-
-    // ==================================================
-    // CHECK WHAT IS BEING UPDATED
-    // ==================================================
-
-    const hasBreakUpdate =
-      break_start !== undefined ||
-      break_end !== undefined;
-
-    const hasStatusUpdate =
-      availability_status !== undefined ||
-      status !== undefined ||
-      status_started_at !== undefined;
-
-    const hasRoleTeamUpdate =
-      role !== undefined ||
-      team !== undefined;
-
-    // ==================================================
-    // NOTHING TO UPDATE
-    // ==================================================
-
-    if (
-      !hasBreakUpdate &&
-      !hasStatusUpdate &&
-      !hasRoleTeamUpdate
-    ) {
-      return NextResponse.json(
+    if (!id) {
+      return jsonResponse(
         {
           success: false,
-          error:
-            "No valid update data provided",
+          message: "User ID is required",
         },
-        { status: 400 }
+        400
       );
     }
 
-    // ======================================================
-    // ROLE / TEAM UPDATE
-    // ======================================================
+    /*
+    -------------------------------------------------------
+    GET EXISTING USER
+    -------------------------------------------------------
+    */
 
-    if (hasRoleTeamUpdate) {
-      // --------------------------------------------------
-      // USER ID REQUIRED
-      // --------------------------------------------------
-
-      if (!userId) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "userId is required",
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------------------------
-      // ROLE VALIDATION
-      // --------------------------------------------------
-
-      if (
-        role !== undefined &&
-        !ALLOWED_ROLES.includes(role)
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Invalid role",
-            allowedRoles: ALLOWED_ROLES,
-          },
-          { status: 400 }
-        );
-      }
-
-      // --------------------------------------------------
-      // TEAM VALIDATION
-      // --------------------------------------------------
-
-      if (
-        team !== undefined &&
-        team !== null &&
-        team !== "" &&
-        !ALLOWED_TEAMS.includes(team)
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Invalid team",
-            allowedTeams: ALLOWED_TEAMS,
-          },
-          { status: 400 }
-        );
-      }
-
-      const updates = [];
-      const values = [];
-
-      // --------------------------------------------------
-      // ROLE
-      // --------------------------------------------------
-
-      if (role !== undefined) {
-        updates.push("role = ?");
-        values.push(role);
-      }
-
-      // --------------------------------------------------
-      // TEAM
-      // --------------------------------------------------
-
-      if (team !== undefined) {
-        updates.push("team = ?");
-        values.push(team || null);
-      }
-
-      updates.push("updated_at = NOW()");
-
-      values.push(userId);
-
-      // --------------------------------------------------
-      // UPDATE DATABASE
-      // --------------------------------------------------
-
-      const [result] = await db.query(
-        `
-        UPDATE users
-        SET ${updates.join(", ")}
+    const [existingRows] = await db.query(
+      `
+        SELECT
+          id,
+          role,
+          team,
+          zoom_extension,
+          status,
+          availability_status,
+          break_start,
+          break_end
+        FROM users
         WHERE id = ?
-        `,
-        values
+        LIMIT 1
+      `,
+      [id]
+    );
+
+    if (!existingRows.length) {
+      return jsonResponse(
+        {
+          success: false,
+          message: "User not found",
+        },
+        404
+      );
+    }
+
+    const existingUser = existingRows[0];
+
+    /*
+    =======================================================
+    ROLE / TEAM / ZOOM UPDATE
+    =======================================================
+    */
+
+    const hasRole =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "role"
       );
 
-      if (result.affectedRows === 0) {
-        return NextResponse.json(
+    const hasTeam =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "team"
+      );
+
+    const hasZoom =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "zoom_extension"
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "zoomExtension"
+      );
+
+    if (hasRole || hasTeam || hasZoom) {
+      const role = hasRole
+        ? cleanString(body.role)
+        : existingUser.role;
+
+      const team = hasTeam
+        ? cleanString(body.team)
+        : existingUser.team;
+
+      const zoom_extension = hasZoom
+        ? cleanString(
+            body.zoom_extension ||
+            body.zoomExtension
+          )
+        : existingUser.zoom_extension;
+
+      if (!ALLOWED_ROLES.includes(role)) {
+        return jsonResponse(
           {
             success: false,
-            error: "User not found",
+            message: `Invalid role: ${role}`,
+            allowedRoles: ALLOWED_ROLES,
           },
-          { status: 404 }
+          400
         );
       }
 
-      // --------------------------------------------------
-      // GET UPDATED USER
-      // --------------------------------------------------
-
-      const [updatedUsers] =
-        await db.query(
-          `
-          SELECT
-            id,
-            name,
-            email,
-            role,
-            team,
-            status,
-            availability_status,
-            status_started_at,
-            break_start,
-            break_end
-          FROM users
-          WHERE id = ?
-          LIMIT 1
-          `,
-          [userId]
+      if (!ALLOWED_TEAMS.includes(team)) {
+        return jsonResponse(
+          {
+            success: false,
+            message: `Invalid team: ${team}`,
+            allowedTeams: ALLOWED_TEAMS,
+          },
+          400
         );
+      }
 
-      return NextResponse.json({
+      await db.query(
+        `
+          UPDATE users
+          SET
+            role = ?,
+            team = ?,
+            zoom_extension = ?,
+            updated_at = NOW()
+          WHERE id = ?
+        `,
+        [
+          role,
+          team,
+          zoom_extension || null,
+          id,
+        ]
+      );
+
+      return jsonResponse({
         success: true,
-        message:
-          "User role/team updated successfully",
-        user:
-          updatedUsers[0] || null,
+        message: "User updated successfully",
       });
     }
 
-    // ======================================================
-    // BREAK UPDATE
-    // ======================================================
+    /*
+    =======================================================
+    BREAK UPDATE
+    =======================================================
+    */
 
-    if (hasBreakUpdate) {
-      // --------------------------------------------------
-      // APPLY BREAK TO ALL USERS
-      // --------------------------------------------------
+    const hasBreakStart =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "break_start"
+      );
 
-      if (applyAll === true) {
-        await db.query(
-          `
+    const hasBreakEnd =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "break_end"
+      );
+
+    if (hasBreakStart || hasBreakEnd) {
+      const breakStart = hasBreakStart
+        ? body.break_start || null
+        : existingUser.break_start;
+
+      const breakEnd = hasBreakEnd
+        ? body.break_end || null
+        : existingUser.break_end;
+
+      await db.query(
+        `
           UPDATE users
           SET
             break_start = ?,
             break_end = ?,
             updated_at = NOW()
-          `,
-          [
-            break_start || null,
-            break_end || null,
-          ]
-        );
-
-        return NextResponse.json({
-          success: true,
-          message:
-            "Break updated for all users",
-        });
-      }
-
-      // --------------------------------------------------
-      // SINGLE USER
-      // --------------------------------------------------
-
-      if (!userId) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "userId is required",
-          },
-          { status: 400 }
-        );
-      }
-
-      const [result] = await db.query(
-        `
-        UPDATE users
-        SET
-          break_start = ?,
-          break_end = ?,
-          updated_at = NOW()
-        WHERE id = ?
+          WHERE id = ?
         `,
         [
-          break_start || null,
-          break_end || null,
-          userId,
+          breakStart,
+          breakEnd,
+          id,
         ]
       );
 
-      if (result.affectedRows === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "User not found",
-          },
-          { status: 404 }
-        );
-      }
-
-      // --------------------------------------------------
-      // GET UPDATED USER
-      // --------------------------------------------------
-
-      const [updatedUsers] =
-        await db.query(
-          `
-          SELECT
-            id,
-            name,
-            role,
-            team,
-            break_start,
-            break_end,
-            availability_status,
-            status_started_at
-          FROM users
-          WHERE id = ?
-          LIMIT 1
-          `,
-          [userId]
-        );
-
-      return NextResponse.json({
+      return jsonResponse({
         success: true,
-        message:
-          "Break updated successfully",
-        user:
-          updatedUsers[0] || null,
+        message: "Break updated successfully",
       });
     }
 
-    // ======================================================
-    // LIVE AVAILABILITY / STATUS UPDATE
-    // ======================================================
+    /*
+    =======================================================
+    STATUS UPDATE
+    =======================================================
+    */
 
-    if (hasStatusUpdate) {
-      // --------------------------------------------------
-      // USER ID REQUIRED
-      // --------------------------------------------------
-
-      if (!userId) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "userId is required",
-          },
-          { status: 400 }
-        );
-      }
-
-      const updates = [];
-      const values = [];
-
-      // --------------------------------------------------
-      // AVAILABILITY
-      // --------------------------------------------------
-
-      if (
-        availability_status !== undefined
-      ) {
-        updates.push(
-          "availability_status = ?"
-        );
-
-        values.push(
-          availability_status
-        );
-      }
-
-      // --------------------------------------------------
-      // MAIN STATUS
-      // --------------------------------------------------
-
-      if (status !== undefined) {
-        updates.push("status = ?");
-        values.push(status);
-      }
-
-      // --------------------------------------------------
-      // STATUS STARTED TIME
-      // --------------------------------------------------
-
-      if (
-        status_started_at !== undefined
-      ) {
-        updates.push(
-          "status_started_at = ?"
-        );
-
-        values.push(
-          status_started_at || null
-        );
-      }
-
-      // --------------------------------------------------
-      // NOTHING TO UPDATE
-      // --------------------------------------------------
-
-      if (updates.length === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Nothing to update",
-          },
-          { status: 400 }
-        );
-      }
-
-      updates.push("updated_at = NOW()");
-
-      values.push(userId);
-
-      // --------------------------------------------------
-      // UPDATE DATABASE
-      // --------------------------------------------------
-
-      const [result] = await db.query(
-        `
-        UPDATE users
-        SET ${updates.join(", ")}
-        WHERE id = ?
-        `,
-        values
+    const hasStatus =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "status"
       );
 
-      if (result.affectedRows === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "User not found",
-          },
-          { status: 404 }
-        );
-      }
+    const hasAvailabilityStatus =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "availability_status"
+      );
 
-      // --------------------------------------------------
-      // GET UPDATED USER
-      // --------------------------------------------------
+    if (hasStatus || hasAvailabilityStatus) {
+      const newStatus = hasStatus
+        ? cleanString(body.status)
+        : existingUser.status;
 
-      const [updatedUsers] =
-        await db.query(
-          `
-          SELECT
-            id,
-            name,
-            role,
-            team,
-            status,
-            availability_status,
-            status_started_at,
-            break_start,
-            break_end
-          FROM users
+      const newAvailabilityStatus =
+        hasAvailabilityStatus
+          ? cleanString(body.availability_status)
+          : existingUser.availability_status;
+
+      await db.query(
+        `
+          UPDATE users
+          SET
+            status = ?,
+            availability_status = ?,
+            status_started_at = NOW(),
+            updated_at = NOW()
           WHERE id = ?
-          LIMIT 1
-          `,
-          [userId]
-        );
+        `,
+        [
+          newStatus || "Active",
+          newAvailabilityStatus || "Active",
+          id,
+        ]
+      );
 
-      return NextResponse.json({
+      return jsonResponse({
         success: true,
-        message:
-          "User status updated successfully",
-        user:
-          updatedUsers[0] || null,
+        message: "Status updated successfully",
       });
     }
 
-    // ======================================================
-    // FALLBACK
-    // ======================================================
+    /*
+    =======================================================
+    PASSWORD UPDATE
+    =======================================================
+    */
 
-    return NextResponse.json(
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "password"
+      )
+    ) {
+      const newPassword = cleanString(
+        body.password
+      );
+
+      if (!newPassword) {
+        return jsonResponse(
+          {
+            success: false,
+            message: "Password cannot be empty",
+          },
+          400
+        );
+      }
+
+      if (newPassword.length < 6) {
+        return jsonResponse(
+          {
+            success: false,
+            message:
+              "Password must be at least 6 characters",
+          },
+          400
+        );
+      }
+
+      const hashedPassword =
+        await bcrypt.hash(newPassword, 10);
+
+      await db.query(
+        `
+          UPDATE users
+          SET
+            password_hash = ?,
+            updated_at = NOW()
+          WHERE id = ?
+        `,
+        [
+          hashedPassword,
+          id,
+        ]
+      );
+
+      return jsonResponse({
+        success: true,
+        message: "Password updated successfully",
+      });
+    }
+
+    /*
+    =======================================================
+    NOTHING TO UPDATE
+    =======================================================
+    */
+
+    return jsonResponse(
       {
         success: false,
-        error:
-          "No valid update data provided",
+        message: "No valid update fields provided",
       },
-      { status: 400 }
+      400
     );
   } catch (error) {
     console.error(
@@ -3077,14 +853,22 @@ export async function PATCH(request) {
       error
     );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: false,
-        error: "Failed to update user",
-        details:
-          error?.message || "Unknown error",
+        message:
+          error?.sqlMessage ||
+          error?.message ||
+          "Failed to update user",
+        error:
+          error?.sqlMessage ||
+          error?.message ||
+          "Unknown database error",
+        code: error?.code || null,
+        errno: error?.errno || null,
+        sqlState: error?.sqlState || null,
       },
-      { status: 500 }
+      500
     );
   }
 }

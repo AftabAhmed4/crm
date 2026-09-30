@@ -1564,19 +1564,25 @@ useEffect(() => {
 
                               <div className="flex items-center gap-3">
 
-                                <div
-                                  className="w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-sm"
-                                  style={{
-                                    backgroundColor: `${RED}12`,
-                                    color: RED,
-                                  }}
-                                >
-                                  {String(
-                                    user?.name || "U"
-                                  )
-                                    .charAt(0)
-                                    .toUpperCase()}
-                                </div>
+                              <div
+  className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center font-extrabold text-sm shrink-0"
+  style={{
+    backgroundColor: `${RED}12`,
+    color: RED,
+  }}
+>
+  {user?.avatar ? (
+    <img
+      src={user.avatar}
+      alt={user?.name || "User"}
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    String(user?.name || "U")
+      .charAt(0)
+      .toUpperCase()
+  )}
+</div>
 
                                 <div className="min-w-0">
 
@@ -1811,20 +1817,25 @@ useEffect(() => {
 
                           <div className="flex items-center gap-3 min-w-0">
 
-                            <div
-                              className="w-11 h-11 rounded-xl flex items-center justify-center font-extrabold text-sm shrink-0"
-                              style={{
-                                backgroundColor: `${RED}12`,
-                                color: RED,
-                              }}
-                            >
-                              {String(
-                                user?.name || "U"
-                              )
-                                .charAt(0)
-                                .toUpperCase()}
-                            </div>
-
+                          <div
+  className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center font-extrabold text-sm shrink-0"
+  style={{
+    backgroundColor: `${RED}12`,
+    color: RED,
+  }}
+>
+  {user?.avatar ? (
+    <img
+      src={user.avatar}
+      alt={user?.name || "User"}
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    String(user?.name || "U")
+      .charAt(0)
+      .toUpperCase()
+  )}
+</div>
                             <div className="min-w-0">
 
                               <div className="font-bold text-sm text-gray-900 truncate">

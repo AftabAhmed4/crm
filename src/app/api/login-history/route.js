@@ -29,7 +29,12 @@ async function getCurrentUser() {
       process.env.JWT_SECRET
     );
 
-    if (!decoded?.id) {
+    const userId =
+      decoded?.id ??
+      decoded?._id ??
+      decoded?.userId;
+
+    if (!userId) {
       return null;
     }
 
@@ -47,7 +52,7 @@ async function getCurrentUser() {
       WHERE id = ?
       LIMIT 1
       `,
-      [decoded.id]
+      [userId]
     );
 
     if (!rows || !rows.length) {
@@ -88,9 +93,8 @@ function isValidDate(value) {
     return false;
   }
 
-  const [year, month, day] = input
-    .split("-")
-    .map(Number);
+  const [year, month, day] =
+    input.split("-").map(Number);
 
   const date = new Date(
     Date.UTC(year, month - 1, day)
@@ -184,7 +188,8 @@ function getDayInfo(dateString) {
     `${dateString}T00:00:00Z`
   );
 
-  const dayNumber = date.getUTCDay();
+  const dayNumber =
+    date.getUTCDay();
 
   const names = [
     "Sunday",
@@ -305,13 +310,15 @@ function getAttendanceStatus(loginTime) {
     return "Absent";
   }
 
-  const loginSeconds = timeToSeconds(
-    normalized.slice(11, 19)
-  );
+  const loginSeconds =
+    timeToSeconds(
+      normalized.slice(11, 19)
+    );
 
-  const cutoffSeconds = timeToSeconds(
-    ATTENDANCE_CUTOFF
-  );
+  const cutoffSeconds =
+    timeToSeconds(
+      ATTENDANCE_CUTOFF
+    );
 
   if (
     loginSeconds === null ||
@@ -357,13 +364,15 @@ function getDurationSeconds(
     `${logout.slice(0, 10)}T00:00:00Z`
   );
 
-  const startTime = timeToSeconds(
-    login.slice(11, 19)
-  );
+  const startTime =
+    timeToSeconds(
+      login.slice(11, 19)
+    );
 
-  const endTime = timeToSeconds(
-    logout.slice(11, 19)
-  );
+  const endTime =
+    timeToSeconds(
+      logout.slice(11, 19)
+    );
 
   if (
     Number.isNaN(startDay.getTime()) ||
@@ -396,35 +405,25 @@ GET - ATTENDANCE
 =========================================================
 
 ADMIN:
+- All users
+- Specific user
+- Specific team
+- User + team
+- Absent users included
 
-?user_id=5
-    -> only user 5
+NORMAL:
+- Own user only
 
-?team=Sales
-    -> only Sales
-
-?user_id=5&team=Sales
-    -> user 5 AND Sales
-
-No filters:
-    -> all users
-
-NORMAL USER:
-
-Always only own user_id.
-User cannot access another user's records.
+WEEKENDS:
+- OFF
+- Never Absent
 =========================================================
 */
 
 export async function GET(request) {
   try {
-    /*
-    =======================================================
-    AUTH
-    =======================================================
-    */
-
-    const user = await getCurrentUser();
+    const user =
+      await getCurrentUser();
 
     if (!user) {
       return NextResponse.json(
@@ -432,19 +431,12 @@ export async function GET(request) {
           success: false,
           message: "Unauthorized",
         },
-        {
-          status: 401,
-        }
+        { status: 401 }
       );
     }
 
-    const admin = isAdmin(user);
-
-    /*
-    =======================================================
-    QUERY PARAMS
-    =======================================================
-    */
+    const admin =
+      isAdmin(user);
 
     const { searchParams } =
       new URL(request.url);
@@ -468,7 +460,9 @@ export async function GET(request) {
     */
 
     if (!from && !to) {
-      from = getCaliforniaToday();
+      from =
+        getCaliforniaToday();
+
       to = from;
     }
 
@@ -482,7 +476,7 @@ export async function GET(request) {
 
     /*
     =======================================================
-    VALID DATE
+    DATE VALIDATION
     =======================================================
     */
 
@@ -496,9 +490,7 @@ export async function GET(request) {
           message:
             "Invalid date. Use YYYY-MM-DD.",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -509,15 +501,13 @@ export async function GET(request) {
           message:
             "From date cannot be greater than to date.",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
     /*
     =======================================================
-    DETERMINE USER FILTER
+    USER FILTER
     =======================================================
     */
 
@@ -542,21 +532,14 @@ export async function GET(request) {
               message:
                 "Invalid user_id.",
             },
-            {
-              status: 400,
-            }
+            { status: 400 }
           );
         }
 
-        selectedUserId = parsed;
+        selectedUserId =
+          parsed;
       }
     } else {
-      /*
-      =====================================================
-      NORMAL USER
-      =====================================================
-      */
-
       selectedUserId =
         Number(user.id);
     }
@@ -571,28 +554,31 @@ export async function GET(request) {
 
     if (admin) {
       const teamValue =
-        String(requestedTeam || "")
-          .trim();
+        String(
+          requestedTeam || ""
+        ).trim();
 
       if (
         teamValue &&
-        teamValue.toLowerCase() !== "all" &&
+        teamValue.toLowerCase() !==
+          "all" &&
         teamValue.toLowerCase() !==
           "all teams"
       ) {
-        selectedTeam = teamValue;
+        selectedTeam =
+          teamValue;
       }
     }
 
     /*
     =======================================================
-    GET EMPLOYEES
-    =======================================================
+    GET ALL EMPLOYEES
 
     IMPORTANT:
+    IDs 11,12,13,14,15 etc.
+    All non-deleted users are returned.
 
-    User filter + Team filter dono yahan apply honge.
-
+    User with no login = Absent.
     =======================================================
     */
 
@@ -615,12 +601,6 @@ export async function GET(request) {
 
     const employeeParams = [];
 
-    /*
-    =======================================================
-    USER FILTER
-    =======================================================
-    */
-
     if (selectedUserId) {
       employeeSql += `
         AND id = ?
@@ -630,12 +610,6 @@ export async function GET(request) {
         selectedUserId
       );
     }
-
-    /*
-    =======================================================
-    TEAM FILTER
-    =======================================================
-    */
 
     if (selectedTeam) {
       employeeSql += `
@@ -648,9 +622,13 @@ export async function GET(request) {
       );
     }
 
+    /*
+    IMPORTANT:
+    ID ascending so 11,12,13,14,15...
+    */
+
     employeeSql += `
       ORDER BY
-        name ASC,
         id ASC
     `;
 
@@ -663,12 +641,6 @@ export async function GET(request) {
     const employees =
       employeesRows || [];
 
-    /*
-    =======================================================
-    SELECTED USER NOT FOUND
-    =======================================================
-    */
-
     if (
       admin &&
       selectedUserId &&
@@ -680,39 +652,23 @@ export async function GET(request) {
           message:
             "Selected user not found or does not belong to selected team.",
         },
-        {
-          status: 404,
-        }
+        { status: 404 }
       );
     }
 
     /*
     =======================================================
-    NO MATCHING USERS
+    NO EMPLOYEES
     =======================================================
     */
 
-    const employeeIds =
-      employees
-        .map((employee) =>
-          Number(employee.id)
-        )
-        .filter(
-          (id) =>
-            Number.isInteger(id) &&
-            id > 0
-        );
-
-    if (!employeeIds.length) {
+    if (!employees.length) {
       return NextResponse.json({
         success: true,
-
         from,
         to,
-
         timezone:
           CALIFORNIA_TIMEZONE,
-
         cutoff:
           ATTENDANCE_CUTOFF,
 
@@ -723,10 +679,8 @@ export async function GET(request) {
         },
 
         admin_view: admin,
-
         selected_user_id:
           selectedUserId,
-
         selected_team:
           selectedTeam,
 
@@ -735,7 +689,6 @@ export async function GET(request) {
         attendance_users: [],
 
         weekends_off: true,
-
         off_days: [],
 
         counts: {
@@ -748,14 +701,13 @@ export async function GET(request) {
         },
 
         date_counts: {},
-
         history: [],
       });
     }
 
     /*
     =======================================================
-    SELECTED EMPLOYEE
+    SELECTED USER
     =======================================================
     */
 
@@ -770,9 +722,20 @@ export async function GET(request) {
 
     /*
     =======================================================
-    SQL PLACEHOLDERS
+    EMPLOYEE IDS
     =======================================================
     */
+
+    const employeeIds =
+      employees
+        .map((employee) =>
+          Number(employee.id)
+        )
+        .filter(
+          (id) =>
+            Number.isInteger(id) &&
+            id > 0
+        );
 
     const placeholders =
       employeeIds
@@ -782,6 +745,8 @@ export async function GET(request) {
     /*
     =======================================================
     QUERY RANGE
+
+    One day before / after handles datetime safely.
     =======================================================
     */
 
@@ -794,19 +759,6 @@ export async function GET(request) {
     /*
     =======================================================
     LOGIN HISTORY
-
-    User IDs already filtered.
-
-    Therefore:
-
-    All Users + Sales
-        -> only Sales IDs
-
-    Umais + Sales
-        -> only Umais ID if Umais is Sales
-
-    Umais + HR
-        -> no employees / no history
     =======================================================
     */
 
@@ -857,7 +809,7 @@ export async function GET(request) {
 
     /*
     =======================================================
-    ACTUAL ATTENDANCE USER IDS
+    ATTENDANCE USERS
     =======================================================
     */
 
@@ -894,24 +846,11 @@ export async function GET(request) {
       }
     }
 
-    /*
-    =======================================================
-    ATTENDANCE USERS
-
-    IMPORTANT:
-
-    Return filtered employees, not only users
-    having actual login history.
-
-    This keeps the Admin user filter correct even
-    when selected user is Absent.
-    =======================================================
-    */
-
     const attendance_users =
-      employees
-        .map((employee) => ({
-          id: Number(employee.id),
+      employees.map(
+        (employee) => ({
+          id:
+            Number(employee.id),
 
           name:
             employee.name || "",
@@ -935,17 +874,12 @@ export async function GET(request) {
             attendanceUserIds.has(
               Number(employee.id)
             ),
-        }))
-        .sort((a, b) =>
-          String(a.name || "")
-            .localeCompare(
-              String(b.name || "")
-            )
-        );
+        })
+      );
 
     /*
     =======================================================
-    GROUP LOGIN HISTORY
+    GROUP LOGIN RECORDS
     =======================================================
     */
 
@@ -980,7 +914,7 @@ export async function GET(request) {
         );
 
       /*
-      WEEKEND = OFF
+      WEEKENDS ARE OFF
       */
 
       if (dayInfo.isWeekend) {
@@ -1001,7 +935,7 @@ export async function GET(request) {
         `${userId}_${attendanceDate}`;
 
       /*
-      FIRST RECORD
+      FIRST LOGIN
       */
 
       if (
@@ -1034,10 +968,6 @@ export async function GET(request) {
 
         continue;
       }
-
-      /*
-      EXISTING RECORD
-      */
 
       const existing =
         attendanceMap.get(key);
@@ -1101,7 +1031,7 @@ export async function GET(request) {
 
       /*
       =====================================================
-      WEEKEND
+      WEEKEND = OFF
       =====================================================
       */
 
@@ -1128,6 +1058,8 @@ export async function GET(request) {
       /*
       =====================================================
       WEEKDAY
+      EVERY USER GETS A ROW
+      EVEN IF ABSENT
       =====================================================
       */
 
@@ -1144,9 +1076,13 @@ export async function GET(request) {
           attendanceMap.get(key);
 
         /*
-        ===============================================
+        ===================================================
         ABSENT
-        ===============================================
+
+        IMPORTANT:
+        id = null because database record does not exist.
+        Admin PUT can now create it.
+        ===================================================
         */
 
         if (!record) {
@@ -1200,9 +1136,9 @@ export async function GET(request) {
         }
 
         /*
-        ===============================================
+        ===================================================
         PRESENT
-        ===============================================
+        ===================================================
         */
 
         const attendanceStatus =
@@ -1273,6 +1209,16 @@ export async function GET(request) {
     /*
     =======================================================
     SORT
+    DATE DESC
+    USER ID ASC
+
+    Example:
+    2026-09-29
+    11
+    12
+    13
+    14
+    15
     =======================================================
     */
 
@@ -1289,8 +1235,8 @@ export async function GET(request) {
         }
 
         return (
-          Number(b.user_id) -
-          Number(a.user_id)
+          Number(a.user_id) -
+          Number(b.user_id)
         );
       }
     );
@@ -1408,7 +1354,7 @@ export async function GET(request) {
 
     /*
     =======================================================
-    WEEKENDS IN DATE COUNTS
+    WEEKEND DATE COUNTS
     =======================================================
     */
 
@@ -1470,16 +1416,8 @@ export async function GET(request) {
       admin_view:
         admin,
 
-      /*
-      null = All Users
-      */
-
       selected_user_id:
         selectedUserId,
-
-      /*
-      null = All Teams
-      */
 
       selected_team:
         selectedTeam,
@@ -1519,7 +1457,8 @@ export async function GET(request) {
           : null,
 
       /*
-      Filtered users only.
+      ALL FILTERED USERS
+      INCLUDING USERS WHO ARE ABSENT
       */
 
       attendance_users,
@@ -1546,20 +1485,11 @@ export async function GET(request) {
     return NextResponse.json(
       {
         success: false,
-
         message:
           error?.message ||
           "Failed to load attendance",
-
-        error:
-          process.env.NODE_ENV ===
-          "development"
-            ? String(error)
-            : undefined,
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
@@ -1567,6 +1497,9 @@ export async function GET(request) {
 /*
 =========================================================
 POST - ADMIN ADD ATTENDANCE
+=========================================================
+
+Used for adding a completely new attendance record.
 =========================================================
 */
 
@@ -1581,9 +1514,7 @@ export async function POST(request) {
           success: false,
           message: "Unauthorized",
         },
-        {
-          status: 401,
-        }
+        { status: 401 }
       );
     }
 
@@ -1594,9 +1525,7 @@ export async function POST(request) {
           message:
             "Only admin can add attendance",
         },
-        {
-          status: 403,
-        }
+        { status: 403 }
       );
     }
 
@@ -1615,9 +1544,7 @@ export async function POST(request) {
       Number(user_id);
 
     if (
-      !Number.isInteger(
-        employeeId
-      ) ||
+      !Number.isInteger(employeeId) ||
       employeeId <= 0
     ) {
       return NextResponse.json(
@@ -1626,9 +1553,7 @@ export async function POST(request) {
           message:
             "Valid employee is required",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -1656,9 +1581,7 @@ export async function POST(request) {
           message:
             "Invalid login time",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -1674,9 +1597,7 @@ export async function POST(request) {
           message:
             "Invalid logout time",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -1691,26 +1612,36 @@ export async function POST(request) {
           message:
             "Logout time cannot be before login time",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
-    const [employee] =
+    /*
+    =======================================================
+    EMPLOYEE EXISTS
+    =======================================================
+    */
+
+    const [employeeRows] =
       await db.query(
         `
-        SELECT id
+        SELECT
+          id,
+          status
         FROM users
         WHERE id = ?
+        AND (
+          status IS NULL
+          OR LOWER(TRIM(status)) <> 'deleted'
+        )
         LIMIT 1
         `,
         [employeeId]
       );
 
     if (
-      !employee ||
-      !employee.length
+      !employeeRows ||
+      !employeeRows.length
     ) {
       return NextResponse.json(
         {
@@ -1718,11 +1649,15 @@ export async function POST(request) {
           message:
             "Employee not found",
         },
-        {
-          status: 404,
-        }
+        { status: 404 }
       );
     }
+
+    /*
+    =======================================================
+    INSERT
+    =======================================================
+    */
 
     const [result] =
       await db.query(
@@ -1764,21 +1699,30 @@ export async function POST(request) {
     return NextResponse.json(
       {
         success: false,
-
         message:
           error?.message ||
           "Failed to add attendance",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
 
 /*
 =========================================================
-PUT - ADMIN EDIT
+PUT - ADMIN EDIT / CONVERT ABSENT TO PRESENT
+=========================================================
+
+CASE 1:
+Existing ID
+-> UPDATE existing record
+
+CASE 2:
+id = null
+-> Absent row
+-> INSERT new login_history record
+
+This allows Admin to edit an Absent row.
 =========================================================
 */
 
@@ -1793,9 +1737,7 @@ export async function PUT(request) {
           success: false,
           message: "Unauthorized",
         },
-        {
-          status: 401,
-        }
+        { status: 401 }
       );
     }
 
@@ -1806,9 +1748,7 @@ export async function PUT(request) {
           message:
             "Only admin can edit attendance",
         },
-        {
-          status: 403,
-        }
+        { status: 403 }
       );
     }
 
@@ -1818,40 +1758,24 @@ export async function PUT(request) {
     const {
       id,
       user_id,
+      attendance_date,
       login_time,
       logout_time,
       ip_address,
       user_agent,
     } = body;
 
-    const attendanceId =
-      Number(id);
+    /*
+    =======================================================
+    USER ID
+    =======================================================
+    */
 
     const employeeId =
       Number(user_id);
 
     if (
-      !Number.isInteger(
-        attendanceId
-      ) ||
-      attendanceId <= 0
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Valid attendance ID is required",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (
-      !Number.isInteger(
-        employeeId
-      ) ||
+      !Number.isInteger(employeeId) ||
       employeeId <= 0
     ) {
       return NextResponse.json(
@@ -1860,11 +1784,15 @@ export async function PUT(request) {
           message:
             "Valid employee is required",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
+
+    /*
+    =======================================================
+    LOGIN TIME
+    =======================================================
+    */
 
     const californiaLoginTime =
       normalizeLocalDateTime(
@@ -1888,11 +1816,9 @@ export async function PUT(request) {
         {
           success: false,
           message:
-            "Invalid login time",
+            "Valid login time is required",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -1908,9 +1834,7 @@ export async function PUT(request) {
           message:
             "Invalid logout time",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
@@ -1925,26 +1849,37 @@ export async function PUT(request) {
           message:
             "Logout time cannot be before login time",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
 
-    const [employee] =
+    /*
+    =======================================================
+    EMPLOYEE EXISTS
+    =======================================================
+    */
+
+    const [employeeRows] =
       await db.query(
         `
-        SELECT id
+        SELECT
+          id,
+          name,
+          status
         FROM users
         WHERE id = ?
+        AND (
+          status IS NULL
+          OR LOWER(TRIM(status)) <> 'deleted'
+        )
         LIMIT 1
         `,
         [employeeId]
       );
 
     if (
-      !employee ||
-      !employee.length
+      !employeeRows ||
+      !employeeRows.length
     ) {
       return NextResponse.json(
         {
@@ -1952,65 +1887,295 @@ export async function PUT(request) {
           message:
             "Employee not found",
         },
-        {
-          status: 404,
-        }
+        { status: 404 }
       );
     }
 
-    const [existing] =
-      await db.query(
-        `
-        SELECT id
-        FROM login_history
-        WHERE id = ?
-        LIMIT 1
-        `,
-        [attendanceId]
-      );
+    /*
+    =======================================================
+    CASE 1
+    EXISTING ATTENDANCE -> UPDATE
+    =======================================================
+    */
+
+    const attendanceId =
+      Number(id);
 
     if (
-      !existing ||
-      !existing.length
+      Number.isInteger(attendanceId) &&
+      attendanceId > 0
+    ) {
+      const [existingRows] =
+        await db.query(
+          `
+          SELECT
+            id,
+            user_id,
+            login_time
+          FROM login_history
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [attendanceId]
+        );
+
+      if (
+        !existingRows ||
+        !existingRows.length
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Attendance record not found",
+          },
+          { status: 404 }
+        );
+      }
+
+      /*
+      =====================================================
+      UPDATE
+      =====================================================
+      */
+
+      await db.query(
+        `
+        UPDATE login_history
+        SET
+          user_id = ?,
+          login_time = ?,
+          logout_time = ?,
+          ip_address = ?,
+          user_agent = ?
+        WHERE id = ?
+        `,
+        [
+          employeeId,
+          californiaLoginTime,
+          californiaLogoutTime,
+          ip_address || null,
+          user_agent || null,
+          attendanceId,
+        ]
+      );
+
+      return NextResponse.json({
+        success: true,
+
+        action: "updated",
+
+        message:
+          "Attendance updated successfully",
+
+        id:
+          attendanceId,
+      });
+    }
+
+    /*
+    =======================================================
+    CASE 2
+    ABSENT ROW -> CREATE ATTENDANCE
+    =======================================================
+
+    Frontend sends:
+
+    {
+      id: null,
+      user_id: 11,
+      attendance_date: "2026-09-29",
+      login_time: "2026-09-29 08:00:00",
+      logout_time: "2026-09-29 17:00:00"
+    }
+
+    =======================================================
+    */
+
+    if (
+      !attendance_date ||
+      !isValidDate(attendance_date)
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Attendance record not found",
+            "Valid attendance_date is required when editing an Absent record",
         },
-        {
-          status: 404,
-        }
+        { status: 400 }
       );
     }
 
-    await db.query(
-      `
-      UPDATE login_history
-      SET
-        user_id = ?,
-        login_time = ?,
-        logout_time = ?,
-        ip_address = ?,
-        user_agent = ?
-      WHERE id = ?
-      `,
-      [
-        employeeId,
-        californiaLoginTime,
-        californiaLogoutTime,
-        ip_address || null,
-        user_agent || null,
-        attendanceId,
-      ]
-    );
+    /*
+    =======================================================
+    PREVENT WEEKEND ATTENDANCE
+    =======================================================
+    */
+
+    const dayInfo =
+      getDayInfo(
+        attendance_date
+      );
+
+    if (dayInfo.isWeekend) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Saturday and Sunday are OFF days. Attendance cannot be added.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+    =======================================================
+    IMPORTANT DATE CHECK
+
+    Login date must equal selected attendance date.
+    =======================================================
+    */
+
+    if (
+      californiaLoginTime.slice(0, 10) !==
+      attendance_date
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Login date must match attendance date.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+    =======================================================
+    CHECK EXISTING ATTENDANCE FOR SAME USER + DATE
+    =======================================================
+    */
+
+    const nextDate =
+      getNextDate(
+        attendance_date
+      );
+
+    const [existingDateRows] =
+      await db.query(
+        `
+        SELECT
+          id
+        FROM login_history
+        WHERE
+          user_id = ?
+
+          AND login_time >= ?
+
+          AND login_time < ?
+
+        ORDER BY
+          login_time ASC,
+          id ASC
+
+        LIMIT 1
+        `,
+        [
+          employeeId,
+          `${attendance_date} 00:00:00`,
+          `${nextDate} 00:00:00`,
+        ]
+      );
+
+    /*
+    =======================================================
+    IF RECORD ALREADY EXISTS
+
+    Update it instead of creating duplicate.
+    =======================================================
+    */
+
+    if (
+      existingDateRows &&
+      existingDateRows.length
+    ) {
+      const existingId =
+        Number(
+          existingDateRows[0].id
+        );
+
+      await db.query(
+        `
+        UPDATE login_history
+        SET
+          login_time = ?,
+          logout_time = ?,
+          ip_address = ?,
+          user_agent = ?
+        WHERE id = ?
+        `,
+        [
+          californiaLoginTime,
+          californiaLogoutTime,
+          ip_address || null,
+          user_agent || null,
+          existingId,
+        ]
+      );
+
+      return NextResponse.json({
+        success: true,
+
+        action:
+          "updated_absent_existing",
+
+        message:
+          "Absent attendance updated successfully",
+
+        id:
+          existingId,
+      });
+    }
+
+    /*
+    =======================================================
+    INSERT NEW RECORD
+    =======================================================
+    */
+
+    const [result] =
+      await db.query(
+        `
+        INSERT INTO login_history
+        (
+          user_id,
+          login_time,
+          logout_time,
+          ip_address,
+          user_agent
+        )
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        [
+          employeeId,
+          californiaLoginTime,
+          californiaLogoutTime,
+          ip_address || null,
+          user_agent || null,
+        ]
+      );
 
     return NextResponse.json({
       success: true,
 
+      action:
+        "created_from_absent",
+
       message:
-        "Attendance updated successfully",
+        "Absent attendance added successfully",
+
+      id:
+        result.insertId,
     });
   } catch (error) {
     console.error(
@@ -2026,9 +2191,7 @@ export async function PUT(request) {
           error?.message ||
           "Failed to update attendance",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
@@ -2050,9 +2213,7 @@ export async function DELETE(request) {
           success: false,
           message: "Unauthorized",
         },
-        {
-          status: 401,
-        }
+        { status: 401 }
       );
     }
 
@@ -2063,9 +2224,7 @@ export async function DELETE(request) {
           message:
             "Only admin can delete attendance",
         },
-        {
-          status: 403,
-        }
+        { status: 403 }
       );
     }
 
@@ -2090,11 +2249,15 @@ export async function DELETE(request) {
           message:
             "Valid attendance ID is required",
         },
-        {
-          status: 400,
-        }
+        { status: 400 }
       );
     }
+
+    /*
+    =======================================================
+    CHECK RECORD
+    =======================================================
+    */
 
     const [beforeDelete] =
       await db.query(
@@ -2120,11 +2283,15 @@ export async function DELETE(request) {
           message:
             "Attendance record not found",
         },
-        {
-          status: 404,
-        }
+        { status: 404 }
       );
     }
+
+    /*
+    =======================================================
+    DELETE
+    =======================================================
+    */
 
     const [result] =
       await db.query(
@@ -2145,11 +2312,15 @@ export async function DELETE(request) {
           message:
             "Attendance was not deleted",
         },
-        {
-          status: 500,
-        }
+        { status: 500 }
       );
     }
+
+    /*
+    =======================================================
+    VERIFY DELETE
+    =======================================================
+    */
 
     const [afterDelete] =
       await db.query(
@@ -2172,9 +2343,7 @@ export async function DELETE(request) {
           message:
             "Delete verification failed",
         },
-        {
-          status: 500,
-        }
+        { status: 500 }
       );
     }
 
@@ -2201,9 +2370,7 @@ export async function DELETE(request) {
           error?.message ||
           "Failed to delete attendance",
       },
-      {
-        status: 500,
-      }
+      { status: 500 }
     );
   }
 }
