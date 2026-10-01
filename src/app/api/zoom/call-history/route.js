@@ -18,9 +18,9 @@ const ZOOM_TOKEN_URL =
 const CRM_TIME_ZONE =
   "America/Los_Angeles";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 300;
 
-const MAX_FULL_PAGES = 100;
+const MAX_FULL_PAGES = 200;
 const MAX_LIVE_PAGES = 50;
 
 const TOKEN_REFRESH_THRESHOLD_MS =
