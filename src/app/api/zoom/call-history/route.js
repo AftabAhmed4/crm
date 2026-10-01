@@ -1,2334 +1,1637 @@
- 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { NextResponse } from "next/server";
-// import jwt from "jsonwebtoken";
-// import { query, zoomConfig } from "../../../lib/db";
-
-// const ZOOM_CALL_HISTORY_URL =
-//   "https://api.zoom.us/v2/phone/call_history";
-
-// // const DEFAULT_PAGE_SIZE = 300;
-// // const MAX_PAGE_SIZE = 300;
-// // const MAX_PAGES = 100;
-
-// // const PAGE_DELAY_MS = 350;
-
-// const DEFAULT_PAGE_SIZE = 300;
-// const MAX_PAGE_SIZE = 300;
-// const MAX_PAGES = 100;
-
-// const PAGE_DELAY_MS = 0;
-
-// const MAX_429_RETRIES = 1;
-// const BASE_RETRY_DELAY_MS = 10;
-// const MAX_RETRY_DELAY_MS = 10;
-
-
-// // ============================================================
-// // HELPERS
-// // ============================================================
-
-// function sleep(ms) {
-//   return new Promise((resolve) => setTimeout(resolve, ms));
-// }
-
-
-// // ============================================================
-// // DATE FORMAT
-// // ============================================================
-
-// function formatDate(date) {
-//   const year = date.getFullYear();
-
-//   const month = String(
-//     date.getMonth() + 1
-//   ).padStart(2, "0");
-
-//   const day = String(
-//     date.getDate()
-//   ).padStart(2, "0");
-
-//   return `${year}-${month}-${day}`;
-// }
-
-
-// // ============================================================
-// // GET LAST 7 DAYS
-// // ============================================================
-
-// function getDefaultDateRange() {
-//   const now = new Date();
-
-//   // Today at 00:00:00
-//   const todayStart = new Date(now);
-
-//   todayStart.setHours(
-//     0,
-//     0,
-//     0,
-//     0
-//   );
-
-//   // 6 days before today
-//   //
-//   // Example:
-//   // Today = Sep 15
-//   // From  = Sep 09
-//   // To    = Sep 15
-//   //
-//   const fromDate =
-//     new Date(todayStart);
-
-//   fromDate.setDate(
-//     fromDate.getDate() - 6
-//   );
-
-//   return {
-//     from: formatDate(fromDate),
-//     to: formatDate(todayStart),
-//   };
-// }
-
-
-// // ============================================================
-// // GET RETRY-AFTER
-// // ============================================================
-
-// function getRetryAfterMs(response) {
-//   const retryAfter =
-//     response.headers.get(
-//       "retry-after"
-//     );
-
-//   if (!retryAfter) {
-//     return null;
-//   }
-
-//   // Retry-After can be seconds
-//   const seconds =
-//     Number(retryAfter);
-
-//   if (Number.isFinite(seconds)) {
-//     return Math.max(
-//       seconds * 1000,
-//       0
-//     );
-//   }
-
-//   // Or HTTP date
-//   const retryDate =
-//     Date.parse(retryAfter);
-
-//   if (!Number.isNaN(retryDate)) {
-//     return Math.max(
-//       retryDate - Date.now(),
-//       0
-//     );
-//   }
-
-//   return null;
-// }
-
-
-// // ============================================================
-// // DIRECTION-AWARE EXTENSION DETECTION
-// // ============================================================
-
-// function getExtension(call) {
-//   const direction =
-//     String(
-//       call?.direction ||
-//         call?.call_direction ||
-//         ""
-//     ).toLowerCase();
-
-//   const callerExtension =
-//     call?.caller_ext_number ??
-//     call?.caller_extension ??
-//     call?.caller_ext ??
-//     call?.caller?.extension ??
-//     call?.caller?.ext_number ??
-//     null;
-
-//   const calleeExtension =
-//     call?.callee_ext_number ??
-//     call?.callee_extension ??
-//     call?.callee_ext ??
-//     call?.callee?.extension ??
-//     call?.callee?.ext_number ??
-//     null;
-
-
-//   // ----------------------------------------------------------
-//   // INBOUND
-//   // Customer -> CRM
-//   // CRM extension should normally be CALLEE
-//   // ----------------------------------------------------------
-
-//   if (direction === "inbound") {
-//     if (calleeExtension) {
-//       return String(
-//         calleeExtension
-//       ).trim();
-//     }
-
-//     if (callerExtension) {
-//       return String(
-//         callerExtension
-//       ).trim();
-//     }
-//   }
-
-
-//   // ----------------------------------------------------------
-//   // OUTBOUND
-//   // CRM -> Customer
-//   // CRM extension should normally be CALLER
-//   // ----------------------------------------------------------
-
-//   if (direction === "outbound") {
-//     if (callerExtension) {
-//       return String(
-//         callerExtension
-//       ).trim();
-//     }
-
-//     if (calleeExtension) {
-//       return String(
-//         calleeExtension
-//       ).trim();
-//     }
-//   }
-
-
-//   // ----------------------------------------------------------
-//   // FALLBACK
-//   // ----------------------------------------------------------
-
-//   const possibleExtensions = [
-//     call?.extension,
-//     call?.ext_number,
-//     call?.extension_number,
-//     call?.phone_extension,
-//     call?.user_extension,
-
-//     call?.caller_ext_number,
-//     call?.caller_extension,
-//     call?.caller_ext,
-
-//     call?.callee_ext_number,
-//     call?.callee_extension,
-//     call?.callee_ext,
-
-//     call?.caller?.extension,
-//     call?.callee?.extension,
-
-//     call?.caller?.ext_number,
-//     call?.callee?.ext_number,
-//   ];
-
-//   for (
-//     const value of possibleExtensions
-//   ) {
-//     if (
-//       value !== undefined &&
-//       value !== null &&
-//       String(value).trim() !== ""
-//     ) {
-//       return String(
-//         value
-//       ).trim();
-//     }
-//   }
-
-//   return null;
-// }
-
-
-// // ============================================================
-// // UNIQUE CALL KEY
-// // ============================================================
-
-// function getCallUniqueKey(call) {
-//   return (
-//     call?.call_history_uuid ||
-//     call?.id ||
-//     call?.call_id ||
-//     [
-//       call?.start_time || "",
-//       call?.caller_did_number || "",
-//       call?.callee_did_number || "",
-//       call?.direction || "",
-//     ].join("-")
-//   );
-// }
-
-
-// // ============================================================
-// // ZOOM API REQUEST WITH 429 RETRY
-// // ============================================================
-
-// async function fetchZoomCallHistory(
-//   accessToken,
-//   params
-// ) {
-//   let retryCount = 0;
-
-//   while (true) {
-//     const url =
-//       new URL(
-//         ZOOM_CALL_HISTORY_URL
-//       );
-
-//     Object.entries(
-//       params
-//     ).forEach(
-//       ([key, value]) => {
-//         if (
-//           value !== undefined &&
-//           value !== null &&
-//           value !== ""
-//         ) {
-//           url.searchParams.set(
-//             key,
-//             String(value)
-//           );
-//         }
-//       }
-//     );
-
-
-//     console.log(
-//       "[Zoom API] Request:",
-//       url.toString()
-//     );
-
-
-//     const response =
-//       await fetch(
-//         url.toString(),
-//         {
-//           method: "GET",
-
-//           headers: {
-//             Authorization:
-//               `Bearer ${accessToken}`,
-
-//             Accept:
-//               "application/json",
-//           },
-
-//           cache: "no-store",
-//         }
-//       );
-
-
-//     // --------------------------------------------------------
-//     // SUCCESS
-//     // --------------------------------------------------------
-
-//     if (response.ok) {
-//       return await response.json();
-//     }
-
-
-//     // --------------------------------------------------------
-//     // RATE LIMIT 429
-//     // --------------------------------------------------------
-
-//     if (
-//       response.status === 429 &&
-//       retryCount <
-//         MAX_429_RETRIES
-//     ) {
-//       const retryAfterMs =
-//         getRetryAfterMs(
-//           response
-//         );
-
-//       const exponentialDelay =
-//         Math.min(
-//           BASE_RETRY_DELAY_MS *
-//             Math.pow(
-//               2,
-//               retryCount
-//             ),
-//           MAX_RETRY_DELAY_MS
-//         );
-
-//       const delay =
-//         retryAfterMs !== null
-//           ? Math.max(
-//               retryAfterMs,
-//               exponentialDelay
-//             )
-//           : exponentialDelay;
-
-
-//       console.warn(
-//         `[Zoom] 429 rate limit. Retry ${
-//           retryCount + 1
-//         }/${MAX_429_RETRIES} after ${delay}ms`
-//       );
-
-
-//       await sleep(
-//         delay
-//       );
-
-//       retryCount++;
-
-//       continue;
-//     }
-
-
-//     // --------------------------------------------------------
-//     // ERROR
-//     // --------------------------------------------------------
-
-//     let errorBody = {};
-
-//     try {
-//       errorBody =
-//         await response.json();
-//     } catch {
-//       errorBody = {};
-//     }
-
-
-//     const error =
-//       new Error(
-//         errorBody?.message ||
-//           `Zoom API request failed with status ${response.status}`
-//       );
-
-//     error.status =
-//       response.status;
-
-//     error.zoomCode =
-//       errorBody?.code;
-
-//     throw error;
-//   }
-// }
-
-
-// // ============================================================
-// // GET
-// // ============================================================
-
-// export async function GET(
-//   request
-// ) {
-//   try {
-//     console.log(
-//       "================================================"
-//     );
-
-//     console.log(
-//       "[Zoom Call History] REQUEST START"
-//     );
-
-//     console.log(
-//       "================================================"
-//     );
-
-
-//     // ========================================================
-//     // 1. CRM AUTH
-//     // ========================================================
-
-//     const token =
-//       request.cookies.get(
-//         "token"
-//       )?.value;
-
-
-//     if (!token) {
-//       console.log(
-//         "[Zoom Call History] No CRM token"
-//       );
-
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "CRM login required",
-//         },
-//         {
-//           status: 401,
-
-//           headers: {
-//             "Cache-Control":
-//               "no-store",
-//           },
-//         }
-//       );
-//     }
-
-
-//     let decoded;
-
-
-//     try {
-//       decoded =
-//         jwt.verify(
-//           token,
-//           process.env.JWT_SECRET
-//         );
-//     } catch (error) {
-//       console.error(
-//         "[Zoom Call History] Invalid JWT:",
-//         error.message
-//       );
-
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "Invalid or expired CRM session",
-//         },
-//         {
-//           status: 401,
-
-//           headers: {
-//             "Cache-Control":
-//               "no-store",
-//           },
-//         }
-//       );
-//     }
-
-
-//     const currentUserId =
-//       decoded?.id ||
-//       decoded?.userId ||
-//       decoded?.user_id;
-
-
-//     if (!currentUserId) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "CRM user ID not found",
-//         },
-//         {
-//           status: 401,
-
-//           headers: {
-//             "Cache-Control":
-//               "no-store",
-//           },
-//         }
-//       );
-//     }
-
-
-//     console.log(
-//       "[Zoom Call History] CRM USER ID:",
-//       currentUserId
-//     );
-
-
-//     // ========================================================
-//     // 2. GET CURRENT CRM USER
-//     // ========================================================
-
-//     const userRows =
-//       await query(
-//         `
-//         SELECT
-//           id,
-//           name,
-//           email,
-//           role,
-//           zoom_extension
-//         FROM users
-//         WHERE id = ?
-//         LIMIT 1
-//         `,
-//         [currentUserId]
-//       );
-
-
-//     if (
-//       !userRows ||
-//       userRows.length === 0
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           error:
-//             "CRM user not found",
-//         },
-//         {
-//           status: 404,
-
-//           headers: {
-//             "Cache-Control":
-//               "no-store",
-//           },
-//         }
-//       );
-//     }
-
-
-//     const currentUser =
-//       userRows[0];
-
-
-//     const userRole =
-//       String(
-//         currentUser.role || ""
-//       ).toLowerCase();
-
-
-//     const userExtension =
-//       currentUser.zoom_extension
-//         ? String(
-//             currentUser.zoom_extension
-//           ).trim()
-//         : null;
-
-
-//     const isAdmin =
-//       userRole === "admin";
-
-
-//     console.log(
-//       "[Zoom Call History] USER:",
-//       {
-//         id:
-//           currentUser.id,
-
-//         name:
-//           currentUser.name,
-
-//         role:
-//           currentUser.role,
-
-//         zoom_extension:
-//           currentUser.zoom_extension,
-
-//         isAdmin,
-//       }
-//     );
-
-
-//     // ========================================================
-//     // 3. GET CENTRAL ZOOM CONNECTION
-//     // ========================================================
-
-//     const connectionRows =
-//       await query(
-//         `
-//         SELECT
-//           id,
-//           user_id,
-//           zoom_account_id,
-//           zoom_user_id,
-//           zoom_email,
-//           access_token,
-//           refresh_token,
-//           expires_at
-//         FROM zoom_connections
-//         ORDER BY id DESC
-//         LIMIT 1
-//         `
-//       );
-
-
-//     if (
-//       !connectionRows ||
-//       connectionRows.length === 0
-//     ) {
-//       console.log(
-//         "[Zoom Call History] No Zoom connection found"
-//       );
-
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           connected: false,
-//           error:
-//             "No central Zoom account is connected",
-//         },
-//         {
-//           status: 400,
-
-//           headers: {
-//             "Cache-Control":
-//               "no-store",
-//           },
-//         }
-//       );
-//     }
-
-
-//     const connection =
-//       connectionRows[0];
-
-
-//     let accessToken =
-//       connection.access_token;
-
-//     let refreshToken =
-//       connection.refresh_token;
-
-//     let expiresAt =
-//       connection.expires_at;
-
-
-//     // ========================================================
-//     // 4. REFRESH ZOOM TOKEN IF REQUIRED
-//     // ========================================================
-
-//     let shouldRefresh =
-//       false;
-
-
-//     if (expiresAt) {
-//       const expiresAtMs =
-//         new Date(
-//           expiresAt
-//         ).getTime();
-
-//       const twoMinutes =
-//         2 * 60 * 1000;
-
-
-//       if (
-//         Number.isFinite(
-//           expiresAtMs
-//         ) &&
-//         expiresAtMs <=
-//           Date.now() +
-//             twoMinutes
-//       ) {
-//         shouldRefresh =
-//           true;
-//       }
-//     }
-
-
-//     if (shouldRefresh) {
-//       console.log(
-//         "[Zoom Call History] Access token expired/near expiry. Refreshing..."
-//       );
-
-
-//       if (!refreshToken) {
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             connected: false,
-//             error:
-//               "Zoom access token expired and no refresh token is available",
-//           },
-//           {
-//             status: 401,
-
-//             headers: {
-//               "Cache-Control":
-//                 "no-store",
-//             },
-//           }
-//         );
-//       }
-
-
-//       const basicAuth =
-//         Buffer.from(
-//           `${zoomConfig.clientId}:${zoomConfig.clientSecret}`
-//         ).toString(
-//           "base64"
-//         );
-
-
-//       const refreshResponse =
-//         await fetch(
-//           "https://zoom.us/oauth/token",
-//           {
-//             method: "POST",
-
-//             headers: {
-//               Authorization:
-//                 `Basic ${basicAuth}`,
-
-//               "Content-Type":
-//                 "application/x-www-form-urlencoded",
-//             },
-
-//             body:
-//               new URLSearchParams(
-//                 {
-//                   grant_type:
-//                     "refresh_token",
-
-//                   refresh_token:
-//                     refreshToken,
-//                 }
-//               ).toString(),
-
-//             cache:
-//               "no-store",
-//           }
-//         );
-
-
-//       const refreshData =
-//         await refreshResponse.json();
-
-
-//       if (
-//         !refreshResponse.ok
-//       ) {
-//         console.error(
-//           "[Zoom Call History] Token refresh failed:",
-//           refreshData
-//         );
-
-//         return NextResponse.json(
-//           {
-//             success: false,
-//             connected: false,
-//             error:
-//               refreshData?.reason ||
-//               refreshData?.message ||
-//               "Zoom token refresh failed",
-//           },
-//           {
-//             status: 401,
-
-//             headers: {
-//               "Cache-Control":
-//                 "no-store",
-//             },
-//           }
-//         );
-//       }
-
-
-//       accessToken =
-//         refreshData.access_token;
-
-
-//       refreshToken =
-//         refreshData.refresh_token ||
-//         refreshToken;
-
-
-//       const expiresIn =
-//         Number(
-//           refreshData.expires_in ||
-//             3600
-//         );
-
-
-//       expiresAt =
-//         new Date(
-//           Date.now() +
-//             expiresIn * 1000
-//         );
-
-
-//       await query(
-//         `
-//         UPDATE zoom_connections
-//         SET
-//           access_token = ?,
-//           refresh_token = ?,
-//           expires_at = ?,
-//           updated_at = NOW()
-//         WHERE id = ?
-//         `,
-//         [
-//           accessToken,
-//           refreshToken,
-//           expiresAt,
-//           connection.id,
-//         ]
-//       );
-
-
-//       console.log(
-//         "[Zoom Call History] Zoom token refreshed successfully"
-//       );
-//     }
-
-
-//     // ========================================================
-//     // 5. QUERY PARAMS + DEFAULT LAST 7 DAYS
-//     // ========================================================
-
-//     const {
-//       searchParams,
-//     } = new URL(
-//       request.url
-//     );
-
-
-//     let from =
-//       searchParams.get(
-//         "from"
-//       );
-
-//     let to =
-//       searchParams.get(
-//         "to"
-//       );
-
-
-//     const customFrom =
-//       Boolean(from);
-
-//     const customTo =
-//       Boolean(to);
-
-
-//     // --------------------------------------------------------
-//     // DEFAULT LAST 7 CALENDAR DAYS
-//     // --------------------------------------------------------
-
-//     if (!from || !to) {
-//       const defaultRange =
-//         getDefaultDateRange();
-
-
-//       from =
-//         from ||
-//         defaultRange.from;
-
-//       to =
-//         to ||
-//         defaultRange.to;
-//     }
-
-
-//     const requestedPageSize =
-//       Number(
-//         searchParams.get(
-//           "page_size"
-//         ) ||
-//           DEFAULT_PAGE_SIZE
-//       );
-
-
-//     const pageSize =
-//       Math.min(
-//         Math.max(
-//           Number.isFinite(
-//             requestedPageSize
-//           )
-//             ? requestedPageSize
-//             : DEFAULT_PAGE_SIZE,
-//           1
-//         ),
-//         MAX_PAGE_SIZE
-//       );
-
-
-//     console.log(
-//       "[Zoom Call History] DATE FILTER:",
-//       {
-//         from,
-//         to,
-//         pageSize,
-
-//         automatic_last_7_days:
-//           !customFrom &&
-//           !customTo,
-//       }
-//     );
-
-
-//     // ========================================================
-//     // 6. FETCH ALL ZOOM PAGES
-//     // ========================================================
-
-//     let nextPageToken =
-//       null;
-
-//     let pageNumber =
-//       0;
-
-//     const allCalls =
-//       [];
-
-
-//     do {
-//       pageNumber++;
-
-
-//       if (pageNumber > 1) {
-//         await sleep(
-//           PAGE_DELAY_MS
-//         );
-//       }
-
-
-//       console.log(
-//         `[Zoom Call History] Fetching page ${pageNumber}`
-//       );
-
-
-//       const zoomData =
-//         await fetchZoomCallHistory(
-//           accessToken,
-//           {
-//             from,
-//             to,
-//             page_size:
-//               pageSize,
-
-//             ...(nextPageToken
-//               ? {
-//                   next_page_token:
-//                     nextPageToken,
-//                 }
-//               : {}),
-//           }
-//         );
-
-
-//       const pageCalls =
-//         Array.isArray(
-//           zoomData?.call_history
-//         )
-//           ? zoomData.call_history
-//           : Array.isArray(
-//               zoomData?.call_logs
-//             )
-//           ? zoomData.call_logs
-//           : [];
-
-
-//       console.log(
-//         `[Zoom Call History] Page ${pageNumber}: ${pageCalls.length} calls`
-//       );
-
-
-//       allCalls.push(
-//         ...pageCalls
-//       );
-
-
-//       nextPageToken =
-//         zoomData?.next_page_token ||
-//         null;
-
-
-//       if (!nextPageToken) {
-//         break;
-//       }
-
-
-//     } while (
-//       pageNumber <
-//       MAX_PAGES
-//     );
-
-
-//     console.log(
-//       "[Zoom Call History] TOTAL RAW CALLS:",
-//       allCalls.length
-//     );
-
-
-//     // ========================================================
-//     // 7. DEDUPLICATE CALLS
-//     // ========================================================
-
-//     const uniqueCallsMap =
-//       new Map();
-
-
-//     for (
-//       const call of allCalls
-//     ) {
-//       const key =
-//         getCallUniqueKey(
-//           call
-//         );
-
-
-//       if (
-//         !uniqueCallsMap.has(
-//           key
-//         )
-//       ) {
-//         uniqueCallsMap.set(
-//           key,
-//           call
-//         );
-//       }
-//     }
-
-
-//     const uniqueCalls =
-//       Array.from(
-//         uniqueCallsMap.values()
-//       );
-
-
-//     console.log(
-//       "[Zoom Call History] UNIQUE CALLS:",
-//       uniqueCalls.length
-//     );
-
-
-//     // ========================================================
-//     // 8. ADD CRM EXTENSION
-//     // ========================================================
-
-//     const enrichedCalls =
-//       uniqueCalls.map(
-//         (call) => {
-//           const extension =
-//             getExtension(
-//               call
-//             );
-
-
-//           return {
-//             ...call,
-
-//             crm_extension:
-//               extension,
-
-//             crm_extension_label:
-//               extension
-//                 ? `Ext. ${extension}`
-//                 : null,
-//           };
-//         }
-//       );
-
-
-//     // ========================================================
-//     // 9. ALL EXTENSION COUNTS
-//     // ========================================================
-
-//     const allExtensionCounts =
-//       {};
-
-
-//     for (
-//       const call of
-//         enrichedCalls
-//     ) {
-//       const extension =
-//         call.crm_extension;
-
-
-//       if (!extension) {
-//         continue;
-//       }
-
-
-//       allExtensionCounts[
-//         extension
-//       ] =
-//         (
-//           allExtensionCounts[
-//             extension
-//           ] || 0
-//         ) + 1;
-//     }
-
-
-//     // ========================================================
-//     // 10. FILTER FOR CURRENT USER
-//     // ========================================================
-
-//     let visibleCalls =
-//       [];
-
-
-//     if (isAdmin) {
-
-//       // ------------------------------------------------------
-//       // ADMIN = ALL CALLS
-//       // ------------------------------------------------------
-
-//       visibleCalls =
-//         enrichedCalls;
-
-
-//       console.log(
-//         "[Zoom Call History] ADMIN USER -> ALL CALLS"
-//       );
-
-//     } else {
-
-//       // ------------------------------------------------------
-//       // NORMAL USER = OWN EXTENSION
-//       // ------------------------------------------------------
-
-//       if (!userExtension) {
-//         console.log(
-//           "[Zoom Call History] USER HAS NO ZOOM EXTENSION"
-//         );
-
-
-//         return NextResponse.json(
-//           {
-//             success: true,
-
-//             connected: true,
-
-//             live: true,
-
-//             user: {
-//               id:
-//                 currentUser.id,
-
-//               name:
-//                 currentUser.name,
-
-//               email:
-//                 currentUser.email,
-
-//               role:
-//                 currentUser.role,
-
-//               zoom_extension:
-//                 null,
-//             },
-
-//             calls: [],
-
-//             total_records:
-//               uniqueCalls.length,
-
-//             visible_records:
-//               0,
-
-//             extension_counts:
-//               {},
-
-//             all_extension_counts:
-//               allExtensionCounts,
-
-//             page_size:
-//               pageSize,
-
-//             pages_fetched:
-//               pageNumber,
-
-//             extensions: [],
-
-//             from:
-//               from || null,
-
-//             to:
-//               to || null,
-
-//             fetched_at:
-//               new Date().toISOString(),
-
-//             next_page_token:
-//               null,
-
-//             message:
-//               "No Zoom extension is assigned to this user",
-//           },
-
-//           {
-//             status: 200,
-
-//             headers: {
-//               "Cache-Control":
-//                 "no-store, no-cache, must-revalidate",
-
-//               Pragma:
-//                 "no-cache",
-//             },
-//           }
-//         );
-//       }
-
-
-//       visibleCalls =
-//         enrichedCalls.filter(
-//           (call) =>
-//             String(
-//               call.crm_extension ||
-//                 ""
-//             ).trim() ===
-//             userExtension
-//         );
-
-
-//       console.log(
-//         "[Zoom Call History] USER FILTER:",
-//         {
-//           userId:
-//             currentUser.id,
-
-//           userName:
-//             currentUser.name,
-
-//           extension:
-//             userExtension,
-
-//           total:
-//             enrichedCalls.length,
-
-//           visible:
-//             visibleCalls.length,
-//         }
-//       );
-//     }
-
-
-//     // ========================================================
-//     // 11. VISIBLE EXTENSION COUNTS
-//     // ========================================================
-
-//     const extensionCounts =
-//       {};
-
-
-//     for (
-//       const call of
-//         visibleCalls
-//     ) {
-//       const extension =
-//         call.crm_extension;
-
-
-//       if (!extension) {
-//         continue;
-//       }
-
-
-//       extensionCounts[
-//         extension
-//       ] =
-//         (
-//           extensionCounts[
-//             extension
-//           ] || 0
-//         ) + 1;
-//     }
-
-
-//     // ========================================================
-//     // 12. EXTENSION LIST
-//     // ========================================================
-
-//     const extensions =
-//       Object.keys(
-//         extensionCounts
-//       ).sort(
-//         (a, b) =>
-//           Number(a) -
-//           Number(b)
-//       );
-
-
-//     // ========================================================
-//     // 13. DATE DISTRIBUTION DEBUG
-//     // ========================================================
-
-//     const dateCounts =
-//       {};
-
-
-//     for (
-//       const call of
-//         visibleCalls
-//     ) {
-//       const value =
-//         call?.start_time ||
-//         call?.startTime ||
-//         call?.start_datetime ||
-//         call?.created_at ||
-//         call?.createdAt ||
-//         null;
-
-
-//       if (!value) {
-//         continue;
-//       }
-
-
-//       const date =
-//         new Date(value);
-
-
-//       if (
-//         Number.isNaN(
-//           date.getTime()
-//         )
-//       ) {
-//         continue;
-//       }
-
-
-//       const dateKey =
-//         formatDate(date);
-
-
-//       dateCounts[
-//         dateKey
-//       ] =
-//         (
-//           dateCounts[
-//             dateKey
-//           ] || 0
-//         ) + 1;
-//     }
-
-
-//     console.log(
-//       "[Zoom Call History] DATE DISTRIBUTION:",
-//       dateCounts
-//     );
-
-
-//     // ========================================================
-//     // 14. FINAL LOG
-//     // ========================================================
-
-//     console.log(
-//       "[Zoom Call History] FINAL:",
-//       {
-//         userId:
-//           currentUser.id,
-
-//         role:
-//           currentUser.role,
-
-//         extension:
-//           userExtension,
-
-//         isAdmin,
-
-//         totalFetched:
-//           enrichedCalls.length,
-
-//         visible:
-//           visibleCalls.length,
-
-//         extensions,
-
-//         from,
-
-//         to,
-
-//         dateCounts,
-//       }
-//     );
-
-
-//     console.log(
-//       "================================================"
-//     );
-
-//     console.log(
-//       "[Zoom Call History] REQUEST COMPLETE"
-//     );
-
-//     console.log(
-//       "================================================"
-//     );
-
-
-//     // ========================================================
-//     // 15. RESPONSE
-//     // ========================================================
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-
-//         connected: true,
-
-//         live: true,
-
-
-//         // ----------------------------------------------------
-//         // CURRENT CRM USER
-//         // ----------------------------------------------------
-
-//         user: {
-//           id:
-//             currentUser.id,
-
-//           name:
-//             currentUser.name,
-
-//           email:
-//             currentUser.email,
-
-//           role:
-//             currentUser.role,
-
-//           zoom_extension:
-//             userExtension,
-//         },
-
-
-//         // ----------------------------------------------------
-//         // FILTERED CALLS
-//         // ----------------------------------------------------
-
-//         calls:
-//           visibleCalls,
-
-
-//         // ----------------------------------------------------
-//         // COUNTS
-//         // ----------------------------------------------------
-
-//         total_records:
-//           enrichedCalls.length,
-
-//         visible_records:
-//           visibleCalls.length,
-
-
-//         // ----------------------------------------------------
-//         // CURRENT USER EXTENSION COUNTS
-//         // ----------------------------------------------------
-
-//         extension_counts:
-//           extensionCounts,
-
-
-//         // ----------------------------------------------------
-//         // ALL EXTENSION COUNTS
-//         // ----------------------------------------------------
-
-//         all_extension_counts:
-//           allExtensionCounts,
-
-
-//         // ----------------------------------------------------
-//         // EXTENSIONS
-//         // ----------------------------------------------------
-
-//         extensions,
-
-
-//         // ----------------------------------------------------
-//         // PAGINATION
-//         // ----------------------------------------------------
-
-//         page_size:
-//           pageSize,
-
-//         pages_fetched:
-//           pageNumber,
-
-
-//         // ----------------------------------------------------
-//         // DATE RANGE
-//         // ----------------------------------------------------
-
-//         from:
-//           from || null,
-
-//         to:
-//           to || null,
-
-
-//         // ----------------------------------------------------
-//         // DATE DISTRIBUTION
-//         // ----------------------------------------------------
-
-//         date_counts:
-//           dateCounts,
-
-
-//         // ----------------------------------------------------
-//         // META
-//         // ----------------------------------------------------
-
-//         fetched_at:
-//           new Date().toISOString(),
-
-//         next_page_token:
-//           null,
-//       },
-
-//       {
-//         status: 200,
-
-//         headers: {
-//           "Cache-Control":
-//             "no-store, no-cache, must-revalidate",
-
-//           Pragma:
-//             "no-cache",
-
-//           Expires:
-//             "0",
-//         },
-//       }
-//     );
-
-//   } catch (error) {
-
-//     console.error(
-//       "================================================"
-//     );
-
-//     console.error(
-//       "[Zoom Call History] ERROR"
-//     );
-
-//     console.error(
-//       error
-//     );
-
-//     console.error(
-//       "================================================"
-//     );
-
-
-//     const status =
-//       error?.status === 401
-//         ? 401
-//         : error?.status === 429
-//         ? 429
-//         : 500;
-
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-
-//         connected:
-//           status !== 401,
-
-//         error:
-//           error?.message ||
-//           "Failed to fetch Zoom call history",
-
-//         zoom_code:
-//           error?.zoomCode ||
-//           null,
-//       },
-
-//       {
-//         status,
-
-//         headers: {
-//           "Cache-Control":
-//             "no-store",
-//         },
-//       }
-//     );
-//   }
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { query, zoomConfig } from "../../../lib/db";
+import db from "../../../lib/db";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/* =========================================================
+   CONFIG
+========================================================= */
 
 const ZOOM_CALL_HISTORY_URL =
   "https://api.zoom.us/v2/phone/call_history";
 
-/*
-|--------------------------------------------------------------------------
-| CONFIG
-|--------------------------------------------------------------------------
-*/
+const ZOOM_TOKEN_URL =
+  "https://zoom.us/oauth/token";
 
-const DEFAULT_PAGE_SIZE = 300;
-const MAX_PAGE_SIZE = 300;
+const CRM_TIME_ZONE =
+  "America/Los_Angeles";
 
-// Full history can fetch many pages.
+const PAGE_SIZE = 100;
+
 const MAX_FULL_PAGES = 100;
+const MAX_LIVE_PAGES = 50;
 
-// Live should normally need only a few pages.
-const MAX_LIVE_PAGES = 20;
-
-// No artificial delay between pages.
-// Zoom 429 retry logic below protects us.
-const PAGE_DELAY_MS = 0;
-
-const MAX_429_RETRIES = 3;
-const BASE_RETRY_DELAY_MS = 500;
-const MAX_RETRY_DELAY_MS = 5000;
+const TOKEN_REFRESH_THRESHOLD_MS =
+  2 * 60 * 1000;
 
 /*
-|--------------------------------------------------------------------------
-| HELPERS
-|--------------------------------------------------------------------------
-*/
+ * DB CACHE TTL
+ *
+ * FULL = 10 minutes
+ * LIVE = 5 minutes
+ */
+const FULL_CACHE_TTL_SECONDS = 10 * 60;
+const LIVE_CACHE_TTL_SECONDS = 5 * 60;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/*
+ * If Zoom gives 429 and there is no cached data,
+ * don't continuously hit Zoom.
+ */
+const FALLBACK_RATE_LIMIT_SECONDS =
+  5 * 60;
+
+const NO_CACHE_HEADERS = {
+  "Cache-Control":
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+  "Surrogate-Control": "no-store",
+};
+
+/* =========================================================
+   BASIC HELPERS
+========================================================= */
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
 }
 
-/*
-|--------------------------------------------------------------------------
-| DATE FORMAT
-|--------------------------------------------------------------------------
-*/
+function firstValue(...values) {
+  for (const value of values) {
+    if (
+      value !== null &&
+      value !== undefined &&
+      String(value).trim() !== ""
+    ) {
+      return value;
+    }
+  }
 
-function formatDate(date) {
-  const year = date.getFullYear();
-
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return "";
 }
 
-/*
-|--------------------------------------------------------------------------
-| TODAY
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   EXTENSION
+========================================================= */
 
-function getTodayDate() {
-  return formatDate(new Date());
+function normalizeExtension(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  let extension =
+    String(value)
+      .trim()
+      .toLowerCase();
+
+  if (!extension) {
+    return "";
+  }
+
+  extension =
+    extension
+      .replace(
+        /^extension[\s:._-]*/i,
+        ""
+      )
+      .replace(
+        /^ext[\s:._-]*/i,
+        ""
+      )
+      .trim();
+
+  if (/^\d+\.\d+$/.test(extension)) {
+    const [numberPart, decimalPart] =
+      extension.split(".");
+
+    if (/^0+$/.test(decimalPart)) {
+      extension = numberPart;
+    }
+  }
+
+  extension =
+    extension.replace(
+      /[^0-9a-z_-]/g,
+      ""
+    );
+
+  return extension;
 }
 
-/*
-|--------------------------------------------------------------------------
-| LAST 7 DAYS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   CALIFORNIA DATE
+========================================================= */
 
-function getDefaultDateRange() {
+function getCaliforniaDateString(
+  date = new Date()
+) {
+  const parsed =
+    date instanceof Date
+      ? date
+      : new Date(date);
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone:
+        CRM_TIME_ZONE,
+
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }
+  ).format(parsed);
+}
+
+/* =========================================================
+   CALIFORNIA DATE/TIME
+========================================================= */
+
+function getCaliforniaDateTimeInfo() {
   const now = new Date();
 
-  const todayStart = new Date(now);
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          CRM_TIME_ZONE,
 
-  todayStart.setHours(0, 0, 0, 0);
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
 
-  const fromDate = new Date(todayStart);
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
 
-  fromDate.setDate(fromDate.getDate() - 6);
+        hour12: false,
+      }
+    ).formatToParts(now);
+
+  const values = {};
+
+  for (const part of parts) {
+    if (
+      part.type !==
+      "literal"
+    ) {
+      values[part.type] =
+        part.value;
+    }
+  }
+
+  const hour =
+    values.hour === "24"
+      ? "00"
+      : values.hour;
+
+  const date =
+    `${values.year}-${values.month}-${values.day}`;
+
+  const time =
+    `${hour}:${values.minute}:${values.second}`;
 
   return {
-    from: formatDate(fromDate),
-    to: formatDate(todayStart),
+    now,
+    date,
+    time,
+    iso:
+      now.toISOString(),
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| RETRY AFTER
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   DEFAULT RANGE
+   LAST 7 DAYS
+========================================================= */
 
-function getRetryAfterMs(response) {
-  const retryAfter = response.headers.get("retry-after");
+function getDefaultDateRange() {
+  const today =
+    getCaliforniaDateString();
 
-  if (!retryAfter) {
+  const [
+    year,
+    month,
+    day,
+  ] =
+    today
+      .split("-")
+      .map(Number);
+
+  const fromDate =
+    new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day
+      )
+    );
+
+  fromDate.setUTCDate(
+    fromDate.getUTCDate() - 6
+  );
+
+  return {
+    from:
+      [
+        fromDate.getUTCFullYear(),
+        pad2(
+          fromDate.getUTCMonth() + 1
+        ),
+        pad2(
+          fromDate.getUTCDate()
+        ),
+      ].join("-"),
+
+    to:
+      today,
+  };
+}
+
+/* =========================================================
+   TODAY
+========================================================= */
+
+function getTodayRange() {
+  const today =
+    getCaliforniaDateString();
+
+  return {
+    from: today,
+    to: today,
+  };
+}
+
+/* =========================================================
+   DATE PARSER
+========================================================= */
+
+function parseDateString(value) {
+  if (
+    !value ||
+    typeof value !==
+      "string"
+  ) {
     return null;
   }
 
-  const seconds = Number(retryAfter);
+  const match =
+    value.match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
 
-  if (Number.isFinite(seconds)) {
-    return Math.max(seconds * 1000, 0);
+  if (!match) {
+    return null;
   }
 
-  const retryDate = Date.parse(retryAfter);
+  const year =
+    Number(match[1]);
 
-  if (!Number.isNaN(retryDate)) {
-    return Math.max(retryDate - Date.now(), 0);
+  const month =
+    Number(match[2]);
+
+  const day =
+    Number(match[3]);
+
+  const date =
+    new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day
+      )
+    );
+
+  if (
+    date.getUTCFullYear() !==
+      year ||
+    date.getUTCMonth() !==
+      month - 1 ||
+    date.getUTCDate() !==
+      day
+  ) {
+    return null;
   }
 
-  return null;
+  return date;
 }
 
-/*
-|--------------------------------------------------------------------------
-| EXTENSION DETECTION
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   DIRECTION
+========================================================= */
 
-function getExtension(call) {
-  const direction = String(
-    call?.direction ||
-      call?.call_direction ||
-      ""
-  ).toLowerCase();
+function getCallDirection(call) {
+  const raw =
+    firstValue(
+      call?.direction,
+      call?.call_direction,
+      call?.callDirection,
+      call?.type,
+      call?.call_type,
+      call?.callType
+    );
 
-  const callerExtension =
-    call?.caller_ext_number ??
-    call?.caller_extension ??
-    call?.caller_ext ??
-    call?.caller?.extension ??
-    call?.caller?.ext_number ??
-    null;
-
-  const calleeExtension =
-    call?.callee_ext_number ??
-    call?.callee_extension ??
-    call?.callee_ext ??
-    call?.callee?.extension ??
-    call?.callee?.ext_number ??
-    null;
-
-  /*
-  |--------------------------------------------------------------------------
-  | INBOUND
-  | Customer -> CRM
-  | CRM extension = callee
-  |--------------------------------------------------------------------------
-  */
-
-  if (direction === "inbound") {
-    if (calleeExtension) {
-      return String(calleeExtension).trim();
-    }
-
-    if (callerExtension) {
-      return String(callerExtension).trim();
-    }
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | OUTBOUND
-  | CRM -> Customer
-  | CRM extension = caller
-  |--------------------------------------------------------------------------
-  */
-
-  if (direction === "outbound") {
-    if (callerExtension) {
-      return String(callerExtension).trim();
-    }
-
-    if (calleeExtension) {
-      return String(calleeExtension).trim();
-    }
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | FALLBACK
-  |--------------------------------------------------------------------------
-  */
-
-  const possibleExtensions = [
-    call?.extension,
-    call?.ext_number,
-    call?.extension_number,
-    call?.phone_extension,
-    call?.user_extension,
-
-    call?.caller_ext_number,
-    call?.caller_extension,
-    call?.caller_ext,
-
-    call?.callee_ext_number,
-    call?.callee_extension,
-    call?.callee_ext,
-
-    call?.caller?.extension,
-    call?.callee?.extension,
-
-    call?.caller?.ext_number,
-    call?.callee?.ext_number,
-  ];
-
-  for (const value of possibleExtensions) {
-    if (
-      value !== undefined &&
-      value !== null &&
-      String(value).trim() !== ""
-    ) {
-      return String(value).trim();
-    }
-  }
-
-  return null;
+  return String(raw || "")
+    .toLowerCase()
+    .trim();
 }
 
-/*
-|--------------------------------------------------------------------------
-| UNIQUE CALL KEY
-|--------------------------------------------------------------------------
-*/
+function isInboundCall(call) {
+  const direction =
+    getCallDirection(call);
 
-function getCallUniqueKey(call) {
   return (
-    call?.call_history_uuid ||
-    call?.id ||
-    call?.call_id ||
-    [
-      call?.start_time || "",
-      call?.caller_did_number || "",
-      call?.callee_did_number || "",
-      call?.direction || "",
-    ].join("-")
+    direction === "in" ||
+    direction === "inbound" ||
+    direction === "incoming" ||
+    direction.includes(
+      "inbound"
+    ) ||
+    direction.includes(
+      "incoming"
+    )
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| ZOOM API REQUEST
-|--------------------------------------------------------------------------
-*/
+function isOutboundCall(call) {
+  const direction =
+    getCallDirection(call);
 
-async function fetchZoomCallHistory(accessToken, params) {
-  let retryCount = 0;
+  return (
+    direction === "out" ||
+    direction === "outbound" ||
+    direction === "outgoing" ||
+    direction.includes(
+      "outbound"
+    ) ||
+    direction.includes(
+      "outgoing"
+    )
+  );
+}
 
-  while (true) {
-    const url = new URL(ZOOM_CALL_HISTORY_URL);
+/* =========================================================
+   FIND EXTENSION
+========================================================= */
 
-    Object.entries(params).forEach(([key, value]) => {
-      if (
-        value !== undefined &&
-        value !== null &&
-        value !== ""
-      ) {
-        url.searchParams.set(key, String(value));
-      }
-    });
-
-    console.log(
-      "[Zoom API] Request:",
-      url.toString()
-    );
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-
-      cache: "no-store",
-    });
-
-    /*
-    |--------------------------------------------------------------------------
-    | SUCCESS
-    |--------------------------------------------------------------------------
-    */
-
-    if (response.ok) {
-      return await response.json();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | RATE LIMIT
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      response.status === 429 &&
-      retryCount < MAX_429_RETRIES
-    ) {
-      const retryAfterMs =
-        getRetryAfterMs(response);
-
-      const exponentialDelay = Math.min(
-        BASE_RETRY_DELAY_MS *
-          Math.pow(2, retryCount),
-        MAX_RETRY_DELAY_MS
+function findExtension(
+  ...values
+) {
+  for (const value of values) {
+    const extension =
+      normalizeExtension(
+        value
       );
 
-      const delay =
-        retryAfterMs !== null
-          ? Math.max(
-              retryAfterMs,
-              exponentialDelay
-            )
-          : exponentialDelay;
-
-      console.warn(
-        `[Zoom] 429 rate limit. Retry ${
-          retryCount + 1
-        }/${MAX_429_RETRIES} after ${delay}ms`
-      );
-
-      await sleep(delay);
-
-      retryCount++;
-
-      continue;
+    if (extension) {
+      return extension;
     }
+  }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ERROR
-    |--------------------------------------------------------------------------
-    */
+  return "";
+}
 
-    let errorBody = {};
+/* =========================================================
+   CALLER EXTENSION
+========================================================= */
 
-    try {
-      errorBody = await response.json();
-    } catch {
-      errorBody = {};
-    }
+function getCallerExtension(call) {
+  return findExtension(
+    call?.caller_ext_number,
+    call?.caller_extension,
+    call?.caller_extension_number,
+    call?.caller_extensionNumber,
+    call?.caller_ext,
+    call?.callerExt,
+    call?.callerExtNumber,
+    call?.caller_extension_id,
 
-    const error = new Error(
-      errorBody?.message ||
-        `Zoom API request failed with status ${response.status}`
+    call?.caller?.extension,
+    call?.caller?.extension_number,
+    call?.caller?.extensionNumber,
+    call?.caller?.user_extension,
+    call?.caller?.userExtension,
+    call?.caller?.ext,
+    call?.caller?.ext_number,
+    call?.caller?.ext_id,
+    call?.caller?.extension_id,
+
+    call?.caller?.user?.extension,
+    call?.caller?.user?.extension_number,
+    call?.caller?.user?.extensionNumber,
+
+    call?.source?.extension,
+    call?.source?.extension_number,
+    call?.source?.extensionNumber,
+    call?.source?.user_extension,
+    call?.source?.userExtension,
+    call?.source?.ext,
+    call?.source?.ext_number,
+
+    call?.from?.extension,
+    call?.from?.extension_number,
+    call?.from?.extensionNumber,
+    call?.from?.user_extension,
+    call?.from?.userExtension,
+    call?.from?.ext,
+    call?.from?.ext_number,
+
+    call?.raw?.caller_ext_number,
+    call?.raw?.caller_extension,
+    call?.raw?.caller_extension_number,
+
+    call?.raw_zoom_data?.caller_ext_number,
+    call?.raw_zoom_data?.caller_extension,
+    call?.raw_zoom_data?.caller_extension_number
+  );
+}
+
+/* =========================================================
+   CALLEE EXTENSION
+========================================================= */
+
+function getCalleeExtension(call) {
+  return findExtension(
+    call?.callee_ext_number,
+    call?.callee_extension,
+    call?.callee_extension_number,
+    call?.callee_extensionNumber,
+    call?.callee_ext,
+    call?.calleeExt,
+    call?.calleeExtNumber,
+    call?.callee_extension_id,
+
+    call?.callee?.extension,
+    call?.callee?.extension_number,
+    call?.callee?.extensionNumber,
+    call?.callee?.user_extension,
+    call?.callee?.userExtension,
+    call?.callee?.ext,
+    call?.callee?.ext_number,
+    call?.callee?.ext_id,
+    call?.callee?.extension_id,
+
+    call?.callee?.user?.extension,
+    call?.callee?.user?.extension_number,
+    call?.callee?.user?.extensionNumber,
+
+    call?.destination?.extension,
+    call?.destination?.extension_number,
+    call?.destination?.extensionNumber,
+    call?.destination?.user_extension,
+    call?.destination?.userExtension,
+    call?.destination?.ext,
+    call?.destination?.ext_number,
+
+    call?.to?.extension,
+    call?.to?.extension_number,
+    call?.to?.extensionNumber,
+    call?.to?.user_extension,
+    call?.to?.userExtension,
+    call?.to?.ext,
+    call?.to?.ext_number,
+
+    call?.raw?.callee_ext_number,
+    call?.raw?.callee_extension,
+    call?.raw?.callee_extension_number,
+
+    call?.raw_zoom_data?.callee_ext_number,
+    call?.raw_zoom_data?.callee_extension,
+    call?.raw_zoom_data?.callee_extension_number
+  );
+}
+
+/* =========================================================
+   TOP LEVEL EXTENSION
+========================================================= */
+
+function getTopLevelExtension(call) {
+  return findExtension(
+    call?.crm_extension,
+    call?.extension,
+    call?.extension_number,
+    call?.extensionNumber,
+    call?.user_extension,
+    call?.userExtension,
+    call?.ext,
+    call?.ext_number,
+    call?.ext_id,
+
+    call?.user?.extension,
+    call?.user?.extension_number,
+    call?.user?.extensionNumber,
+    call?.user?.user_extension,
+    call?.user?.ext,
+
+    call?.owner?.extension,
+    call?.owner?.extension_number,
+    call?.owner?.extensionNumber,
+    call?.owner?.user_extension,
+    call?.owner?.userExtension,
+    call?.owner?.ext,
+
+    call?.owner_extension,
+    call?.owner_ext_number,
+    call?.owner_extension_number,
+
+    call?.raw?.extension,
+    call?.raw?.extension_number,
+    call?.raw?.user_extension,
+
+    call?.raw_zoom_data?.extension,
+    call?.raw_zoom_data?.extension_number,
+    call?.raw_zoom_data?.user_extension
+  );
+}
+
+/* =========================================================
+   CRM EXTENSION
+========================================================= */
+
+function getExtensionFromCall(call) {
+  const caller =
+    getCallerExtension(call);
+
+  const callee =
+    getCalleeExtension(call);
+
+  const top =
+    getTopLevelExtension(call);
+
+  if (isInboundCall(call)) {
+    return (
+      callee ||
+      top ||
+      caller ||
+      ""
     );
+  }
 
-    error.status = response.status;
+  if (isOutboundCall(call)) {
+    return (
+      caller ||
+      top ||
+      callee ||
+      ""
+    );
+  }
 
-    error.zoomCode = errorBody?.code;
+  return (
+    top ||
+    caller ||
+    callee ||
+    ""
+  );
+}
 
-    throw error;
+/* =========================================================
+   ENRICH
+========================================================= */
+
+function enrichCall(call) {
+  const caller =
+    getCallerExtension(call);
+
+  const callee =
+    getCalleeExtension(call);
+
+  const extension =
+    getExtensionFromCall(call);
+
+  return {
+    ...call,
+
+    crm_extension:
+      extension || null,
+
+    crm_caller_extension:
+      caller || null,
+
+    crm_callee_extension:
+      callee || null,
+
+    crm_direction:
+      getCallDirection(call) ||
+      null,
+  };
+}
+
+/* =========================================================
+   ZOOM ERROR
+========================================================= */
+
+async function readZoomError(
+  response
+) {
+  try {
+    const data =
+      await response.json();
+
+    return {
+      code:
+        data?.code,
+
+      message:
+        data?.message ||
+        data?.error ||
+        `Zoom API returned ${response.status}`,
+
+      raw:
+        data,
+    };
+  } catch {
+    return {
+      code:
+        undefined,
+
+      message:
+        `Zoom API returned ${response.status}`,
+
+      raw:
+        null,
+    };
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| FETCH ZOOM PAGES
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   ZOOM PAGE
+========================================================= */
+
+async function fetchZoomPage({
+  accessToken,
+  from,
+  to,
+  nextPageToken = "",
+  pageNumber = 1,
+}) {
+  const params =
+    new URLSearchParams();
+
+  params.set(
+    "page_size",
+    String(PAGE_SIZE)
+  );
+
+  params.set(
+    "from",
+    from
+  );
+
+  params.set(
+    "to",
+    to
+  );
+
+  if (nextPageToken) {
+    params.set(
+      "next_page_token",
+      nextPageToken
+    );
+  }
+
+  const response =
+    await fetch(
+      `${ZOOM_CALL_HISTORY_URL}?${params.toString()}`,
+      {
+        method: "GET",
+
+        headers: {
+          Authorization:
+            `Bearer ${accessToken}`,
+
+          Accept:
+            "application/json",
+        },
+
+        cache:
+          "no-store",
+      }
+    );
+
+  if (response.ok) {
+    return await response.json();
+  }
+
+  const error =
+    await readZoomError(
+      response
+    );
+
+  const err =
+    new Error(
+      error.message
+    );
+
+  err.status =
+    response.status;
+
+  err.zoomCode =
+    error.code;
+
+  err.zoomRaw =
+    error.raw;
+
+  err.retryAfter =
+    response.headers.get(
+      "retry-after"
+    );
+
+  err.rateLimitReset =
+    response.headers.get(
+      "x-ratelimit-reset"
+    );
+
+  err.pageNumber =
+    pageNumber;
+
+  /*
+   * IMPORTANT:
+   *
+   * NO 429 RETRY HERE.
+   */
+  throw err;
+}
+
+/* =========================================================
+   FETCH ALL CALLS
+   NO DEDUPLICATION
+========================================================= */
 
 async function fetchAllCalls({
   accessToken,
   from,
   to,
-  pageSize,
   mode,
 }) {
-  let nextPageToken = null;
-
-  let pageNumber = 0;
-
-  const allCalls = [];
-
   const maxPages =
     mode === "live"
       ? MAX_LIVE_PAGES
       : MAX_FULL_PAGES;
 
-  do {
-    pageNumber++;
+  const allCalls = [];
 
-    if (pageNumber > 1 && PAGE_DELAY_MS > 0) {
-      await sleep(PAGE_DELAY_MS);
-    }
+  let nextPageToken =
+    "";
 
-    console.log(
-      `[Zoom Call History] ${mode.toUpperCase()} - Fetching page ${pageNumber}`
-    );
+  let pagesFetched =
+    0;
 
-    const zoomData =
-      await fetchZoomCallHistory(
-        accessToken,
-        {
-          from,
-          to,
+  let stoppedBecauseNoNextToken =
+    false;
 
-          page_size: pageSize,
+  let stoppedBecauseMaxPages =
+    false;
 
-          ...(nextPageToken
-            ? {
-                next_page_token:
-                  nextPageToken,
-              }
-            : {}),
-        }
+  const pageStats = [];
+
+  /*
+   * ONLY pagination-token protection.
+   *
+   * NOT call deduplication.
+   */
+  const seenPageTokens =
+    new Set();
+
+  while (
+    pagesFetched <
+    maxPages
+  ) {
+    if (
+      nextPageToken &&
+      seenPageTokens.has(
+        nextPageToken
+      )
+    ) {
+      console.warn(
+        "[Zoom] Pagination token repeated. Stopping."
       );
 
-    const pageCalls =
-      Array.isArray(
-        zoomData?.call_history
-      )
-        ? zoomData.call_history
-        : Array.isArray(
-            zoomData?.call_logs
-          )
-        ? zoomData.call_logs
-        : [];
-
-    console.log(
-      `[Zoom Call History] ${mode.toUpperCase()} page ${pageNumber}: ${pageCalls.length} calls`
-    );
-
-    allCalls.push(...pageCalls);
-
-    nextPageToken =
-      zoomData?.next_page_token || null;
-
-    if (!nextPageToken) {
       break;
+    }
+
+    if (nextPageToken) {
+      seenPageTokens.add(
+        nextPageToken
+      );
+    }
+
+    const pageNumber =
+      pagesFetched + 1;
+
+    const data =
+      await fetchZoomPage({
+        accessToken,
+        from,
+        to,
+        nextPageToken,
+        pageNumber,
+      });
+
+    pagesFetched += 1;
+
+    let pageCalls = [];
+
+    if (
+      Array.isArray(
+        data?.call_logs
+      )
+    ) {
+      pageCalls =
+        data.call_logs;
+    } else if (
+      Array.isArray(
+        data?.calls
+      )
+    ) {
+      pageCalls =
+        data.calls;
+    } else if (
+      Array.isArray(
+        data?.call_history
+      )
+    ) {
+      pageCalls =
+        data.call_history;
     }
 
     /*
-    |--------------------------------------------------------------------------
-    | LIVE SAFETY
-    |--------------------------------------------------------------------------
-    |
-    | We never allow live polling to accidentally fetch unlimited pages.
-    |--------------------------------------------------------------------------
-    */
+     * NEVER DEDUPE.
+     */
+    allCalls.push(
+      ...pageCalls
+    );
 
-    if (pageNumber >= maxPages) {
-      console.warn(
-        `[Zoom Call History] ${mode} reached MAX pages: ${maxPages}`
-      );
+    nextPageToken =
+      data?.next_page_token ||
+      data?.nextPageToken ||
+      "";
+
+    pageStats.push({
+      page:
+        pageNumber,
+
+      records:
+        pageCalls.length,
+
+      totalSoFar:
+        allCalls.length,
+
+      hasNextPage:
+        Boolean(
+          nextPageToken
+        ),
+    });
+
+    console.log(
+      `[Zoom] page=${pageNumber} records=${pageCalls.length} total=${allCalls.length}`
+    );
+
+    if (!nextPageToken) {
+      stoppedBecauseNoNextToken =
+        true;
 
       break;
     }
-  } while (nextPageToken);
+  }
+
+  if (
+    nextPageToken &&
+    pagesFetched >=
+      maxPages
+  ) {
+    stoppedBecauseMaxPages =
+      true;
+  }
 
   return {
-    calls: allCalls,
-    pagesFetched: pageNumber,
+    calls:
+      allCalls,
+
+    pagesFetched,
+
+    stoppedBecauseNoNextToken,
+
+    stoppedBecauseMaxPages,
+
+    pageStats,
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| DEDUPLICATE
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   MYSQL CACHE
+========================================================= */
 
-function deduplicateCalls(calls) {
-  const map = new Map();
+function makeCacheKey({
+  mode,
+  from,
+  to,
+}) {
+  return `zoom-call-history:${mode}:${from}:${to}`;
+}
 
-  for (const call of calls) {
-    const key = getCallUniqueKey(call);
+/* =========================================================
+   GET CACHE
+========================================================= */
 
-    if (!map.has(key)) {
-      map.set(key, call);
+async function getDbCache(
+  cacheKey
+) {
+  const [rows] =
+    await db.query(
+      `
+        SELECT
+          id,
+          cache_key,
+          from_date,
+          to_date,
+          mode,
+          payload_json,
+          fetched_at,
+          expires_at
+        FROM zoom_call_history_cache
+        WHERE cache_key = ?
+        LIMIT 1
+      `,
+      [cacheKey]
+    );
+
+  if (
+    !rows ||
+    rows.length === 0
+  ) {
+    return null;
+  }
+
+  const row =
+    rows[0];
+
+  let payload = null;
+
+  if (
+    row.payload_json
+  ) {
+    try {
+      payload =
+        typeof row.payload_json ===
+        "string"
+          ? JSON.parse(
+              row.payload_json
+            )
+          : row.payload_json;
+    } catch (error) {
+      console.error(
+        "[Zoom Cache] Invalid JSON:",
+        error
+      );
+
+      payload = null;
     }
   }
 
-  return Array.from(map.values());
+  return {
+    ...row,
+
+    payload,
+  };
 }
 
-/*
-|--------------------------------------------------------------------------
-| ENRICH CALLS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   CACHE FRESH CHECK
+========================================================= */
 
-function enrichCalls(calls) {
-  return calls.map((call) => {
-    const extension = getExtension(call);
+function isCacheFresh(
+  cache
+) {
+  if (
+    !cache?.payload ||
+    !cache?.expires_at
+  ) {
+    return false;
+  }
 
-    return {
-      ...call,
+  const expiresAt =
+    new Date(
+      cache.expires_at
+    ).getTime();
 
-      crm_extension: extension,
+  if (
+    !Number.isFinite(
+      expiresAt
+    )
+  ) {
+    return false;
+  }
 
-      crm_extension_label: extension
-        ? `Ext. ${extension}`
-        : null,
-    };
-  });
+  return (
+    Date.now() <
+    expiresAt
+  );
 }
 
-/*
-|--------------------------------------------------------------------------
-| EXTENSION COUNTS
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   SAVE CACHE
+========================================================= */
 
-function calculateExtensionCounts(calls) {
+async function saveDbCache({
+  cacheKey,
+  from,
+  to,
+  mode,
+  payload,
+}) {
+  const ttlSeconds =
+    mode === "live"
+      ? LIVE_CACHE_TTL_SECONDS
+      : FULL_CACHE_TTL_SECONDS;
+
+  const payloadJson =
+    JSON.stringify(
+      payload
+    );
+
+  const fetchedAt =
+    new Date();
+
+  const expiresAt =
+    new Date(
+      Date.now() +
+        ttlSeconds * 1000
+    );
+
+  await db.query(
+    `
+      INSERT INTO zoom_call_history_cache
+      (
+        cache_key,
+        from_date,
+        to_date,
+        mode,
+        payload_json,
+        fetched_at,
+        expires_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        payload_json = VALUES(payload_json),
+        fetched_at = VALUES(fetched_at),
+        expires_at = VALUES(expires_at),
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [
+      cacheKey,
+      from,
+      to,
+      mode,
+      payloadJson,
+      fetchedAt,
+      expiresAt,
+    ]
+  );
+
+  console.log(
+    `[Zoom Cache] SAVED ${cacheKey} records=${payload?.calls?.length || 0}`
+  );
+}
+
+/* =========================================================
+   TOKEN REFRESH
+========================================================= */
+
+async function refreshZoomToken(
+  connection
+) {
+  const clientId =
+    process.env.ZOOM_CLIENT_ID;
+
+  const clientSecret =
+    process.env.ZOOM_CLIENT_SECRET;
+
+  if (
+    !clientId ||
+    !clientSecret
+  ) {
+    throw new Error(
+      "ZOOM_CLIENT_ID or ZOOM_CLIENT_SECRET is missing"
+    );
+  }
+
+  if (
+    !connection?.refresh_token
+  ) {
+    throw new Error(
+      "Zoom refresh token is missing"
+    );
+  }
+
+  const basicAuth =
+    Buffer.from(
+      `${clientId}:${clientSecret}`
+    ).toString(
+      "base64"
+    );
+
+  const response =
+    await fetch(
+      ZOOM_TOKEN_URL,
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Basic ${basicAuth}`,
+
+          "Content-Type":
+            "application/x-www-form-urlencoded",
+        },
+
+        body:
+          new URLSearchParams({
+            grant_type:
+              "refresh_token",
+
+            refresh_token:
+              connection.refresh_token,
+          }),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  if (!response.ok) {
+    const error =
+      await readZoomError(
+        response
+      );
+
+    const err =
+      new Error(
+        error.message ||
+          "Unable to refresh Zoom token"
+      );
+
+    err.status =
+      response.status;
+
+    err.zoomRaw =
+      error.raw;
+
+    throw err;
+  }
+
+  const data =
+    await response.json();
+
+  const accessToken =
+    data?.access_token;
+
+  const refreshToken =
+    data?.refresh_token ||
+    connection.refresh_token;
+
+  const expiresIn =
+    Number(
+      data?.expires_in
+    ) || 3600;
+
+  if (!accessToken) {
+    throw new Error(
+      "Zoom token refresh returned no access token"
+    );
+  }
+
+  const expiresAt =
+    new Date(
+      Date.now() +
+        expiresIn * 1000
+    );
+
+  await db.query(
+    `
+      UPDATE zoom_connections
+      SET
+        access_token = ?,
+        refresh_token = ?,
+        expires_at = ?
+      WHERE id = ?
+    `,
+    [
+      accessToken,
+      refreshToken,
+      expiresAt,
+      connection.id,
+    ]
+  );
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt,
+  };
+}
+
+/* =========================================================
+   DUPLICATE COUNT
+   DIAGNOSTIC ONLY
+========================================================= */
+
+function calculateDuplicateTotal(
+  calls
+) {
+  const map =
+    new Map();
+
+  for (const call of calls) {
+    const id =
+      firstValue(
+        call?.call_history_uuid,
+        call?.call_id,
+        call?.zoom_call_id,
+        call?.id
+      );
+
+    if (!id) {
+      continue;
+    }
+
+    const key =
+      String(id);
+
+    map.set(
+      key,
+      (map.get(key) || 0) + 1
+    );
+  }
+
+  let duplicates = 0;
+
+  for (
+    const count of
+    map.values()
+  ) {
+    if (count > 1) {
+      duplicates +=
+        count - 1;
+    }
+  }
+
+  return duplicates;
+}
+
+/* =========================================================
+   CALL DATE
+========================================================= */
+
+function getDateFromCall(call) {
+  const raw =
+    firstValue(
+      call?.start_time,
+      call?.date_time,
+      call?.timestamp,
+      call?.startTime,
+      call?.start_datetime,
+      call?.datetime
+    );
+
+  if (!raw) {
+    return null;
+  }
+
+  const date =
+    new Date(raw);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return getCaliforniaDateString(
+    date
+  );
+}
+
+/* =========================================================
+   CALL TIMESTAMP
+========================================================= */
+
+function getCallTimestamp(call) {
+  const raw =
+    firstValue(
+      call?.start_time,
+      call?.date_time,
+      call?.timestamp,
+      call?.startTime,
+      call?.start_datetime,
+      call?.datetime
+    );
+
+  if (!raw) {
+    return null;
+  }
+
+  const timestamp =
+    new Date(raw).getTime();
+
+  if (
+    !Number.isFinite(
+      timestamp
+    )
+  ) {
+    return null;
+  }
+
+  return timestamp;
+}
+
+/* =========================================================
+   DATE FILTER
+========================================================= */
+
+function filterCallsByDate({
+  calls,
+  from,
+  to,
+}) {
+  return calls.filter(
+    (call) => {
+      const date =
+        getDateFromCall(
+          call
+        );
+
+      /*
+       * Preserve calls whose date
+       * cannot be determined.
+       */
+      if (!date) {
+        return true;
+      }
+
+      if (
+        from &&
+        date < from
+      ) {
+        return false;
+      }
+
+      if (
+        to &&
+        date > to
+      ) {
+        return false;
+      }
+
+      return true;
+    }
+  );
+}
+
+/* =========================================================
+   USER FILTER
+========================================================= */
+
+function filterCallsByUser({
+  calls,
+  isAdmin,
+  userExtension,
+}) {
+  /*
+   * ADMIN = ALL CALLS.
+   */
+  if (isAdmin) {
+    return calls;
+  }
+
+  const extension =
+    normalizeExtension(
+      userExtension
+    );
+
+  if (!extension) {
+    return [];
+  }
+
+  return calls.filter(
+    (call) => {
+      const caller =
+        normalizeExtension(
+          getCallerExtension(
+            call
+          )
+        );
+
+      const callee =
+        normalizeExtension(
+          getCalleeExtension(
+            call
+          )
+        );
+
+      const top =
+        normalizeExtension(
+          getTopLevelExtension(
+            call
+          )
+        );
+
+      const crm =
+        normalizeExtension(
+          call?.crm_extension
+        );
+
+      return (
+        caller ===
+          extension ||
+        callee ===
+          extension ||
+        top ===
+          extension ||
+        crm ===
+          extension
+      );
+    }
+  );
+}
+
+/* =========================================================
+   EXTENSION COUNTS
+========================================================= */
+
+function getExtensionCounts(
+  calls
+) {
   const counts = {};
 
   for (const call of calls) {
     const extension =
-      call?.crm_extension;
+      normalizeExtension(
+        call?.crm_extension
+      );
 
     if (!extension) {
       continue;
     }
 
     counts[extension] =
-      (counts[extension] || 0) + 1;
+      (counts[extension] || 0) +
+      1;
   }
 
   return counts;
 }
 
-/*
-|--------------------------------------------------------------------------
-| EXTENSION LIST
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   AVAILABLE EXTENSIONS
+========================================================= */
 
-function getExtensions(extensionCounts) {
-  return Object.keys(extensionCounts).sort(
-    (a, b) => Number(a) - Number(b)
+function getAvailableExtensions(
+  calls
+) {
+  const set =
+    new Set();
+
+  for (const call of calls) {
+    const extension =
+      normalizeExtension(
+        call?.crm_extension
+      );
+
+    if (extension) {
+      set.add(
+        extension
+      );
+    }
+  }
+
+  return Array.from(
+    set
+  ).sort(
+    (a, b) =>
+      a.localeCompare(
+        b,
+        undefined,
+        {
+          numeric: true,
+          sensitivity:
+            "base",
+        }
+      )
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| CURRENT USER FILTER
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   DATE COUNTS
+========================================================= */
 
-function filterCallsForUser({
-  calls,
-  isAdmin,
-  userExtension,
-}) {
-  if (isAdmin) {
-    return calls;
-  }
-
-  if (!userExtension) {
-    return [];
-  }
-
-  return calls.filter(
-    (call) =>
-      String(
-        call?.crm_extension || ""
-      ).trim() === userExtension
-  );
-}
-
-/*
-|--------------------------------------------------------------------------
-| DATE COUNTS
-|--------------------------------------------------------------------------
-*/
-
-function calculateDateCounts(calls) {
+function getDateCounts(
+  calls
+) {
   const counts = {};
 
   for (const call of calls) {
-    const value =
-      call?.start_time ||
-      call?.startTime ||
-      call?.start_datetime ||
-      call?.created_at ||
-      call?.createdAt ||
-      null;
+    const date =
+      getDateFromCall(
+        call
+      );
 
-    if (!value) {
+    if (!date) {
       continue;
     }
 
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      continue;
-    }
-
-    const dateKey = formatDate(date);
-
-    counts[dateKey] =
-      (counts[dateKey] || 0) + 1;
+    counts[date] =
+      (counts[date] || 0) +
+      1;
   }
 
   return counts;
 }
 
-/*
-|--------------------------------------------------------------------------
-| GET
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   SORT
+========================================================= */
 
-export async function GET(request) {
+function sortCallsNewestFirst(
+  calls
+) {
+  return calls.sort(
+    (a, b) => {
+      const aTime =
+        getCallTimestamp(
+          a
+        ) || 0;
+
+      const bTime =
+        getCallTimestamp(
+          b
+        ) || 0;
+
+      return (
+        bTime -
+        aTime
+      );
+    }
+  );
+}
+
+/* =========================================================
+   GET CONNECTION
+========================================================= */
+
+async function getZoomConnection() {
+  const [
+    rows,
+  ] =
+    await db.query(
+      `
+        SELECT
+          id,
+          access_token,
+          refresh_token,
+          expires_at
+        FROM zoom_connections
+        ORDER BY id DESC
+        LIMIT 1
+      `
+    );
+
+  if (
+    !rows ||
+    rows.length === 0
+  ) {
+    return null;
+  }
+
+  return rows[0];
+}
+
+/* =========================================================
+   MAIN
+========================================================= */
+
+export async function GET(
+  request
+) {
   try {
-    console.log(
-      "================================================"
-    );
-
-    console.log(
-      "[Zoom Call History] REQUEST START"
-    );
-
-    console.log(
-      "================================================"
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 1. CRM AUTH
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================
+       AUTH
+    ===================================================== */
 
     const token =
       request.cookies.get(
@@ -2339,15 +1642,31 @@ export async function GET(request) {
       return NextResponse.json(
         {
           success: false,
-          error: "CRM login required",
+          message:
+            "Unauthorized",
         },
         {
           status: 401,
+          headers:
+            NO_CACHE_HEADERS,
+        }
+      );
+    }
 
-          headers: {
-            "Cache-Control":
-              "no-store",
-          },
+    const jwtSecret =
+      process.env.JWT_SECRET;
+
+    if (!jwtSecret) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "JWT_SECRET is missing",
+        },
+        {
+          status: 500,
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
@@ -2355,123 +1674,119 @@ export async function GET(request) {
     let decoded;
 
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET
-      );
-    } catch (error) {
-      console.error(
-        "[Zoom Call History] Invalid JWT:",
-        error?.message
-      );
-
+      decoded =
+        jwt.verify(
+          token,
+          jwtSecret
+        );
+    } catch {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Invalid or expired CRM session",
+          message:
+            "Invalid or expired session",
         },
         {
           status: 401,
-
-          headers: {
-            "Cache-Control":
-              "no-store",
-          },
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
 
-    const currentUserId =
+    const userId =
       decoded?.id ||
       decoded?.userId ||
       decoded?.user_id;
 
-    if (!currentUserId) {
+    if (!userId) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "CRM user ID not found",
+          message:
+            "User ID missing from token",
         },
         {
           status: 401,
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 2. CURRENT USER
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================
+       USER
+    ===================================================== */
 
-    const userRows = await query(
-      `
-        SELECT
-          id,
-          name,
-          email,
-          role,
-          zoom_extension
-        FROM users
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [currentUserId]
-    );
+    const [
+      users,
+    ] =
+      await db.query(
+        `
+          SELECT
+            id,
+            name,
+            email,
+            role,
+            zoom_extension,
+            status
+          FROM users
+          WHERE id = ?
+          LIMIT 1
+        `,
+        [userId]
+      );
 
     if (
-      !userRows ||
-      userRows.length === 0
+      !users ||
+      users.length === 0
     ) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "CRM user not found",
+          message:
+            "User not found",
         },
         {
-          status: 404,
+          status: 401,
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
 
-    const currentUser =
-      userRows[0];
-
-    const userRole = String(
-      currentUser.role || ""
-    ).toLowerCase();
-
-    const userExtension =
-      currentUser.zoom_extension
-        ? String(
-            currentUser.zoom_extension
-          ).trim()
-        : null;
+    const user =
+      users[0];
 
     const isAdmin =
-      userRole === "admin";
+      String(
+        user.role || ""
+      )
+        .trim()
+        .toLowerCase() ===
+      "admin";
 
-    /*
-    |--------------------------------------------------------------------------
-    | 3. MODE
-    |--------------------------------------------------------------------------
-    |
-    | full = full requested/default range
-    | live = today's data only
-    |--------------------------------------------------------------------------
-    */
+    const userExtension =
+      normalizeExtension(
+        user.zoom_extension
+      );
 
-    const { searchParams } =
-      new URL(request.url);
+    /* =====================================================
+       QUERY
+    ===================================================== */
+
+    const params =
+      new URL(request.url)
+        .searchParams;
 
     let mode =
       String(
-        searchParams.get("mode") ||
-          "full"
-      ).toLowerCase();
+        params.get(
+          "mode"
+        ) || "full"
+      )
+        .trim()
+        .toLowerCase();
 
     if (
       mode !== "full" &&
@@ -2480,404 +1795,107 @@ export async function GET(request) {
       mode = "full";
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 4. DATE RANGE
-    |--------------------------------------------------------------------------
-    */
-
     let from =
-      searchParams.get("from");
+      params.get("from");
 
     let to =
-      searchParams.get("to");
+      params.get("to");
 
-    /*
-    |--------------------------------------------------------------------------
-    | LIVE MODE
-    |--------------------------------------------------------------------------
-    |
-    | Always force live request to TODAY.
-    |
-    */
+    /* =====================================================
+       LIVE = TODAY
+    ===================================================== */
 
     if (mode === "live") {
       const today =
-        getTodayDate();
+        getTodayRange();
 
-      from = today;
-      to = today;
+      from =
+        today.from;
+
+      to =
+        today.to;
     } else {
-      /*
-      |--------------------------------------------------------------------------
-      | FULL MODE
-      |--------------------------------------------------------------------------
-      */
-
-      if (!from || !to) {
-        const defaultRange =
+      if (!from && !to) {
+        const range =
           getDefaultDateRange();
 
         from =
-          from ||
-          defaultRange.from;
+          range.from;
 
         to =
-          to ||
-          defaultRange.to;
+          range.to;
+      } else if (
+        from &&
+        !to
+      ) {
+        to = from;
+      } else if (
+        !from &&
+        to
+      ) {
+        from = to;
       }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 5. PAGE SIZE
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================
+       DATE VALIDATION
+    ===================================================== */
 
-    const requestedPageSize =
-      Number(
-        searchParams.get(
-          "page_size"
-        ) ||
-          DEFAULT_PAGE_SIZE
+    const fromDate =
+      parseDateString(
+        from
       );
 
-    const pageSize = Math.min(
-      Math.max(
-        Number.isFinite(
-          requestedPageSize
-        )
-          ? requestedPageSize
-          : DEFAULT_PAGE_SIZE,
-        1
-      ),
-      MAX_PAGE_SIZE
-    );
-
-    console.log(
-      "[Zoom Call History] MODE:",
-      mode
-    );
-
-    console.log(
-      "[Zoom Call History] DATE:",
-      {
-        from,
-        to,
-      }
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 6. CENTRAL ZOOM CONNECTION
-    |--------------------------------------------------------------------------
-    */
-
-    const connectionRows =
-      await query(
-        `
-          SELECT
-            id,
-            user_id,
-            zoom_account_id,
-            zoom_user_id,
-            zoom_email,
-            access_token,
-            refresh_token,
-            expires_at
-          FROM zoom_connections
-          ORDER BY id DESC
-          LIMIT 1
-        `
+    const toDate =
+      parseDateString(
+        to
       );
 
     if (
-      !connectionRows ||
-      connectionRows.length === 0
+      !fromDate ||
+      !toDate
     ) {
       return NextResponse.json(
         {
           success: false,
-          connected: false,
-          error:
-            "No central Zoom account is connected",
+          message:
+            "Invalid date. Use YYYY-MM-DD.",
         },
         {
           status: 400,
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
 
-    const connection =
-      connectionRows[0];
-
-    let accessToken =
-      connection.access_token;
-
-    let refreshToken =
-      connection.refresh_token;
-
-    let expiresAt =
-      connection.expires_at;
-
-    /*
-    |--------------------------------------------------------------------------
-    | 7. REFRESH TOKEN
-    |--------------------------------------------------------------------------
-    */
-
-    let shouldRefresh = false;
-
-    if (expiresAt) {
-      const expiresAtMs =
-        new Date(
-          expiresAt
-        ).getTime();
-
-      const twoMinutes =
-        2 * 60 * 1000;
-
-      if (
-        Number.isFinite(
-          expiresAtMs
-        ) &&
-        expiresAtMs <=
-          Date.now() +
-            twoMinutes
-      ) {
-        shouldRefresh = true;
-      }
-    }
-
-    if (shouldRefresh) {
-      console.log(
-        "[Zoom Call History] Refreshing Zoom token..."
-      );
-
-      if (!refreshToken) {
-        return NextResponse.json(
-          {
-            success: false,
-            connected: false,
-            error:
-              "Zoom access token expired and no refresh token is available",
-          },
-          {
-            status: 401,
-          }
-        );
-      }
-
-      const basicAuth =
-        Buffer.from(
-          `${zoomConfig.clientId}:${zoomConfig.clientSecret}`
-        ).toString("base64");
-
-      const refreshResponse =
-        await fetch(
-          "https://zoom.us/oauth/token",
-          {
-            method: "POST",
-
-            headers: {
-              Authorization:
-                `Basic ${basicAuth}`,
-
-              "Content-Type":
-                "application/x-www-form-urlencoded",
-            },
-
-            body:
-              new URLSearchParams({
-                grant_type:
-                  "refresh_token",
-
-                refresh_token:
-                  refreshToken,
-              }).toString(),
-
-            cache: "no-store",
-          }
-        );
-
-      const refreshData =
-        await refreshResponse.json();
-
-      if (!refreshResponse.ok) {
-        console.error(
-          "[Zoom Call History] Token refresh failed:",
-          refreshData
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            connected: false,
-            error:
-              refreshData?.reason ||
-              refreshData?.message ||
-              "Zoom token refresh failed",
-          },
-          {
-            status: 401,
-          }
-        );
-      }
-
-      accessToken =
-        refreshData.access_token;
-
-      refreshToken =
-        refreshData.refresh_token ||
-        refreshToken;
-
-      const expiresIn =
-        Number(
-          refreshData.expires_in ||
-            3600
-        );
-
-      expiresAt =
-        new Date(
-          Date.now() +
-            expiresIn * 1000
-        );
-
-      await query(
-        `
-          UPDATE zoom_connections
-          SET
-            access_token = ?,
-            refresh_token = ?,
-            expires_at = ?,
-            updated_at = NOW()
-          WHERE id = ?
-        `,
-        [
-          accessToken,
-          refreshToken,
-          expiresAt,
-          connection.id,
-        ]
-      );
-
-      console.log(
-        "[Zoom Call History] Token refreshed successfully"
+    if (
+      fromDate >
+      toDate
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "From date cannot be after To date.",
+        },
+        {
+          status: 400,
+          headers:
+            NO_CACHE_HEADERS,
+        }
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 8. FETCH DATA
-    |--------------------------------------------------------------------------
-    */
+    const timeInfo =
+      getCaliforniaDateTimeInfo();
 
-    const {
-      calls: rawCalls,
-      pagesFetched,
-    } =
-      await fetchAllCalls({
-        accessToken,
-        from,
-        to,
-        pageSize,
-        mode,
-      });
+    const currentDate =
+      timeInfo.date;
 
-    console.log(
-      `[Zoom Call History] ${mode.toUpperCase()} RAW CALLS:`,
-      rawCalls.length
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 9. DEDUPLICATE
-    |--------------------------------------------------------------------------
-    */
-
-    const uniqueCalls =
-      deduplicateCalls(
-        rawCalls
-      );
-
-    console.log(
-      `[Zoom Call History] ${mode.toUpperCase()} UNIQUE CALLS:`,
-      uniqueCalls.length
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 10. ENRICH
-    |--------------------------------------------------------------------------
-    */
-
-    const enrichedCalls =
-      enrichCalls(
-        uniqueCalls
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 11. ALL EXTENSION COUNTS
-    |--------------------------------------------------------------------------
-    */
-
-    const allExtensionCounts =
-      calculateExtensionCounts(
-        enrichedCalls
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 12. FILTER CURRENT USER
-    |--------------------------------------------------------------------------
-    */
-
-    const visibleCalls =
-      filterCallsForUser({
-        calls: enrichedCalls,
-        isAdmin,
-        userExtension,
-      });
-
-    /*
-    |--------------------------------------------------------------------------
-    | 13. VISIBLE EXTENSION COUNTS
-    |--------------------------------------------------------------------------
-    */
-
-    const extensionCounts =
-      calculateExtensionCounts(
-        visibleCalls
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 14. EXTENSIONS
-    |--------------------------------------------------------------------------
-    */
-
-    const extensions =
-      getExtensions(
-        extensionCounts
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 15. DATE COUNTS
-    |--------------------------------------------------------------------------
-    */
-
-    const dateCounts =
-      calculateDateCounts(
-        visibleCalls
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | 16. NO EXTENSION
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================
+       USER WITHOUT EXTENSION
+    ===================================================== */
 
     if (
       !isAdmin &&
@@ -2887,302 +1905,946 @@ export async function GET(request) {
         {
           success: true,
 
-          connected: true,
+          calls: [],
 
-          live: mode === "live",
+          total: 0,
+
+          rawTotal: 0,
+
+          enrichedTotal: 0,
+
+          uniqueTotal: 0,
+
+          duplicateTotal: 0,
+
+          filteredTotal: 0,
+
+          dateFilteredTotal: 0,
 
           mode,
 
-          user: {
-            id: currentUser.id,
-            name: currentUser.name,
-            email: currentUser.email,
-            role: currentUser.role,
-            zoom_extension: null,
-          },
-
-          calls: [],
-
-          total_records:
-            uniqueCalls.length,
-
-          visible_records: 0,
-
-          extension_counts: {},
-
-          all_extension_counts:
-            allExtensionCounts,
-
-          extensions: [],
-
-          page_size: pageSize,
-
-          pages_fetched:
-            pagesFetched,
+          live:
+            mode === "live",
 
           from,
 
           to,
 
-          date_counts:
-            dateCounts,
+          timeZone:
+            CRM_TIME_ZONE,
 
-          fetched_at:
-            new Date().toISOString(),
+          currentDate,
 
-          next_page_token: null,
+          currentTime:
+            timeInfo.time,
 
-          message:
-            "No Zoom extension is assigned to this user",
+          currentTimeIso:
+            timeInfo.iso,
+
+          currentTimeApplied:
+            false,
+
+          isAdmin: false,
+
+          user: {
+            id:
+              user.id,
+
+            name:
+              user.name,
+
+            email:
+              user.email,
+
+            role:
+              user.role,
+
+            zoom_extension:
+              null,
+          },
+
+          pagesFetched: 0,
+
+          pageStats: [],
+
+          pagination: {
+            pageSize:
+              PAGE_SIZE,
+
+            maxPages:
+              mode === "live"
+                ? MAX_LIVE_PAGES
+                : MAX_FULL_PAGES,
+
+            stoppedBecauseNoNextToken:
+              true,
+
+            stoppedBecauseMaxPages:
+              false,
+          },
+
+          extensionCounts: {},
+
+          availableExtensions: [],
+
+          detectedExtensions: [],
+
+          detectedExtensionCounts: {},
+
+          detectedTotal: 0,
+
+          callsWithoutExtension: 0,
+
+          dateCounts: {},
+
+          cache: {
+            hit: false,
+
+            stale: false,
+
+            rateLimited: false,
+          },
         },
+
         {
           status: 200,
-
-          headers: {
-            "Cache-Control":
-              "no-store, no-cache, must-revalidate",
-
-            Pragma: "no-cache",
-
-            Expires: "0",
-          },
+          headers:
+            NO_CACHE_HEADERS,
         }
       );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | 17. FINAL RESPONSE
-    |--------------------------------------------------------------------------
-    */
+    /* =====================================================
+       CACHE KEY
+    ===================================================== */
+
+    const cacheKey =
+      makeCacheKey({
+        mode,
+        from,
+        to,
+      });
 
     console.log(
-      "[Zoom Call History] FINAL:",
-      {
-        mode,
+      `[Call History] cacheKey=${cacheKey}`
+    );
 
-        userId:
-          currentUser.id,
+    /* =====================================================
+       STEP 1:
+       CHECK DB CACHE FIRST
+    ===================================================== */
 
-        role:
-          currentUser.role,
+    let cache =
+      await getDbCache(
+        cacheKey
+      );
 
-        extension:
-          userExtension,
+    let fetchResult =
+      null;
+
+    let cacheHit =
+      false;
+
+    let staleCache =
+      false;
+
+    let rateLimited =
+      false;
+
+    if (
+      cache &&
+      isCacheFresh(cache)
+    ) {
+      console.log(
+        `[Zoom DB Cache] FRESH HIT ${cacheKey}`
+      );
+
+      fetchResult =
+        cache.payload;
+
+      cacheHit =
+        true;
+    }
+
+    /* =====================================================
+       STEP 2:
+       CACHE MISS
+    ===================================================== */
+
+    if (!fetchResult) {
+      /*
+       * Get Zoom connection only now.
+       *
+       * Cache hit does NOT need Zoom token.
+       */
+      let connection =
+        await getZoomConnection();
+
+      if (!connection) {
+        /*
+         * If old cache exists, use it.
+         */
+        if (cache?.payload) {
+          fetchResult =
+            cache.payload;
+
+          cacheHit =
+            true;
+
+          staleCache =
+            true;
+        } else {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Zoom is not connected.",
+            },
+            {
+              status: 400,
+              headers:
+                NO_CACHE_HEADERS,
+            }
+          );
+        }
+      }
+
+      /* ===================================================
+         TOKEN
+      =================================================== */
+
+      let accessToken =
+        connection?.access_token;
+
+      let tokenRefreshed =
+        false;
+
+      if (
+        connection &&
+        accessToken &&
+        connection.expires_at
+      ) {
+        const expiresAt =
+          new Date(
+            connection.expires_at
+          ).getTime();
+
+        if (
+          Number.isFinite(
+            expiresAt
+          ) &&
+          expiresAt -
+            Date.now() <=
+            TOKEN_REFRESH_THRESHOLD_MS
+        ) {
+          const refreshed =
+            await refreshZoomToken(
+              connection
+            );
+
+          accessToken =
+            refreshed.accessToken;
+
+          tokenRefreshed =
+            true;
+        }
+      }
+
+      /* ===================================================
+         FETCH IF CACHE MISS
+      =================================================== */
+
+      if (
+        !fetchResult &&
+        accessToken
+      ) {
+        try {
+          /*
+           * Re-check DB cache.
+           *
+           * Another browser/user may have filled it.
+           */
+          cache =
+            await getDbCache(
+              cacheKey
+            );
+
+          if (
+            cache &&
+            isCacheFresh(cache)
+          ) {
+            console.log(
+              `[Zoom DB Cache] SECOND HIT ${cacheKey}`
+            );
+
+            fetchResult =
+              cache.payload;
+
+            cacheHit =
+              true;
+          }
+
+          /* ===============================================
+             ACTUAL ZOOM REQUEST
+          =============================================== */
+
+          if (!fetchResult) {
+            console.log(
+              `[Zoom] FETCHING ${from} -> ${to} mode=${mode}`
+            );
+
+            fetchResult =
+              await fetchAllCalls({
+                accessToken,
+                from,
+                to,
+                mode,
+              });
+
+            /*
+             * SAVE RAW ZOOM DATA.
+             *
+             * Duplicates preserved.
+             */
+            await saveDbCache({
+              cacheKey,
+              from,
+              to,
+              mode,
+              payload:
+                fetchResult,
+            });
+
+            console.log(
+              `[Zoom] FETCH COMPLETE records=${fetchResult.calls.length}`
+            );
+          }
+        } catch (error) {
+          /* ===============================================
+             TOKEN EXPIRED
+          =============================================== */
+
+          const authError =
+            Number(
+              error?.status
+            ) === 401 ||
+            Number(
+              error?.zoomCode
+            ) === 124;
+
+          if (
+            authError &&
+            connection?.refresh_token &&
+            !tokenRefreshed
+          ) {
+            console.log(
+              "[Zoom] Access token expired. Refreshing..."
+            );
+
+            const refreshed =
+              await refreshZoomToken(
+                connection
+              );
+
+            accessToken =
+              refreshed.accessToken;
+
+            tokenRefreshed =
+              true;
+
+            fetchResult =
+              await fetchAllCalls({
+                accessToken,
+                from,
+                to,
+                mode,
+              });
+
+            await saveDbCache({
+              cacheKey,
+              from,
+              to,
+              mode,
+              payload:
+                fetchResult,
+            });
+          } else if (
+            Number(
+              error?.status
+            ) === 429
+          ) {
+            /*
+             * =============================================
+             * ZOOM DAILY RATE LIMIT
+             * =============================================
+             *
+             * DO NOT RETRY.
+             *
+             * Use stale DB cache if available.
+             */
+
+            console.error(
+              "[Zoom] DAILY RATE LIMIT REACHED"
+            );
+
+            if (
+              cache?.payload
+            ) {
+              console.warn(
+                "[Zoom] Returning stale DB cache."
+              );
+
+              fetchResult =
+                cache.payload;
+
+              cacheHit =
+                true;
+
+              staleCache =
+                true;
+
+              rateLimited =
+                true;
+            } else {
+              return NextResponse.json(
+                {
+                  success: false,
+
+                  message:
+                    "Zoom API daily rate limit has been reached and no cached data is available yet.",
+
+                  rateLimited:
+                    true,
+
+                  retryAfter:
+                    FALLBACK_RATE_LIMIT_SECONDS,
+                },
+                {
+                  status: 429,
+
+                  headers: {
+                    ...NO_CACHE_HEADERS,
+
+                    "Retry-After":
+                      String(
+                        FALLBACK_RATE_LIMIT_SECONDS
+                      ),
+                  },
+                }
+              );
+            }
+          } else {
+            throw error;
+          }
+        }
+      }
+    }
+
+    /* =====================================================
+       SAFETY
+    ===================================================== */
+
+    const rawCalls =
+      Array.isArray(
+        fetchResult?.calls
+      )
+        ? fetchResult.calls
+        : [];
+
+    /* =====================================================
+       ENRICH
+    ===================================================== */
+
+    const enrichedCalls =
+      rawCalls.map(
+        enrichCall
+      );
+
+    /*
+     * NO DEDUPLICATION.
+     */
+    const allCalls =
+      enrichedCalls;
+
+    /* =====================================================
+       DUPLICATES
+       DIAGNOSTIC ONLY
+    ===================================================== */
+
+    const duplicateTotal =
+      calculateDuplicateTotal(
+        allCalls
+      );
+
+    /* =====================================================
+       DATE FILTER
+    ===================================================== */
+
+    const dateFilteredCalls =
+      filterCallsByDate({
+        calls:
+          allCalls,
+
+        from,
+
+        to,
+      });
+
+    /* =====================================================
+       USER FILTER
+    ===================================================== */
+
+    const filteredCalls =
+      filterCallsByUser({
+        calls:
+          dateFilteredCalls,
 
         isAdmin,
 
-        totalFetched:
-          enrichedCalls.length,
+        userExtension,
+      });
 
-        visible:
-          visibleCalls.length,
+    /* =====================================================
+       SORT
+    ===================================================== */
 
-        allExtensionCounts,
+    sortCallsNewestFirst(
+      filteredCalls
+    );
 
-        extensionCounts,
+    /* =====================================================
+       EXTENSIONS
+    ===================================================== */
 
-        pagesFetched,
-      }
+    const extensionCounts =
+      getExtensionCounts(
+        filteredCalls
+      );
+
+    const availableExtensions =
+      getAvailableExtensions(
+        filteredCalls
+      );
+
+    const detectedExtensionCounts =
+      getExtensionCounts(
+        dateFilteredCalls
+      );
+
+    const detectedExtensions =
+      getAvailableExtensions(
+        dateFilteredCalls
+      );
+
+    /* =====================================================
+       DATE COUNTS
+    ===================================================== */
+
+    const dateCounts =
+      getDateCounts(
+        filteredCalls
+      );
+
+    const dateCountsTotal =
+      Object.values(
+        dateCounts
+      ).reduce(
+        (
+          total,
+          value
+        ) =>
+          total +
+          Number(
+            value || 0
+          ),
+        0
+      );
+
+    /* =====================================================
+       WITHOUT EXTENSION
+    ===================================================== */
+
+    const callsWithoutExtension =
+      dateFilteredCalls.filter(
+        (call) =>
+          !normalizeExtension(
+            call?.crm_extension
+          )
+      );
+
+    /* =====================================================
+       FINAL
+    ===================================================== */
+
+    const total =
+      filteredCalls.length;
+
+    console.log(
+      "================================================="
     );
 
     console.log(
-      "================================================"
+      "[Call History] FINAL"
     );
 
-    console.log(
-      "[Zoom Call History] REQUEST COMPLETE"
-    );
+    console.log({
+      userId:
+        user.id,
+
+      user:
+        user.name,
+
+      role:
+        user.role,
+
+      isAdmin,
+
+      userExtension,
+
+      mode,
+
+      from,
+
+      to,
+
+      cacheHit,
+
+      staleCache,
+
+      rateLimited,
+
+      rawTotal:
+        rawCalls.length,
+
+      enrichedTotal:
+        enrichedCalls.length,
+
+      filteredTotal:
+        filteredCalls.length,
+
+      duplicateTotal,
+
+      pagesFetched:
+        fetchResult?.pagesFetched ||
+        0,
+    });
 
     console.log(
-      "================================================"
+      "================================================="
     );
+
+    /* =====================================================
+       RESPONSE
+    ===================================================== */
 
     return NextResponse.json(
       {
         success: true,
 
-        connected: true,
+        /*
+         * ALL RECORDS.
+         *
+         * DUPLICATES INCLUDED.
+         */
+        calls:
+          filteredCalls,
+
+        total,
+
+        rawTotal:
+          rawCalls.length,
+
+        enrichedTotal:
+          enrichedCalls.length,
 
         /*
-        |--------------------------------------------------------------------------
-        | IMPORTANT
-        |--------------------------------------------------------------------------
-        |
-        | true means this response came from Zoom.
-        | mode tells frontend whether this was full/live.
-        |
-        */
+         * NOT UNIQUE.
+         *
+         * Kept for frontend compatibility.
+         */
+        uniqueTotal:
+          allCalls.length,
 
-        live: mode === "live",
+        duplicateTotal,
+
+        dateFilteredTotal:
+          dateFilteredCalls.length,
+
+        filteredTotal:
+          filteredCalls.length,
 
         mode,
 
-        /*
-        |--------------------------------------------------------------------------
-        | USER
-        |--------------------------------------------------------------------------
-        */
+        live:
+          mode === "live",
+
+        from,
+
+        to,
+
+        timeZone:
+          CRM_TIME_ZONE,
+
+        currentDate:
+          currentDate,
+
+        currentTime:
+          timeInfo.time,
+
+        currentTimeIso:
+          timeInfo.iso,
+
+        currentTimeApplied:
+          false,
+
+        isAdmin,
 
         user: {
-          id: currentUser.id,
+          id:
+            user.id,
 
-          name: currentUser.name,
+          name:
+            user.name,
 
-          email: currentUser.email,
+          email:
+            user.email,
 
-          role: currentUser.role,
+          role:
+            user.role,
 
           zoom_extension:
-            userExtension,
+            userExtension ||
+            null,
+        },
+
+        /* =================================================
+           PAGINATION
+        ================================================= */
+
+        pagesFetched:
+          fetchResult?.pagesFetched ||
+          0,
+
+        pageStats:
+          fetchResult?.pageStats ||
+          [],
+
+        pagination: {
+          pageSize:
+            PAGE_SIZE,
+
+          maxPages:
+            mode === "live"
+              ? MAX_LIVE_PAGES
+              : MAX_FULL_PAGES,
+
+          stoppedBecauseNoNextToken:
+            Boolean(
+              fetchResult?.stoppedBecauseNoNextToken
+            ),
+
+          stoppedBecauseMaxPages:
+            Boolean(
+              fetchResult?.stoppedBecauseMaxPages
+            ),
+        },
+
+        /* =================================================
+           EXTENSIONS
+        ================================================= */
+
+        extensionCounts,
+
+        availableExtensions,
+
+        detectedExtensions,
+
+        detectedExtensionCounts,
+
+        detectedTotal:
+          dateFilteredCalls.length,
+
+        callsWithoutExtension:
+          callsWithoutExtension.length,
+
+        /* =================================================
+           DATES
+        ================================================= */
+
+        dateCounts,
+
+        countCheck: {
+          total,
+
+          dateCountsTotal,
+
+          matched:
+            total ===
+            dateCountsTotal,
+        },
+
+        /* =================================================
+           CACHE STATUS
+        ================================================= */
+
+        cache: {
+          hit:
+            cacheHit,
+
+          stale:
+            staleCache,
+
+          rateLimited,
+
+          ttlMinutes:
+            mode === "live"
+              ? LIVE_CACHE_TTL_SECONDS /
+                60
+              : FULL_CACHE_TTL_SECONDS /
+                60,
+        },
+
+        zoom: {
+          tokenRefreshed:
+            typeof tokenRefreshed !==
+            "undefined"
+              ? tokenRefreshed
+              : false,
+
+          rateLimited,
+
+          staleCache,
+
+          cacheHit,
         },
 
         /*
-        |--------------------------------------------------------------------------
-        | CALLS
-        |--------------------------------------------------------------------------
-        */
-
-        calls:
-          visibleCalls,
-
-        /*
-        |--------------------------------------------------------------------------
-        | COUNTS
-        |--------------------------------------------------------------------------
-        */
-
-        total_records:
-          enrichedCalls.length,
-
-        visible_records:
-          visibleCalls.length,
-
-        /*
-        |--------------------------------------------------------------------------
-        | CURRENT USER EXTENSION COUNTS
-        |--------------------------------------------------------------------------
-        */
-
-        extension_counts:
-          extensionCounts,
-
-        /*
-        |--------------------------------------------------------------------------
-        | ALL EXTENSION COUNTS
-        |--------------------------------------------------------------------------
-        */
-
-        all_extension_counts:
-          allExtensionCounts,
-
-        /*
-        |--------------------------------------------------------------------------
-        | EXTENSIONS
-        |--------------------------------------------------------------------------
-        */
-
-        extensions,
-
-        /*
-        |--------------------------------------------------------------------------
-        | PAGINATION
-        |--------------------------------------------------------------------------
-        */
-
-        page_size:
-          pageSize,
-
-        pages_fetched:
-          pagesFetched,
-
-        /*
-        |--------------------------------------------------------------------------
-        | DATE RANGE
-        |--------------------------------------------------------------------------
-        */
-
-        from: from || null,
-
-        to: to || null,
-
-        /*
-        |--------------------------------------------------------------------------
-        | DATE COUNTS
-        |--------------------------------------------------------------------------
-        */
-
-        date_counts:
-          dateCounts,
-
-        /*
-        |--------------------------------------------------------------------------
-        | META
-        |--------------------------------------------------------------------------
-        */
-
-        fetched_at:
-          new Date().toISOString(),
-
-        next_page_token: null,
+         * Useful frontend message.
+         */
+        warning:
+          rateLimited
+            ? "Zoom rate limit reached. Showing cached call history."
+            : null,
       },
+
       {
         status: 200,
 
-        headers: {
-          "Cache-Control":
-            "no-store, no-cache, must-revalidate",
-
-          Pragma: "no-cache",
-
-          Expires: "0",
-        },
+        headers:
+          NO_CACHE_HEADERS,
       }
     );
   } catch (error) {
     console.error(
-      "================================================"
+      "Zoom call history API error:",
+      error
     );
 
-    console.error(
-      "[Zoom Call History] ERROR"
-    );
+    /* =====================================================
+       429
+    ===================================================== */
 
-    console.error(error);
+    if (
+      Number(
+        error?.status
+      ) === 429
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
 
-    console.error(
-      "================================================"
-    );
+          message:
+            "Zoom API daily rate limit has been reached. Please wait for Zoom's limit to reset.",
 
-    const status =
-      error?.status === 401
-        ? 401
-        : error?.status === 429
-        ? 429
-        : 500;
+          error:
+            error?.message ||
+            "Too many requests",
+
+          rateLimited:
+            true,
+        },
+        {
+          status: 429,
+
+          headers: {
+            ...NO_CACHE_HEADERS,
+
+            "Retry-After":
+              String(
+                FALLBACK_RATE_LIMIT_SECONDS
+              ),
+          },
+        }
+      );
+    }
+
+    /* =====================================================
+       AUTH ERROR
+    ===================================================== */
+
+    if (
+      Number(
+        error?.status
+      ) === 401 ||
+      Number(
+        error?.zoomCode
+      ) === 124
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            "Zoom authorization has expired. Please reconnect Zoom.",
+
+          error:
+            error?.message ||
+            "Zoom authorization expired",
+        },
+        {
+          status: 401,
+
+          headers:
+            NO_CACHE_HEADERS,
+        }
+      );
+    }
+
+    /* =====================================================
+       GENERAL
+    ===================================================== */
 
     return NextResponse.json(
       {
         success: false,
 
-        connected:
-          status !== 401,
+        message:
+          error?.message ||
+          "Failed to fetch Zoom call history.",
 
         error:
-          error?.message ||
-          "Failed to fetch Zoom call history",
+          process.env.NODE_ENV ===
+          "development"
+            ? {
+                status:
+                  error?.status,
 
-        zoom_code:
-          error?.zoomCode ||
-          null,
+                zoomCode:
+                  error?.zoomCode,
+
+                raw:
+                  error?.zoomRaw,
+
+                pageNumber:
+                  error?.pageNumber,
+              }
+            : undefined,
       },
       {
-        status,
+        status: 500,
 
-        headers: {
-          "Cache-Control":
-            "no-store",
-        },
+        headers:
+          NO_CACHE_HEADERS,
       }
     );
   }

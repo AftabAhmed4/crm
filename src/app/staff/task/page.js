@@ -822,23 +822,56 @@ export default function StaffDashboardPage() {
           );
         }
 
-        const incomingTasks =
-          Array.isArray(data?.tasks)
-            ? data.tasks
-            : [];
+       const incomingTasks =
+  Array.isArray(data?.tasks)
+    ? data.tasks
+    : [];
 
-        const activeTasks =
-          incomingTasks
-            .filter(
-              (task) =>
-                !isTaskCompleted(task)
-            )
-            .slice(
-              0,
-              DAILY_TASK_LIMIT
-            );
+const normalizePhone = (value) => {
+  const digits = String(value ?? "").replace(/\D/g, "");
 
-        setTasks(activeTasks);
+  // US country code 1 remove
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+
+  return digits;
+};
+
+const uniqueTasks = [];
+const seenPhones = new Set();
+
+for (const task of incomingTasks) {
+  // Completed tasks skip
+  if (isTaskCompleted(task)) continue;
+
+  const phone = normalizePhone(
+    task?.phone_number ??
+      task?.phone ??
+      task?.number ??
+      task?.phoneNumber ??
+      ""
+  );
+
+  // Agar phone nahi hai to row show karo
+  if (!phone) {
+    uniqueTasks.push(task);
+    continue;
+  }
+
+  // Same phone already aa chuka hai
+  if (seenPhones.has(phone)) {
+    continue;
+  }
+
+  seenPhones.add(phone);
+  uniqueTasks.push(task);
+}
+
+// Maximum 500 UNIQUE phone numbers
+const activeTasks = uniqueTasks.slice(0, DAILY_TASK_LIMIT);
+
+setTasks(activeTasks);
 
         /* =================================================
            COUNTERS

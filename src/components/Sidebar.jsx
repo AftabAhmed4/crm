@@ -113,12 +113,12 @@ export default function Sidebar({
       name: "Calls",
       icon: Phone,
       href: "/calls",
-      hasDropdown: true,
+      // hasDropdown: true,
       roles: ["admin", "user", "agent","staff"],
-      subItems: [
-        { name: "Call ", href: "/calls" },
-        { name: "Recordings", href: "/calls/recordings" },
-      ],
+      // subItems: [
+      //   { name: "Call ", href: "/calls" },
+      //   { name: "Recordings", href: "/calls/recordings" },
+      // ],
     },
         {
       name: "Daily task",
@@ -158,12 +158,12 @@ export default function Sidebar({
       href: "/messages",
       roles: ["admin", "user","staff", "agent"],
     },
-      {
-      name: "Admin Edit",
-      icon: MessageSquare,
-      href: "/admin-edits",
-      roles: ["admin"],
-    },
+    //   {
+    //   name: "Admin Edit",
+    //   icon: MessageSquare,
+    //   href: "/admin-edits",
+    //   roles: ["admin"],
+    // },
        {
       name: "Domain Email",
       icon: MessageSquare,
@@ -183,12 +183,12 @@ export default function Sidebar({
       href: "/reports",
       roles: ["admin", "user","staff", "agent"],
     },
-    {
-      name: "Settings",
-      icon: Settings,
-      href: "/settings",
-      roles: ["admin", ],
-    },
+    // {
+    //   name: "Settings",
+    //   icon: Settings,
+    //   href: "/settings",
+    //   roles: ["admin", ],
+    // },
 
     // {
     //   name: "Agents",
