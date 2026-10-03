@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { query } from "../../../../lib/db";
@@ -20,6 +19,8 @@ const CRM_TIME_ZONE = "America/Los_Angeles";
 
 const DEFAULT_PAGE_SIZE = 300;
 const MAX_PAGE_SIZE = 300;
+
+// 200 pages x 300 = 60,000 records maximum
 const MAX_PAGES = 200;
 
 const MAX_RETRIES = 3;
@@ -30,6 +31,7 @@ const NO_CACHE_HEADERS = {
     "no-store, no-cache, must-revalidate, proxy-revalidate",
   Pragma: "no-cache",
   Expires: "0",
+  "Surrogate-Control": "no-store",
 };
 
 // ============================================================
@@ -80,7 +82,6 @@ function normalizeExtension(value) {
     .replace(/^ext[\s:._-]*/i, "")
     .trim();
 
-  // Example:
   // 800.0 -> 800
   // 802.00 -> 802
   if (/^\d+\.\d+$/.test(valueString)) {
@@ -145,16 +146,22 @@ function getCallerExtension(call) {
       call?.raw?.caller_extension,
       call?.raw?.caller_extension_number,
       call?.raw?.caller_ext,
+
       call?.raw?.caller?.extension_number,
       call?.raw?.caller?.extension,
+
       call?.raw?.from?.extension_number,
+      call?.raw?.from?.extension,
 
       call?.raw_zoom_data?.caller_ext_number,
       call?.raw_zoom_data?.caller_extension,
       call?.raw_zoom_data?.caller_extension_number,
+
       call?.raw_zoom_data?.caller?.extension_number,
       call?.raw_zoom_data?.caller?.extension,
+
       call?.raw_zoom_data?.from?.extension_number,
+      call?.raw_zoom_data?.from?.extension,
 
       null
     )
@@ -187,16 +194,22 @@ function getCalleeExtension(call) {
       call?.raw?.callee_extension,
       call?.raw?.callee_extension_number,
       call?.raw?.callee_ext,
+
       call?.raw?.callee?.extension_number,
       call?.raw?.callee?.extension,
+
       call?.raw?.to?.extension_number,
+      call?.raw?.to?.extension,
 
       call?.raw_zoom_data?.callee_ext_number,
       call?.raw_zoom_data?.callee_extension,
       call?.raw_zoom_data?.callee_extension_number,
+
       call?.raw_zoom_data?.callee?.extension_number,
       call?.raw_zoom_data?.callee?.extension,
+
       call?.raw_zoom_data?.to?.extension_number,
+      call?.raw_zoom_data?.to?.extension,
 
       null
     )
@@ -245,7 +258,11 @@ function getTopLevelExtension(call) {
       call?.extension,
       call?.ext_number,
       call?.ext,
-      call?.crm_extension,
+
+      // IMPORTANT:
+      // Do NOT use call.crm_extension here.
+      // crm_extension is calculated by CRM.
+      // It is not a raw Zoom source.
 
       call?.raw?.extension_number,
       call?.raw?.extension,
@@ -264,19 +281,16 @@ function getTopLevelExtension(call) {
 
 // ============================================================
 // CRM EXTENSION
-//
-// IMPORTANT:
+// ============================================================
 //
 // INBOUND:
-//   CALLEE -> OWNER -> TOP -> CALLER
+//   Employee = CALLEE
 //
 // OUTBOUND:
-//   CALLER -> OWNER -> TOP -> CALLEE
+//   Employee = CALLER
 //
 // UNKNOWN:
-//   OWNER -> TOP -> CALLER -> CALLEE
-//
-// This value is the extension used for CRM ownership/filtering.
+//   owner -> top -> caller -> callee
 // ============================================================
 
 function getCrmExtension(call) {
@@ -294,6 +308,10 @@ function getCrmExtension(call) {
   const topExtension =
     getTopLevelExtension(call);
 
+  // ----------------------------------------------------------
+  // INBOUND
+  // ----------------------------------------------------------
+
   if (
     direction.includes("inbound") ||
     direction === "in"
@@ -302,10 +320,13 @@ function getCrmExtension(call) {
       calleeExtension ||
       ownerExtension ||
       topExtension ||
-      callerExtension ||
       ""
     );
   }
+
+  // ----------------------------------------------------------
+  // OUTBOUND
+  // ----------------------------------------------------------
 
   if (
     direction.includes("outbound") ||
@@ -315,10 +336,13 @@ function getCrmExtension(call) {
       callerExtension ||
       ownerExtension ||
       topExtension ||
-      calleeExtension ||
       ""
     );
   }
+
+  // ----------------------------------------------------------
+  // UNKNOWN
+  // ----------------------------------------------------------
 
   return (
     ownerExtension ||
@@ -330,7 +354,7 @@ function getCrmExtension(call) {
 }
 
 // ============================================================
-// NAMES
+// OWNER NAME
 // ============================================================
 
 function getOwnerName(call) {
@@ -345,21 +369,32 @@ function getOwnerName(call) {
   ).trim();
 }
 
+// ============================================================
+// CALLER NAME
+// ============================================================
+
 function getCallerName(call) {
   return String(
     firstValue(
       call?.caller_name,
       call?.caller?.name,
       call?.from?.name,
+
       call?.raw?.caller_name,
       call?.raw?.caller?.name,
       call?.raw?.from?.name,
+
       call?.raw_zoom_data?.caller_name,
       call?.raw_zoom_data?.caller?.name,
+
       ""
     )
   ).trim();
 }
+
+// ============================================================
+// CALLEE NAME
+// ============================================================
 
 function getCalleeName(call) {
   return String(
@@ -367,11 +402,14 @@ function getCalleeName(call) {
       call?.callee_name,
       call?.callee?.name,
       call?.to?.name,
+
       call?.raw?.callee_name,
       call?.raw?.callee?.name,
       call?.raw?.to?.name,
+
       call?.raw_zoom_data?.callee_name,
       call?.raw_zoom_data?.callee?.name,
+
       ""
     )
   ).trim();
@@ -392,6 +430,7 @@ function getStartTime(call) {
 
     call?.raw?.start_time,
     call?.raw?.date_time,
+
     call?.raw_zoom_data?.start_time,
 
     null
@@ -424,8 +463,10 @@ function getDuration(call) {
     call?.duration,
     call?.duration_seconds,
     call?.durationSeconds,
+
     call?.raw?.duration,
     call?.raw_zoom_data?.duration,
+
     0
   );
 
@@ -442,7 +483,7 @@ function getDuration(call) {
 }
 
 // ============================================================
-// CALL IDENTIFIERS
+// CALL HISTORY UUID
 // ============================================================
 
 function getCallHistoryUuid(call) {
@@ -450,29 +491,33 @@ function getCallHistoryUuid(call) {
     call?.call_history_uuid,
     call?.callHistoryUuid,
     call?.history_uuid,
+
     call?.raw?.call_history_uuid,
     call?.raw_zoom_data?.call_history_uuid,
+
     null
   );
 }
+
+// ============================================================
+// ZOOM CALL ID
+// ============================================================
 
 function getZoomCallId(call) {
   return firstValue(
     call?.call_id,
     call?.callId,
     call?.zoom_call_id,
+
     call?.raw?.call_id,
     call?.raw_zoom_data?.call_id,
+
     null
   );
 }
 
 // ============================================================
-// FALLBACK SIGNATURE
-//
-// ONLY FOR DATABASE EXISTING-ROW CHECK.
-//
-// NEVER USED TO REMOVE DUPLICATES FROM ZOOM RESPONSE.
+// FALLBACK KEY
 // ============================================================
 
 function getFallbackCallKey(call) {
@@ -538,7 +583,7 @@ function getCaliforniaDate(date) {
 }
 
 // ============================================================
-// DEFAULT LAST 7 DAYS
+// DEFAULT DATE RANGE
 // ============================================================
 
 function getDefaultDateRange() {
@@ -609,19 +654,24 @@ async function refreshZoomToken(connection) {
       ZOOM_TOKEN_URL,
       {
         method: "POST",
+
         headers: {
           Authorization:
             `Basic ${credentials}`,
+
           "Content-Type":
             "application/x-www-form-urlencoded",
         },
+
         body:
           new URLSearchParams({
             grant_type:
               "refresh_token",
+
             refresh_token:
               connection.refresh_token,
           }).toString(),
+
         cache: "no-store",
       }
     );
@@ -687,8 +737,10 @@ async function refreshZoomToken(connection) {
   return {
     accessToken:
       newAccessToken,
+
     refreshToken:
       newRefreshToken,
+
     expiresAt:
       newExpiresAt,
   };
@@ -698,11 +750,9 @@ async function refreshZoomToken(connection) {
 // GET ZOOM CONNECTION
 // ============================================================
 
-async function getZoomConnection(
-  crmUserId
-) {
+async function getZoomConnection(crmUserId) {
   // ----------------------------------------------------------
-  // FIRST: CURRENT USER CONNECTION
+  // CURRENT USER CONNECTION
   // ----------------------------------------------------------
 
   const ownConnections =
@@ -730,7 +780,7 @@ async function getZoomConnection(
   }
 
   // ----------------------------------------------------------
-  // FALLBACK: NEWEST ACCOUNT CONNECTION
+  // FALLBACK TO NEWEST ACCOUNT CONNECTION
   // ----------------------------------------------------------
 
   const connections =
@@ -812,12 +862,18 @@ async function fetchZoomPage({
           url.toString(),
           {
             method: "GET",
+
             headers: {
               Authorization:
                 `Bearer ${currentToken}`,
+
+              Accept:
+                "application/json",
+
               "Content-Type":
                 "application/json",
             },
+
             cache: "no-store",
           }
         );
@@ -863,9 +919,30 @@ async function fetchZoomPage({
     // --------------------------------------------------------
 
     if (
-      response.status ===
-      429
+      response.status === 429
     ) {
+      const retryAfterHeader =
+        response.headers.get(
+          "retry-after"
+        );
+
+      const retryAfter =
+        Number(
+          retryAfterHeader
+        );
+
+      console.warn(
+        "ZOOM RATE LIMIT:",
+        {
+          attempt,
+          retryAfter,
+          message:
+            data?.message ||
+            data?.reason ||
+            "Rate limited",
+        }
+      );
+
       if (
         attempt >=
         MAX_RETRIES
@@ -875,19 +952,13 @@ async function fetchZoomPage({
         );
       }
 
-      const retryAfter =
-        Number(
-          response.headers.get(
-            "retry-after"
-          )
-        );
-
       const wait =
         Number.isFinite(
           retryAfter
         ) &&
         retryAfter > 0
-          ? retryAfter * 1000
+          ? retryAfter *
+            1000
           : RETRY_DELAY_MS *
             attempt;
 
@@ -943,7 +1014,7 @@ async function fetchZoomPage({
 }
 
 // ============================================================
-// EXTRACT CALL ARRAY
+// EXTRACT CALLS
 // ============================================================
 
 function extractCalls(data) {
@@ -976,15 +1047,16 @@ function extractCalls(data) {
 
 // ============================================================
 // FIND EXISTING CALL
+// ============================================================
 //
 // IMPORTANT:
 //
-// This DOES NOT deduplicate current Zoom response.
+// This is ONLY for database synchronization.
 //
-// It is only for preventing every repeated sync from
-// updating/inserting the same first existing database row.
+// It does NOT remove records from Zoom response.
 //
-// Duplicate records inside the SAME Zoom response remain.
+// Duplicate rows from SAME Zoom response are inserted
+// using duplicateIndex > 0.
 // ============================================================
 
 async function findExistingCall(call) {
@@ -1062,7 +1134,7 @@ async function getTableColumns() {
 }
 
 // ============================================================
-// BUILD CALL DATABASE DATA
+// BUILD DATABASE DATA
 // ============================================================
 
 function getCallDatabaseData(call) {
@@ -1232,7 +1304,7 @@ async function insertCall(
   ];
 
   // ----------------------------------------------------------
-  // OPTIONAL EXTENSION COLUMNS
+  // OPTIONAL CRM EXTENSION COLUMNS
   // ----------------------------------------------------------
 
   if (
@@ -1331,6 +1403,7 @@ async function insertCall(
 
   return {
     action: "inserted",
+
     extension:
       data.crmExtension ||
       null,
@@ -1385,7 +1458,7 @@ async function updateCall(
   ];
 
   // ----------------------------------------------------------
-  // OPTIONAL EXTENSION COLUMNS
+  // OPTIONAL CRM EXTENSION COLUMNS
   // ----------------------------------------------------------
 
   if (
@@ -1479,6 +1552,7 @@ async function updateCall(
 
   return {
     action: "updated",
+
     extension:
       data.crmExtension ||
       null,
@@ -1487,17 +1561,15 @@ async function updateCall(
 
 // ============================================================
 // SAVE CALL
+// ============================================================
 //
-// duplicateIndex:
+// duplicateIndex = 0
+//   -> existing DB record may UPDATE
 //
-// 0 = first occurrence
-// 1+ = duplicate occurrence from SAME Zoom response
+// duplicateIndex > 0
+//   -> ALWAYS INSERT
 //
-// IMPORTANT:
-//
-// duplicateIndex > 0 ALWAYS INSERTS.
-//
-// Therefore duplicate Zoom rows remain visible.
+// Therefore duplicate rows returned by Zoom remain.
 // ============================================================
 
 async function saveCall(
@@ -1506,7 +1578,7 @@ async function saveCall(
   duplicateIndex = 0
 ) {
   // ----------------------------------------------------------
-  // DUPLICATE FROM CURRENT ZOOM RESPONSE
+  // DUPLICATE FROM SAME ZOOM RESPONSE
   // ----------------------------------------------------------
 
   if (
@@ -1542,22 +1614,19 @@ async function saveCall(
 }
 
 // ============================================================
-// FILTER CALLS FOR CURRENT CRM USER
-//
-// ADMIN:
-//   ALL CALLS
-//
-// NORMAL USER:
-//   ONLY THEIR CRM EXTENSION
+// FILTER FOR USER
+// ============================================================
 //
 // IMPORTANT:
 //
-// We ONLY compare against getCrmExtension().
+// Zoom fetch/sync = ALL records.
 //
-// We DO NOT independently match caller/callee/owner.
+// UI response:
+// ADMIN  = ALL
+// USER   = own extension
 //
-// This prevents another user's extension from appearing
-// simply because it exists on the opposite side of the call.
+// This keeps database sync complete while protecting
+// normal users from seeing other users' calls.
 // ============================================================
 
 function filterCallsForUser(
@@ -1566,7 +1635,7 @@ function filterCallsForUser(
   isAdmin
 ) {
   // ----------------------------------------------------------
-  // ADMIN = EVERYTHING
+  // ADMIN = ALL
   // ----------------------------------------------------------
 
   if (isAdmin) {
@@ -1574,7 +1643,7 @@ function filterCallsForUser(
   }
 
   // ----------------------------------------------------------
-  // NORMAL USER EXTENSION
+  // NORMAL USER
   // ----------------------------------------------------------
 
   const userExtension =
@@ -1585,14 +1654,6 @@ function filterCallsForUser(
   if (!userExtension) {
     return [];
   }
-
-  // ----------------------------------------------------------
-  // EXACT CRM EXTENSION MATCH
-  //
-  // NO DEDUPE
-  // NO UNIQUE FILTER
-  // NO LIMIT
-  // ----------------------------------------------------------
 
   return calls.filter(
     (call) => {
@@ -1610,7 +1671,7 @@ function filterCallsForUser(
 }
 
 // ============================================================
-// FORMAT CALL FOR API
+// FORMAT CALL
 // ============================================================
 
 function formatCallForResponse(
@@ -1653,12 +1714,8 @@ function formatCallForResponse(
   return {
     ...call,
 
-    // --------------------------------------------------------
-    // INTERNAL ROW INDEX
-    //
-    // This keeps every duplicate row distinguishable.
-    // --------------------------------------------------------
-
+    // Every row gets its own index.
+    // Duplicate rows remain distinguishable.
     _row_index: index,
 
     direction,
@@ -1743,7 +1800,7 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 2. VERIFY JWT
+    // 2. JWT
     // ========================================================
 
     let decoded;
@@ -1775,7 +1832,9 @@ export async function GET(request) {
     }
 
     const crmUserId =
-      decoded?.id;
+      decoded?.id ||
+      decoded?.userId ||
+      decoded?.user_id;
 
     if (!crmUserId) {
       return NextResponse.json(
@@ -1847,12 +1906,10 @@ export async function GET(request) {
       );
 
     // ========================================================
-    // 4. QUERY PARAMS
+    // 4. QUERY PARAMETERS
     // ========================================================
 
-    const {
-      searchParams,
-    } =
+    const { searchParams } =
       new URL(
         request.url
       );
@@ -1886,12 +1943,16 @@ export async function GET(request) {
         defaultRange.to;
     }
 
+    // Swap if reversed
     if (from > to) {
       const temp = from;
-
       from = to;
       to = temp;
     }
+
+    // ========================================================
+    // PAGE SIZE
+    // ========================================================
 
     let pageSize =
       Number(
@@ -1913,17 +1974,14 @@ export async function GET(request) {
 
     pageSize =
       Math.min(
-        Math.floor(pageSize),
+        Math.floor(
+          pageSize
+        ),
         MAX_PAGE_SIZE
       );
 
     // ========================================================
-    // OPTIONAL KEYWORD
-    //
-    // ADMIN MAY USE ?keyword=802
-    //
-    // NORMAL USERS CANNOT USE THIS TO SEE ANOTHER EXTENSION.
-    // Their own zoom_extension remains authoritative.
+    // KEYWORD
     // ========================================================
 
     const requestedKeyword =
@@ -1933,10 +1991,17 @@ export async function GET(request) {
         )
       );
 
+    // Admin can request a specific extension.
+    // Normal user is locked to own extension.
+
     const effectiveKeyword =
       isAdmin
         ? requestedKeyword
         : userExtension;
+
+    // ========================================================
+    // LOG START
+    // ========================================================
 
     console.log(
       "=========================================="
@@ -1964,23 +2029,29 @@ export async function GET(request) {
 
     console.log(
       "USER EXTENSION:",
-      userExtension || "NONE"
+      userExtension ||
+        "NONE"
     );
 
     console.log(
       "REQUESTED KEYWORD:",
-      requestedKeyword || "NONE"
+      requestedKeyword ||
+        "NONE"
     );
 
     console.log(
       "EFFECTIVE EXTENSION:",
-      effectiveKeyword || "ALL"
+      effectiveKeyword ||
+        "ALL"
     );
 
     console.log(
-      "DATE:",
-      from,
-      "TO",
+      "DATE FROM:",
+      from
+    );
+
+    console.log(
+      "DATE TO:",
       to
     );
 
@@ -2045,7 +2116,7 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 7. REFRESH IF EXPIRING
+    // 7. TOKEN REFRESH
     // ========================================================
 
     if (
@@ -2057,7 +2128,9 @@ export async function GET(request) {
         ).getTime();
 
       const refreshBuffer =
-        2 * 60 * 1000;
+        2 *
+        60 *
+        1000;
 
       if (
         Number.isFinite(
@@ -2082,19 +2155,17 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 8. FETCH ALL ZOOM PAGES
+    // 8. FETCH ALL ZOOM RECORDS
+    // ========================================================
     //
-    // IMPORTANT:
+    // CRITICAL:
     //
-    // NO DEDUPLICATION.
+    // NO DEDUPE
+    // NO USER FILTER
+    // NO KEYWORD FILTER
+    // NO LOCAL DATE FILTER
     //
-    // If Zoom returns:
-    //
-    // 610 rows
-    //
-    // allCalls.length = 610
-    //
-    // Even if 20 rows are identical.
+    // allCalls = EXACTLY all records returned by Zoom.
     // ========================================================
 
     let allCalls = [];
@@ -2110,6 +2181,10 @@ export async function GET(request) {
     do {
       pageNumber++;
 
+      // ------------------------------------------------------
+      // MAX PAGE SAFETY
+      // ------------------------------------------------------
+
       if (
         pageNumber >
         MAX_PAGES
@@ -2122,6 +2197,10 @@ export async function GET(request) {
         break;
       }
 
+      // ------------------------------------------------------
+      // PREVENT REPEATED TOKEN LOOP
+      // ------------------------------------------------------
+
       if (nextPageToken) {
         if (
           seenPageTokens.has(
@@ -2129,7 +2208,7 @@ export async function GET(request) {
           )
         ) {
           console.warn(
-            "DUPLICATE NEXT PAGE TOKEN - STOPPING"
+            "REPEATED NEXT PAGE TOKEN - STOPPING"
           );
 
           break;
@@ -2143,6 +2222,10 @@ export async function GET(request) {
       console.log(
         `Fetching Zoom page ${pageNumber}`
       );
+
+      // ------------------------------------------------------
+      // FETCH PAGE
+      // ------------------------------------------------------
 
       const result =
         await fetchZoomPage({
@@ -2169,18 +2252,28 @@ export async function GET(request) {
         "ZOOM PAGE:",
         pageNumber,
         "CALLS:",
-        calls.length
+        calls.length,
+        "HAS NEXT TOKEN:",
+        Boolean(
+          zoomData?.next_page_token
+        )
       );
 
       // ------------------------------------------------------
-      // NO FILTER
-      // NO UNIQUE
-      // NO DEDUPE
+      // CRITICAL:
+      //
+      // DIRECTLY APPEND EVERYTHING.
+      //
+      // NOTHING IS REMOVED.
       // ------------------------------------------------------
 
       allCalls.push(
         ...calls
       );
+
+      // ------------------------------------------------------
+      // NEXT PAGE
+      // ------------------------------------------------------
 
       nextPageToken =
         zoomData?.next_page_token ||
@@ -2196,9 +2289,35 @@ export async function GET(request) {
     );
 
     // ========================================================
-    // 9. COUNT DUPLICATES
+    // 9. ZOOM RAW TOTAL
+    // ========================================================
+
+    const zoomRawTotal =
+      allCalls.length;
+
+    console.log(
+      "=========================================="
+    );
+
+    console.log(
+      "ZOOM RAW TOTAL:",
+      zoomRawTotal
+    );
+
+    console.log(
+      "ZOOM PAGES FETCHED:",
+      pageNumber
+    );
+
+    console.log(
+      "=========================================="
+    );
+
+    // ========================================================
+    // 10. DUPLICATE COUNT
+    // ========================================================
     //
-    // ONLY REPORTING.
+    // REPORT ONLY.
     //
     // NOTHING IS REMOVED.
     // ========================================================
@@ -2221,7 +2340,7 @@ export async function GET(request) {
           call
         );
 
-      let key = null;
+      let key;
 
       if (historyUuid) {
         key =
@@ -2258,42 +2377,39 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 10. TABLE COLUMNS
+    // 11. DATABASE COLUMNS
     // ========================================================
 
     const tableColumns =
       await getTableColumns();
 
-    console.log(
-      "ZOOM CALL LOG COLUMNS:",
-      Array.from(
-        tableColumns
-      )
-    );
-
     // ========================================================
-    // 11. SAVE ALL CALLS
+    // 12. SAVE ALL RECORDS
+    // ========================================================
     //
-    // ALL Zoom rows are processed.
+    // IMPORTANT:
     //
-    // Duplicate rows in the same response are INSERTED.
+    // ALL Zoom records are synchronized.
+    //
+    // User filtering happens AFTER sync.
     // ========================================================
 
     let inserted = 0;
     let updated = 0;
     let failed = 0;
 
+    const errors = [];
+
     const extensionCounts =
       {};
-
-    const errors = [];
 
     const syncOccurrenceMap =
       new Map();
 
     for (
       let index = 0;
-      index < allCalls.length;
+      index <
+      allCalls.length;
       index++
     ) {
       const call =
@@ -2310,8 +2426,11 @@ export async function GET(request) {
             call
           );
 
-        let occurrenceKey =
-          null;
+        // ----------------------------------------------------
+        // OCCURRENCE KEY
+        // ----------------------------------------------------
+
+        let occurrenceKey;
 
         if (historyUuid) {
           occurrenceKey =
@@ -2392,7 +2511,8 @@ export async function GET(request) {
         );
 
         if (
-          errors.length < 20
+          errors.length <
+          20
         ) {
           errors.push({
             row_index:
@@ -2422,15 +2542,23 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 12. FILTER FOR UI
+    // 13. FILTER ONLY FOR RESPONSE/UI
+    // ========================================================
     //
-    // ADMIN:
-    //   all calls
+    // IMPORTANT:
     //
-    // NORMAL USER:
-    //   own extension only
+    // allCalls already contains ALL Zoom records.
     //
-    // DUPLICATES REMAIN.
+    // Admin:
+    //   ALL records
+    //
+    // Normal user:
+    //   ONLY own extension
+    //
+    // This does NOT affect:
+    //   zoomRawTotal
+    //   database sync
+    //   duplicate count
     // ========================================================
 
     let filteredCalls =
@@ -2441,15 +2569,12 @@ export async function GET(request) {
       );
 
     // ========================================================
-    // ADMIN KEYWORD FILTER
+    // 14. ADMIN KEYWORD FILTER
+    // ========================================================
     //
-    // Example:
+    // Only response/UI filter.
     //
-    // /api/zoom/call-logs/sync?from=2026-10-01&to=2026-10-01&keyword=802
-    //
-    // Admin gets only 802 in this optional case.
-    //
-    // Normal user cannot request another extension.
+    // Database has already received ALL records.
     // ========================================================
 
     if (
@@ -2469,7 +2594,7 @@ export async function GET(request) {
     }
 
     // ========================================================
-    // 13. FORMAT UI CALLS
+    // 15. FORMAT RESPONSE
     // ========================================================
 
     const responseCalls =
@@ -2485,7 +2610,7 @@ export async function GET(request) {
       );
 
     // ========================================================
-    // 14. EXTENSIONS
+    // 16. DETECTED EXTENSIONS
     // ========================================================
 
     const detectedExtensions =
@@ -2498,7 +2623,13 @@ export async function GET(request) {
       );
 
     // ========================================================
-    // 15. CURRENT USER EXTENSION COUNT
+    // 17. CURRENT USER EXTENSION COUNT
+    // ========================================================
+    //
+    // This count is calculated from ALL Zoom records.
+    //
+    // Therefore user total is based on Zoom data,
+    // not database INSERT/UPDATE counts.
     // ========================================================
 
     const currentUserExtensionCount =
@@ -2515,7 +2646,24 @@ export async function GET(request) {
         : 0;
 
     // ========================================================
-    // 16. FINAL LOGS
+    // 18. KEYWORD EXACT COUNT
+    // ========================================================
+
+    const keywordCount =
+      requestedKeyword
+        ? allCalls.filter(
+            (call) =>
+              normalizeExtension(
+                getCrmExtension(
+                  call
+                )
+              ) ===
+              requestedKeyword
+          ).length
+        : null;
+
+    // ========================================================
+    // 19. FINAL LOGS
     // ========================================================
 
     console.log(
@@ -2537,27 +2685,39 @@ export async function GET(request) {
     );
 
     console.log(
-      "RAW FROM ZOOM:",
-      allCalls.length
+      "RAW TOTAL FROM ZOOM:",
+      zoomRawTotal
     );
 
     console.log(
-      "DUPLICATES FOUND:",
+      "DUPLICATES:",
       duplicateCount
     );
 
     console.log(
-      "USER EXTENSION:",
-      userExtension || "NONE"
+      "REQUESTED KEYWORD:",
+      requestedKeyword ||
+        "NONE"
     );
 
     console.log(
-      "USER EXTENSION CALL COUNT:",
+      "KEYWORD TOTAL:",
+      keywordCount
+    );
+
+    console.log(
+      "USER EXTENSION:",
+      userExtension ||
+        "NONE"
+    );
+
+    console.log(
+      "USER EXTENSION TOTAL:",
       currentUserExtensionCount
     );
 
     console.log(
-      "RETURNED TO CURRENT USER:",
+      "RETURNED TO UI:",
       responseCalls.length
     );
 
@@ -2577,8 +2737,13 @@ export async function GET(request) {
     );
 
     console.log(
-      "EXTENSIONS:",
+      "EXTENSION COUNTS:",
       extensionCounts
+    );
+
+    console.log(
+      "PAGES:",
+      pageNumber
     );
 
     console.log(
@@ -2586,7 +2751,7 @@ export async function GET(request) {
     );
 
     // ========================================================
-    // 17. RESPONSE
+    // 20. RESPONSE
     // ========================================================
 
     return NextResponse.json(
@@ -2641,9 +2806,11 @@ export async function GET(request) {
         // SCOPE
         // ----------------------------------------------------
 
+        // Database sync ALWAYS covers all Zoom calls.
         sync_scope:
           "ALL_ZOOM_ACCOUNT_CALLS",
 
+        // UI/display scope depends on user.
         display_scope:
           isAdmin
             ? requestedKeyword
@@ -2652,30 +2819,51 @@ export async function GET(request) {
             : "CURRENT_USER_EXTENSION",
 
         // ----------------------------------------------------
-        // TOTALS
+        // IMPORTANT TOTALS
         // ----------------------------------------------------
 
-        total:
-          responseCalls.length,
-
+        // EXACT NUMBER OF ROWS RECEIVED FROM ZOOM
         total_from_zoom:
-          allCalls.length,
+          zoomRawTotal,
 
         raw_total:
-          allCalls.length,
+          zoomRawTotal,
 
-        duplicate_total:
-          duplicateCount,
+        // Number returned for current user/admin filter
+        total:
+          responseCalls.length,
 
         total_returned:
           responseCalls.length,
 
         // ----------------------------------------------------
-        // VERY IMPORTANT DIAGNOSTICS
+        // USER TOTAL
         // ----------------------------------------------------
 
-        current_user_extension_count:
+        // Exact count from ALL Zoom records
+        // for this user's extension.
+        current_user_total:
           currentUserExtensionCount,
+
+        // ----------------------------------------------------
+        // PAGE INFORMATION
+        // ----------------------------------------------------
+
+        pages_fetched:
+          pageNumber,
+
+        page_size:
+          pageSize,
+
+        max_pages:
+          MAX_PAGES,
+
+        // ----------------------------------------------------
+        // DUPLICATES
+        // ----------------------------------------------------
+
+        duplicate_total:
+          duplicateCount,
 
         no_deduplication:
           true,
@@ -2684,7 +2872,21 @@ export async function GET(request) {
           true,
 
         // ----------------------------------------------------
-        // DATABASE STATS
+        // KEYWORD
+        // ----------------------------------------------------
+
+        keyword_total:
+          keywordCount,
+
+        // ----------------------------------------------------
+        // USER EXTENSION
+        // ----------------------------------------------------
+
+        current_user_extension_count:
+          currentUserExtensionCount,
+
+        // ----------------------------------------------------
+        // DATABASE
         // ----------------------------------------------------
 
         inserted,
@@ -2750,6 +2952,7 @@ export async function GET(request) {
             ? errors
             : undefined,
       },
+
       {
         status: 200,
         headers:
@@ -2770,16 +2973,28 @@ export async function GET(request) {
     );
 
     console.error(
+      "MESSAGE:",
+      error?.message
+    );
+
+    console.error(
+      "STACK:",
+      error?.stack
+    );
+
+    console.error(
       "=========================================="
     );
 
     return NextResponse.json(
       {
         success: false,
+
         error:
           error?.message ||
           "Zoom call sync failed",
       },
+
       {
         status: 500,
         headers:
@@ -2788,4 +3003,3 @@ export async function GET(request) {
     );
   }
 }
-

@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -14,19 +15,42 @@ import {
   Utensils,
   User,
   Users,
-  X,
   Check,
   MoreHorizontal,
   BriefcaseBusiness,
   Coffee,
-  AlertCircle,
 } from "lucide-react";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const MAX_BREAKS = 5;
+// ============================================================
+// CONFIG
+// ============================================================
+
 const CALIFORNIA_TIMEZONE = "America/Los_Angeles";
+
+const MAX_BREAKS = 5;
+
+// Break duration + daily usage limits
+const BREAK_LIMITS = {
+  "Short Break": {
+    minutes: 10,
+    maxUses: 3,
+  },
+
+  "Lunch Break": {
+    minutes: 30,
+    maxUses: 1,
+  },
+
+  "Namaz Break": {
+    minutes: 15,
+    maxUses: 1,
+  },
+};
+
+const BREAK_STATUSES = Object.keys(BREAK_LIMITS);
 
 export default function DashboardTopBar({
   onMenuClick,
@@ -45,16 +69,31 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [status, setStatus] = useState("Active");
-  const [statusStartedAt, setStatusStartedAt] = useState(null);
+
+  const [statusStartedAt, setStatusStartedAt] =
+    useState(null);
+
   const [statusDropdownOpen, setStatusDropdownOpen] =
     useState(false);
+
+  // ============================================================
+  // BREAK USAGE
+  // ============================================================
+
+  const [breakUsage, setBreakUsage] = useState({
+    "Short Break": 0,
+    "Lunch Break": 0,
+    "Namaz Break": 0,
+  });
 
   // ============================================================
   // TIMER
   // ============================================================
 
   const [timerOpen, setTimerOpen] = useState(false);
+
   const [timerStatus, setTimerStatus] = useState(null);
+
   const [timerSeconds, setTimerSeconds] = useState(0);
 
   /*
@@ -63,11 +102,15 @@ export default function DashboardTopBar({
   */
   const [isNewTimer, setIsNewTimer] = useState(false);
 
+  // Prevent multiple automatic end requests
+  const autoEndingBreakRef = useRef(false);
+
   // ============================================================
   // NOTIFICATIONS
   // ============================================================
 
   const [notifications, setNotifications] = useState([]);
+
   const [notificationOpen, setNotificationOpen] =
     useState(false);
 
@@ -77,10 +120,14 @@ export default function DashboardTopBar({
   // OFFICE CLOSING
   // ============================================================
 
-const [officeClosingWarning, setOfficeClosingWarning] = useState(false);
-const [officeClosed, setOfficeClosed] = useState(false);
+  const [officeClosingWarning, setOfficeClosingWarning] =
+    useState(false);
 
-const officeClosingNotificationSent = useRef({});
+  const [officeClosed, setOfficeClosed] =
+    useState(false);
+
+  const officeClosingNotificationSent =
+    useRef({});
 
   // ============================================================
   // LOGIN DETAILS
@@ -105,6 +152,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-green-600",
         bg: "bg-green-50",
       },
+
       {
         value: "Namaz Break",
         label: "Namaz Break",
@@ -112,6 +160,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-indigo-600",
         bg: "bg-indigo-50",
       },
+
       {
         value: "Lunch Break",
         label: "Lunch Break",
@@ -119,6 +168,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-orange-600",
         bg: "bg-orange-50",
       },
+
       {
         value: "Short Break",
         label: "Short Break",
@@ -126,6 +176,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-teal-600",
         bg: "bg-teal-50",
       },
+
       {
         value: "Inactive",
         label: "Inactive",
@@ -134,6 +185,7 @@ const officeClosingNotificationSent = useRef({});
         bg: "bg-red-50",
         adminOnly: true,
       },
+
       {
         value: "On Call",
         label: "On Call",
@@ -141,6 +193,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-blue-600",
         bg: "bg-blue-50",
       },
+
       {
         value: "Meeting",
         label: "Meeting",
@@ -148,6 +201,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-purple-600",
         bg: "bg-purple-50",
       },
+
       {
         value: "Washroom Break",
         label: "Washroom Break",
@@ -155,6 +209,7 @@ const officeClosingNotificationSent = useRef({});
         color: "text-cyan-600",
         bg: "bg-cyan-50",
       },
+
       {
         value: "Other",
         label: "Other",
@@ -171,12 +226,10 @@ const officeClosingNotificationSent = useRef({});
     "admin";
 
   const visibleStatusOptions = useMemo(() => {
-    // ADMIN → all statuses
     if (isAdmin) {
       return statusOptions;
     }
 
-    // NORMAL USER → only Active + 3 breaks
     return statusOptions.filter((item) =>
       [
         "Active",
@@ -235,7 +288,7 @@ const officeClosingNotificationSent = useRef({});
   const formatTimer = (totalSeconds) => {
     const seconds = Math.max(
       0,
-      Number(totalSeconds) || 0
+      Math.floor(Number(totalSeconds) || 0)
     );
 
     const hours = Math.floor(seconds / 3600);
@@ -267,7 +320,10 @@ const officeClosingNotificationSent = useRef({});
 
       const value = String(startedAt).trim();
 
+      // ========================================================
       // ISO / timezone-aware date
+      // ========================================================
+
       if (
         value.includes("T") ||
         value.includes("Z") ||
@@ -275,8 +331,11 @@ const officeClosingNotificationSent = useRef({});
       ) {
         startDate = new Date(value);
       } else {
-        // MySQL:
+        // ======================================================
+        // MYSQL DATETIME
+        // Example:
         // 2026-09-22 08:30:15
+        // ======================================================
 
         const match = value.match(
           /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/
@@ -306,25 +365,34 @@ const officeClosingNotificationSent = useRef({});
 
           const getOffsetMinutes = (date) => {
             const formatter =
-              new Intl.DateTimeFormat("en-US", {
-                timeZone: CALIFORNIA_TIMEZONE,
-                timeZoneName: "longOffset",
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hourCycle: "h23",
-              });
+              new Intl.DateTimeFormat(
+                "en-US",
+                {
+                  timeZone:
+                    CALIFORNIA_TIMEZONE,
+
+                  timeZoneName:
+                    "longOffset",
+
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hourCycle: "h23",
+                }
+              );
 
             const parts =
               formatter.formatToParts(date);
 
-            const zonePart = parts.find(
-              (part) =>
-                part.type === "timeZoneName"
-            );
+            const zonePart =
+              parts.find(
+                (part) =>
+                  part.type ===
+                  "timeZoneName"
+              );
 
             const offsetMatch =
               zonePart?.value?.match(
@@ -340,17 +408,16 @@ const officeClosingNotificationSent = useRef({});
                 ? -1
                 : 1;
 
-            const hours = Number(
-              offsetMatch[2]
-            );
+            const offsetHours =
+              Number(offsetMatch[2]);
 
-            const minutes = Number(
-              offsetMatch[3]
-            );
+            const offsetMinutes =
+              Number(offsetMatch[3]);
 
             return (
               sign *
-              (hours * 60 + minutes)
+              (offsetHours * 60 +
+                offsetMinutes)
             );
           };
 
@@ -393,6 +460,22 @@ const officeClosingNotificationSent = useRef({});
   };
 
   // ============================================================
+  // GET CALIFORNIA DATE
+  // ============================================================
+
+  const getCaliforniaDate = () => {
+    return new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone: CALIFORNIA_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).format(new Date());
+  };
+
+  // ============================================================
   // FETCH CURRENT USER
   // ============================================================
 
@@ -411,10 +494,13 @@ const officeClosingNotificationSent = useRef({});
           return;
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
         setCurrentUser(
-          data?.user || data || null
+          data?.user ||
+            data ||
+            null
         );
       } catch (error) {
         console.error(
@@ -426,6 +512,106 @@ const officeClosingNotificationSent = useRef({});
 
     fetchCurrentUser();
   }, []);
+
+  // ============================================================
+  // RESTORE BREAK USAGE FROM LOCAL STORAGE
+  // ============================================================
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    try {
+      const date =
+        getCaliforniaDate();
+
+      const storageKey =
+        `crm_break_usage_${currentUser.id}_${date}`;
+
+      const stored =
+        localStorage.getItem(
+          storageKey
+        );
+
+      if (!stored) {
+        setBreakUsage({
+          "Short Break": 0,
+          "Lunch Break": 0,
+          "Namaz Break": 0,
+        });
+
+        return;
+      }
+
+      const parsed =
+        JSON.parse(stored);
+
+      setBreakUsage({
+        "Short Break": Math.min(
+          Number(
+            parsed?.["Short Break"] || 0
+          ),
+          BREAK_LIMITS["Short Break"]
+            .maxUses
+        ),
+
+        "Lunch Break": Math.min(
+          Number(
+            parsed?.["Lunch Break"] || 0
+          ),
+          BREAK_LIMITS["Lunch Break"]
+            .maxUses
+        ),
+
+        "Namaz Break": Math.min(
+          Number(
+            parsed?.["Namaz Break"] || 0
+          ),
+          BREAK_LIMITS["Namaz Break"]
+            .maxUses
+        ),
+      });
+    } catch (error) {
+      console.error(
+        "Restore break usage error:",
+        error
+      );
+    }
+  }, [currentUser?.id]);
+
+  // ============================================================
+  // SAVE BREAK USAGE
+  // ============================================================
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    try {
+      const date =
+        getCaliforniaDate();
+
+      const storageKey =
+        `crm_break_usage_${currentUser.id}_${date}`;
+
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(
+          breakUsage
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Save break usage error:",
+        error
+      );
+    }
+  }, [
+    breakUsage,
+    currentUser?.id,
+  ]);
 
   // ============================================================
   // RESTORE STATUS
@@ -447,15 +633,81 @@ const officeClosingNotificationSent = useRef({});
           return;
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
         const currentStatus =
           data?.status || "Active";
 
-        setStatus(currentStatus);
+        // ======================================================
+        // OPTIONAL BACKEND BREAK USAGE
+        // ======================================================
 
+        const backendUsage =
+          data?.break_usage ||
+          data?.breakUsage ||
+          data?.usage ||
+          null;
+
+        if (
+          backendUsage &&
+          typeof backendUsage ===
+            "object"
+        ) {
+          setBreakUsage({
+            "Short Break": Math.min(
+              Number(
+                backendUsage[
+                  "Short Break"
+                ] ||
+                  backendUsage.short_break ||
+                  0
+              ),
+              BREAK_LIMITS[
+                "Short Break"
+              ].maxUses
+            ),
+
+            "Lunch Break": Math.min(
+              Number(
+                backendUsage[
+                  "Lunch Break"
+                ] ||
+                  backendUsage.lunch_break ||
+                  0
+              ),
+              BREAK_LIMITS[
+                "Lunch Break"
+              ].maxUses
+            ),
+
+            "Namaz Break": Math.min(
+              Number(
+                backendUsage[
+                  "Namaz Break"
+                ] ||
+                  backendUsage.namaz_break ||
+                  0
+              ),
+              BREAK_LIMITS[
+                "Namaz Break"
+              ].maxUses
+            ),
+          });
+        }
+
+        setStatus(
+          currentStatus
+        );
+
+        // ======================================================
         // ACTIVE
-        if (currentStatus === "Active") {
+        // ======================================================
+
+        if (
+          currentStatus ===
+          "Active"
+        ) {
           setTimerOpen(false);
           setTimerStatus(null);
           setStatusStartedAt(null);
@@ -465,18 +717,57 @@ const officeClosingNotificationSent = useRef({});
           return;
         }
 
+        // ======================================================
+        // NON-BREAK STATUS
+        // ======================================================
+
+        if (
+          !BREAK_LIMITS[
+            currentStatus
+          ]
+        ) {
+          setTimerOpen(false);
+          setTimerStatus(null);
+          setStatusStartedAt(null);
+          setTimerSeconds(0);
+          setIsNewTimer(false);
+
+          return;
+        }
+
+        // ======================================================
         // EXISTING BREAK
+        // ======================================================
+
         const startedAt =
-          data?.status_started_at || null;
+          data?.status_started_at ||
+          null;
 
-        setTimerStatus(currentStatus);
+        setTimerStatus(
+          currentStatus
+        );
 
-        setStatusStartedAt(startedAt);
+        setStatusStartedAt(
+          startedAt
+        );
 
         const elapsed =
-          calculateElapsedTime(startedAt);
+          calculateElapsedTime(
+            startedAt
+          );
 
-        setTimerSeconds(elapsed);
+        const maxSeconds =
+          BREAK_LIMITS[
+            currentStatus
+          ].minutes * 60;
+
+        // Never display above allowed duration
+        setTimerSeconds(
+          Math.min(
+            elapsed,
+            maxSeconds
+          )
+        );
 
         setIsNewTimer(false);
 
@@ -499,42 +790,84 @@ const officeClosingNotificationSent = useRef({});
   // ============================================================
 
   useEffect(() => {
-    if (!timerOpen || !timerStatus) {
+    if (
+      !timerOpen ||
+      !timerStatus
+    ) {
       return;
     }
 
+    const breakLimit =
+      BREAK_LIMITS[
+        timerStatus
+      ];
+
+    // Non-break status
+    if (!breakLimit) {
+      return;
+    }
+
+    const maxSeconds =
+      breakLimit.minutes * 60;
+
+    // ========================================================
     // NEW BREAK
+    // ========================================================
+
     if (isNewTimer) {
-      const interval = setInterval(() => {
-        setTimerSeconds(
-          (previous) => previous + 1
-        );
-      }, 1000);
+      const interval =
+        setInterval(() => {
+          setTimerSeconds(
+            (previous) => {
+              const next =
+                previous + 1;
+
+              return Math.min(
+                next,
+                maxSeconds
+              );
+            }
+          );
+        }, 1000);
 
       return () => {
-        clearInterval(interval);
+        clearInterval(
+          interval
+        );
       };
     }
 
+    // ========================================================
     // EXISTING BREAK
+    // ========================================================
+
     if (statusStartedAt) {
       const updateTimer = () => {
-        setTimerSeconds(
+        const elapsed =
           calculateElapsedTime(
             statusStartedAt
+          );
+
+        setTimerSeconds(
+          Math.min(
+            elapsed,
+            maxSeconds
           )
         );
       };
 
       updateTimer();
 
-      const interval = setInterval(
-        updateTimer,
-        1000
-      );
+      const interval =
+        setInterval(
+          updateTimer,
+          1000
+        );
 
       return () => {
-        clearInterval(interval);
+        clearInterval(
+          interval
+        );
       };
     }
   }, [
@@ -545,367 +878,650 @@ const officeClosingNotificationSent = useRef({});
   ]);
 
   // ============================================================
+  // AUTO END BREAK
+  // ============================================================
+
+  useEffect(() => {
+    if (
+      !timerOpen ||
+      !timerStatus
+    ) {
+      return;
+    }
+
+    const breakLimit =
+      BREAK_LIMITS[
+        timerStatus
+      ];
+
+    if (!breakLimit) {
+      return;
+    }
+
+    const maxSeconds =
+      breakLimit.minutes * 60;
+
+    if (
+      timerSeconds <
+      maxSeconds
+    ) {
+      return;
+    }
+
+    if (
+      autoEndingBreakRef.current
+    ) {
+      return;
+    }
+
+    autoEndingBreakRef.current =
+      true;
+
+    const autoEndBreak =
+      async () => {
+        try {
+          const response =
+            await fetch(
+              "/api/users/status",
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+                credentials:
+                  "include",
+                body: JSON.stringify({
+                  status:
+                    "Active",
+                }),
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (!response.ok) {
+            console.error(
+              "Auto end break failed:",
+              data
+            );
+
+            autoEndingBreakRef.current =
+              false;
+
+            return;
+          }
+
+          setStatus(
+            "Active"
+          );
+
+          setTimerOpen(
+            false
+          );
+
+          setTimerStatus(
+            null
+          );
+
+          setStatusStartedAt(
+            null
+          );
+
+          setTimerSeconds(
+            0
+          );
+
+          setIsNewTimer(
+            false
+          );
+        } catch (error) {
+          console.error(
+            "Auto end break error:",
+            error
+          );
+
+          autoEndingBreakRef.current =
+            false;
+        }
+      };
+
+    autoEndBreak();
+  }, [
+    timerSeconds,
+    timerOpen,
+    timerStatus,
+  ]);
+
+  // ============================================================
   // CHANGE STATUS
   // ============================================================
 
-  const handleStatusChange = async (
-    newStatus
-  ) => {
-    if (loading) {
-      return;
-    }
+  const handleStatusChange =
+    async (newStatus) => {
+      if (loading) {
+        return;
+      }
 
-    if (newStatus === status) {
-      setStatusDropdownOpen(false);
-      return;
-    }
-
-    const previousStatus = status;
-
-    const previousTimerStatus =
-      timerStatus;
-
-    const previousStartedAt =
-      statusStartedAt;
-
-    const previousTimerSeconds =
-      timerSeconds;
-
-    const previousIsNewTimer =
-      isNewTimer;
-
-    try {
-      setLoading(true);
-
-      const response = await fetch(
-        "/api/users/status",
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            status: newStatus,
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          alert(
-            data?.message ||
-              "Maximum break limit reached."
-          );
-        } else {
-          alert(
-            data?.message ||
-              "Failed to update status."
-          );
-        }
+      if (
+        newStatus ===
+        status
+      ) {
+        setStatusDropdownOpen(
+          false
+        );
 
         return;
       }
 
-      // ACTIVE
-      if (newStatus === "Active") {
-        setStatus("Active");
+      // ========================================================
+      // CHECK FRONTEND BREAK LIMIT
+      // ========================================================
 
-        setTimerOpen(false);
+      const breakLimit =
+        BREAK_LIMITS[
+          newStatus
+        ];
 
-        setTimerStatus(null);
+      if (breakLimit) {
+        const used =
+          Number(
+            breakUsage[
+              newStatus
+            ] || 0
+          );
 
-        setStatusStartedAt(null);
+        if (
+          used >=
+          breakLimit.maxUses
+        ) {
+          alert(
+            `${newStatus} limit reached. You can use this break ${breakLimit.maxUses} time${
+              breakLimit.maxUses ===
+              1
+                ? ""
+                : "s"
+            } per day.`
+          );
 
-        setTimerSeconds(0);
+          setStatusDropdownOpen(
+            false
+          );
 
-        setIsNewTimer(false);
-
-        setStatusDropdownOpen(false);
-
-        return;
+          return;
+        }
       }
 
-      // NEW BREAK
+      const previousStatus =
+        status;
 
-      setStatus(newStatus);
+      const previousTimerStatus =
+        timerStatus;
 
-      setTimerStatus(newStatus);
+      const previousStartedAt =
+        statusStartedAt;
 
-      setTimerSeconds(0);
+      const previousTimerSeconds =
+        timerSeconds;
 
-      setIsNewTimer(true);
+      const previousIsNewTimer =
+        isNewTimer;
 
-      setStatusStartedAt(
-        data?.status_started_at ||
-          null
-      );
+      try {
+        setLoading(true);
 
-      setTimerOpen(true);
+        const response =
+          await fetch(
+            "/api/users/status",
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
 
-      setStatusDropdownOpen(false);
-    } catch (error) {
-      console.error(
-        "Status change error:",
-        error
-      );
+              credentials:
+                "include",
 
-      setStatus(previousStatus);
+              body: JSON.stringify({
+                status:
+                  newStatus,
+              }),
+            }
+          );
 
-      setTimerStatus(
-        previousTimerStatus
-      );
+        let data = {};
 
-      setStatusStartedAt(
-        previousStartedAt
-      );
+        try {
+          data =
+            await response.json();
+        } catch {
+          data = {};
+        }
 
-      setTimerSeconds(
-        previousTimerSeconds
-      );
+        // ======================================================
+        // API ERROR
+        // ======================================================
 
-      setIsNewTimer(
-        previousIsNewTimer
-      );
+        if (!response.ok) {
+          if (
+            response.status ===
+            429
+          ) {
+            alert(
+              data?.message ||
+                "Maximum break limit reached."
+            );
+          } else {
+            alert(
+              data?.message ||
+                "Failed to update status."
+            );
+          }
 
-      alert(
-        "Something went wrong while changing status."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+          return;
+        }
+
+        // ======================================================
+        // ACTIVE
+        // ======================================================
+
+        if (
+          newStatus ===
+          "Active"
+        ) {
+          setStatus(
+            "Active"
+          );
+
+          setTimerOpen(
+            false
+          );
+
+          setTimerStatus(
+            null
+          );
+
+          setStatusStartedAt(
+            null
+          );
+
+          setTimerSeconds(
+            0
+          );
+
+          setIsNewTimer(
+            false
+          );
+
+          autoEndingBreakRef.current =
+            false;
+
+          setStatusDropdownOpen(
+            false
+          );
+
+          return;
+        }
+
+        // ======================================================
+        // NEW BREAK
+        // ======================================================
+
+        setStatus(
+          newStatus
+        );
+
+        setTimerStatus(
+          newStatus
+        );
+
+        // IMPORTANT:
+        // New break ALWAYS starts at 00:00
+        setTimerSeconds(
+          0
+        );
+
+        setIsNewTimer(
+          true
+        );
+
+        setStatusStartedAt(
+          data?.status_started_at ||
+            null
+        );
+
+        // Count usage only after API succeeds
+        setBreakUsage(
+          (previous) => ({
+            ...previous,
+
+            [newStatus]:
+              Number(
+                previous[
+                  newStatus
+                ] || 0
+              ) + 1,
+          })
+        );
+
+        autoEndingBreakRef.current =
+          false;
+
+        setTimerOpen(
+          true
+        );
+
+        setStatusDropdownOpen(
+          false
+        );
+      } catch (error) {
+        console.error(
+          "Status change error:",
+          error
+        );
+
+        setStatus(
+          previousStatus
+        );
+
+        setTimerStatus(
+          previousTimerStatus
+        );
+
+        setStatusStartedAt(
+          previousStartedAt
+        );
+
+        setTimerSeconds(
+          previousTimerSeconds
+        );
+
+        setIsNewTimer(
+          previousIsNewTimer
+        );
+
+        alert(
+          "Something went wrong while changing status."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
 
   // ============================================================
   // END TIMER / ACTIVE
   // ============================================================
 
-  const endStatusTimer = async () => {
-    try {
-      setLoading(true);
-
-      const response = await fetch(
-        "/api/users/status",
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            status: "Active",
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        alert(
-          data?.message ||
-            "Unable to end break."
-        );
-
+  const endStatusTimer =
+    async () => {
+      if (loading) {
         return;
       }
 
-      setStatus("Active");
+      try {
+        setLoading(true);
 
-      setTimerOpen(false);
+        const response =
+          await fetch(
+            "/api/users/status",
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
 
-      setTimerStatus(null);
+              credentials:
+                "include",
 
-      setStatusStartedAt(null);
+              body: JSON.stringify({
+                status:
+                  "Active",
+              }),
+            }
+          );
 
-      setTimerSeconds(0);
+        let data = {};
 
-      setIsNewTimer(false);
-    } catch (error) {
-      console.error(
-        "End timer error:",
-        error
-      );
+        try {
+          data =
+            await response.json();
+        } catch {
+          data = {};
+        }
 
-      alert(
-        "Something went wrong."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        if (!response.ok) {
+          alert(
+            data?.message ||
+              "Unable to end break."
+          );
+
+          return;
+        }
+
+        setStatus(
+          "Active"
+        );
+
+        setTimerOpen(
+          false
+        );
+
+        setTimerStatus(
+          null
+        );
+
+        setStatusStartedAt(
+          null
+        );
+
+        setTimerSeconds(
+          0
+        );
+
+        setIsNewTimer(
+          false
+        );
+
+        autoEndingBreakRef.current =
+          false;
+      } catch (error) {
+        console.error(
+          "End timer error:",
+          error
+        );
+
+        alert(
+          "Something went wrong."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
 
   // ============================================================
   // NOTIFICATION TIME
   // ============================================================
 
-  const formatNotificationTime = (
-    dateValue
-  ) => {
-    if (!dateValue) return "";
-
-    const date = new Date(dateValue);
-
-    if (Number.isNaN(date.getTime())) {
-      return "";
-    }
-
-    return date.toLocaleString(
-      "en-US",
-      {
-        timeZone:
-          CALIFORNIA_TIMEZONE,
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
+  const formatNotificationTime =
+    (dateValue) => {
+      if (!dateValue) {
+        return "";
       }
-    );
-  };
+
+      const date =
+        new Date(dateValue);
+
+      if (
+        Number.isNaN(
+          date.getTime()
+        )
+      ) {
+        return "";
+      }
+
+      return date.toLocaleString(
+        "en-US",
+        {
+          timeZone:
+            CALIFORNIA_TIMEZONE,
+
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }
+      );
+    };
 
   // ============================================================
   // NOTIFICATION ICON
   // ============================================================
 
-  const getNotificationIcon = (
-    notification
-  ) => {
-    const type = String(
-      notification?.type || ""
-    ).toLowerCase();
+  const getNotificationIcon =
+    (notification) => {
+      const type =
+        String(
+          notification?.type ||
+            ""
+        ).toLowerCase();
 
-    if (type === "message") {
+      if (
+        type ===
+        "message"
+      ) {
+        return (
+          <MessageCircle className="h-4 w-4" />
+        );
+      }
+
+      if (
+        type === "call"
+      ) {
+        return (
+          <Phone className="h-4 w-4" />
+        );
+      }
+
+      if (
+        type === "task"
+      ) {
+        return (
+          <BriefcaseBusiness className="h-4 w-4" />
+        );
+      }
+
+      if (
+        type === "break"
+      ) {
+        return (
+          <Coffee className="h-4 w-4" />
+        );
+      }
+
       return (
-        <MessageCircle
-          className="w-4 h-4"
-        />
+        <Bell className="h-4 w-4" />
       );
-    }
-
-    if (type === "call") {
-      return (
-        <Phone
-          className="w-4 h-4"
-        />
-      );
-    }
-
-    if (type === "task") {
-      return (
-        <BriefcaseBusiness
-          className="w-4 h-4"
-        />
-      );
-    }
-
-    if (type === "break") {
-      return (
-        <Coffee
-          className="w-4 h-4"
-        />
-      );
-    }
-
-    return (
-      <Bell className="w-4 h-4" />
-    );
-  };
+    };
 
   // ============================================================
   // NORMALIZE NOTIFICATION
   // ============================================================
 
-  const normalizeNotification = (
-    item
-  ) => {
-    return {
-      ...item,
+  const normalizeNotification =
+    (item) => {
+      return {
+        ...item,
 
-      id: item?.id,
+        id: item?.id,
 
-      is_read: Number(
-        item?.is_read || 0
-      ),
-
-      read:
-        Number(
+        is_read: Number(
           item?.is_read || 0
-        ) === 1,
+        ),
+
+        read:
+          Number(
+            item?.is_read || 0
+          ) === 1,
+      };
     };
-  };
 
   // ============================================================
   // MARK ONE NOTIFICATION READ
   // ============================================================
 
-  const markNotificationRead = async (
-    notificationId
-  ) => {
-    if (!notificationId) {
-      return;
-    }
-
-    try {
-      const response =
-        await fetch(
-          "/api/notifications",
-          {
-            method: "PATCH",
-            credentials:
-              "include",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              id: notificationId,
-            }),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
-        console.error(
-          "Mark notification read failed:",
-          data
-        );
-
+  const markNotificationRead =
+    async (
+      notificationId
+    ) => {
+      if (!notificationId) {
         return;
       }
 
-      setNotifications(
-        (previous) =>
-          previous.map(
-            (item) =>
-              Number(item.id) ===
-              Number(
-                notificationId
-              )
-                ? {
-                    ...item,
-                    is_read: 1,
-                    read: true,
-                  }
-                : item
-          )
-      );
-    } catch (error) {
-      console.error(
-        "Mark notification read error:",
-        error
-      );
-    }
-  };
+      try {
+        const response =
+          await fetch(
+            "/api/notifications",
+            {
+              method:
+                "PATCH",
+
+              credentials:
+                "include",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                id: notificationId,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data?.success
+        ) {
+          console.error(
+            "Mark notification read failed:",
+            data
+          );
+
+          return;
+        }
+
+        setNotifications(
+          (previous) =>
+            previous.map(
+              (item) =>
+                Number(
+                  item.id
+                ) ===
+                Number(
+                  notificationId
+                )
+                  ? {
+                      ...item,
+                      is_read: 1,
+                      read: true,
+                    }
+                  : item
+            )
+        );
+      } catch (error) {
+        console.error(
+          "Mark notification read error:",
+          error
+        );
+      }
+    };
 
   // ============================================================
   // MARK ALL READ
@@ -918,13 +1534,17 @@ const officeClosingNotificationSent = useRef({});
           await fetch(
             "/api/notifications",
             {
-              method: "PATCH",
+              method:
+                "PATCH",
+
               credentials:
                 "include",
+
               headers: {
                 "Content-Type":
                   "application/json",
               },
+
               body: JSON.stringify({
                 all: true,
               }),
@@ -975,10 +1595,15 @@ const officeClosingNotificationSent = useRef({});
           await fetch(
             "/api/notifications?unread=true&limit=100",
             {
-              method: "GET",
+              method:
+                "GET",
+
               credentials:
                 "include",
-              cache: "no-store",
+
+              cache:
+                "no-store",
+
               headers: {
                 "Cache-Control":
                   "no-cache",
@@ -1041,7 +1666,9 @@ const officeClosingNotificationSent = useRef({});
       );
 
     return () =>
-      clearInterval(interval);
+      clearInterval(
+        interval
+      );
   }, []);
 
   // ============================================================
@@ -1049,20 +1676,19 @@ const officeClosingNotificationSent = useRef({});
   // ============================================================
 
   useEffect(() => {
-    const handleClickOutside = (
-      event
-    ) => {
-      if (
-        notificationRef.current &&
-        !notificationRef.current.contains(
-          event.target
-        )
-      ) {
-        setNotificationOpen(
-          false
-        );
-      }
-    };
+    const handleClickOutside =
+      (event) => {
+        if (
+          notificationRef.current &&
+          !notificationRef.current.contains(
+            event.target
+          )
+        ) {
+          setNotificationOpen(
+            false
+          );
+        }
+      };
 
     document.addEventListener(
       "mousedown",
@@ -1077,145 +1703,256 @@ const officeClosingNotificationSent = useRef({});
     };
   }, []);
 
-
-
-
-
-
-
-
-
-
-  // ===================== offtime notifaction =========================
-
+  // ============================================================
+  // OFFICE CLOSING NOTIFICATION
+  // ============================================================
 
   useEffect(() => {
-  if (!currentUser?.id) return;
-
-  const checkOfficeClosing = async () => {
-    try {
-      const now = new Date();
-
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: CALIFORNIA_TIMEZONE,
-        weekday: "short",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23",
-      }).formatToParts(now);
-
-      const getPart = (type) =>
-        parts.find((part) => part.type === type)?.value;
-
-      const weekday = getPart("weekday");
-      const year = getPart("year");
-      const month = getPart("month");
-      const day = getPart("day");
-      const hour = Number(getPart("hour"));
-      const minute = Number(getPart("minute"));
-
-      // Saturday / Sunday = OFF
-      if (weekday === "Sat" || weekday === "Sun") {
-        setOfficeClosingWarning(false);
-        setOfficeClosed(false);
-        return;
-      }
-
-      const californiaDate = `${year}-${month}-${day}`;
-
-      const currentMinutes = hour * 60 + minute;
-
-      // Office timing
-      const OFFICE_CLOSE_MINUTES = 17 * 60; // 5:00 PM
-      const WARNING_MINUTES = 16 * 60 + 55; // 4:55 PM
-
-      // 4:55 PM - 4:59 PM
-      if (
-        currentMinutes >= WARNING_MINUTES &&
-        currentMinutes < OFFICE_CLOSE_MINUTES
-      ) {
-        setOfficeClosingWarning(true);
-        setOfficeClosed(false);
-
-        const notificationKey = `office-closing-${currentUser.id}-${californiaDate}`;
-
-        // Already sent today
-        if (officeClosingNotificationSent.current[notificationKey]) {
-          return;
-        }
-
-        // Check browser storage so refresh does not create duplicate
-        const storageKey = "crm_office_closing_notifications";
-
-        let sentNotifications = {};
-
-        try {
-          sentNotifications =
-            JSON.parse(localStorage.getItem(storageKey)) || {};
-        } catch {
-          sentNotifications = {};
-        }
-
-        if (sentNotifications[notificationKey]) {
-          officeClosingNotificationSent.current[notificationKey] = true;
-          return;
-        }
-
-        // Create notification
-        const response = await fetch("/api/notifications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            user_id: Number(currentUser.id),
-            title: "Office Closing Soon",
-            message:
-              "Office closing time is in 5 minutes. Please complete and save your pending work.",
-            type: "general",
-          }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data?.success) {
-          officeClosingNotificationSent.current[notificationKey] = true;
-
-          sentNotifications[notificationKey] = true;
-
-          localStorage.setItem(
-            storageKey,
-            JSON.stringify(sentNotifications)
-          );
-
-          // Immediately refresh notification dropdown
-          await fetchNotifications();
-        }
-      } else if (currentMinutes >= OFFICE_CLOSE_MINUTES) {
-        // 5:00 PM ke baad
-        setOfficeClosingWarning(false);
-        setOfficeClosed(true);
-      } else {
-        // 4:55 PM se pehle
-        setOfficeClosingWarning(false);
-        setOfficeClosed(false);
-      }
-    } catch (error) {
-      console.error("Office closing check error:", error);
+    if (!currentUser?.id) {
+      return;
     }
-  };
 
-  // First check immediately
-  checkOfficeClosing();
+    const checkOfficeClosing =
+      async () => {
+        try {
+          const now =
+            new Date();
 
-  // Check every 10 seconds
-  const interval = setInterval(checkOfficeClosing, 10000);
+          const parts =
+            new Intl.DateTimeFormat(
+              "en-US",
+              {
+                timeZone:
+                  CALIFORNIA_TIMEZONE,
 
-  return () => clearInterval(interval);
-}, [currentUser?.id]);
+                weekday: "short",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                hourCycle: "h23",
+              }
+            ).formatToParts(
+              now
+            );
+
+          const getPart =
+            (type) =>
+              parts.find(
+                (part) =>
+                  part.type ===
+                  type
+              )?.value;
+
+          const weekday =
+            getPart(
+              "weekday"
+            );
+
+          const year =
+            getPart("year");
+
+          const month =
+            getPart("month");
+
+          const day =
+            getPart("day");
+
+          const hour =
+            Number(
+              getPart("hour")
+            );
+
+          const minute =
+            Number(
+              getPart(
+                "minute"
+              )
+            );
+
+          // Saturday / Sunday OFF
+          if (
+            weekday ===
+              "Sat" ||
+            weekday ===
+              "Sun"
+          ) {
+            setOfficeClosingWarning(
+              false
+            );
+
+            setOfficeClosed(
+              false
+            );
+
+            return;
+          }
+
+          const californiaDate =
+            `${year}-${month}-${day}`;
+
+          const currentMinutes =
+            hour * 60 +
+            minute;
+
+          const OFFICE_CLOSE_MINUTES =
+            17 * 60;
+
+          const WARNING_MINUTES =
+            16 * 60 + 55;
+
+          // 4:55 PM - 4:59 PM
+          if (
+            currentMinutes >=
+              WARNING_MINUTES &&
+            currentMinutes <
+              OFFICE_CLOSE_MINUTES
+          ) {
+            setOfficeClosingWarning(
+              true
+            );
+
+            setOfficeClosed(
+              false
+            );
+
+            const notificationKey =
+              `office-closing-${currentUser.id}-${californiaDate}`;
+
+            if (
+              officeClosingNotificationSent.current[
+                notificationKey
+              ]
+            ) {
+              return;
+            }
+
+            const storageKey =
+              "crm_office_closing_notifications";
+
+            let sentNotifications =
+              {};
+
+            try {
+              sentNotifications =
+                JSON.parse(
+                  localStorage.getItem(
+                    storageKey
+                  )
+                ) || {};
+            } catch {
+              sentNotifications =
+                {};
+            }
+
+            if (
+              sentNotifications[
+                notificationKey
+              ]
+            ) {
+              officeClosingNotificationSent.current[
+                notificationKey
+              ] = true;
+
+              return;
+            }
+
+            const response =
+              await fetch(
+                "/api/notifications",
+                {
+                  method:
+                    "POST",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+
+                  body: JSON.stringify({
+                    user_id:
+                      Number(
+                        currentUser.id
+                      ),
+
+                    title:
+                      "Office Closing Soon",
+
+                    message:
+                      "Office closing time is in 5 minutes. Please complete and save your pending work.",
+
+                    type:
+                      "general",
+                  }),
+                }
+              );
+
+            const data =
+              await response.json();
+
+            if (
+              response.ok &&
+              data?.success
+            ) {
+              officeClosingNotificationSent.current[
+                notificationKey
+              ] = true;
+
+              sentNotifications[
+                notificationKey
+              ] = true;
+
+              localStorage.setItem(
+                storageKey,
+                JSON.stringify(
+                  sentNotifications
+                )
+              );
+
+              await fetchNotifications();
+            }
+          } else if (
+            currentMinutes >=
+            OFFICE_CLOSE_MINUTES
+          ) {
+            setOfficeClosingWarning(
+              false
+            );
+
+            setOfficeClosed(
+              true
+            );
+          } else {
+            setOfficeClosingWarning(
+              false
+            );
+
+            setOfficeClosed(
+              false
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Office closing check error:",
+            error
+          );
+        }
+      };
+
+    checkOfficeClosing();
+
+    const interval =
+      setInterval(
+        checkOfficeClosing,
+        10000
+      );
+
+    return () =>
+      clearInterval(
+        interval
+      );
+  }, [currentUser?.id]);
 
   // ============================================================
   // UNREAD COUNT
@@ -1246,7 +1983,8 @@ const officeClosingNotificationSent = useRef({});
   // ============================================================
 
   const userId =
-    currentUser?.id || null;
+    currentUser?.id ||
+    null;
 
   const userName =
     currentUser?.name ||
@@ -1265,13 +2003,34 @@ const officeClosingNotificationSent = useRef({});
   const currentStatusInfo =
     statusOptions.find(
       (item) =>
-        item.value === status
+        item.value ===
+        status
     ) ||
     statusOptions[0];
 
   const CurrentStatusIcon =
     currentStatusInfo?.icon ||
     Check;
+
+  // ============================================================
+  // CURRENT BREAK INFO
+  // ============================================================
+
+  const currentBreakLimit =
+    timerStatus
+      ? BREAK_LIMITS[
+          timerStatus
+        ]
+      : null;
+
+  const currentBreakUsed =
+    timerStatus
+      ? Number(
+          breakUsage[
+            timerStatus
+          ] || 0
+        )
+      : 0;
 
   // ============================================================
   // RENDER
@@ -1293,7 +2052,9 @@ const officeClosingNotificationSent = useRef({});
             {onMenuClick && (
               <button
                 type="button"
-                onClick={onMenuClick}
+                onClick={
+                  onMenuClick
+                }
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 lg:hidden"
               >
                 <Menu size={20} />
@@ -1327,21 +2088,24 @@ const officeClosingNotificationSent = useRef({});
               />
 
               <div className="leading-tight">
-
                 <div className="text-xs font-semibold text-gray-700">
-                  {loginDetails.day}
+                  {
+                    loginDetails.day
+                  }
                 </div>
 
                 <div className="text-[11px] text-gray-500">
-                  {loginDetails.date}
+                  {
+                    loginDetails.date
+                  }
                 </div>
-
               </div>
 
               <div className="border-l border-gray-300 pl-3 text-xs font-semibold text-gray-700">
-                {loginDetails.time}
+                {
+                  loginDetails.time
+                }
               </div>
-
             </div>
 
             {/* ==================================================
@@ -1349,10 +2113,11 @@ const officeClosingNotificationSent = useRef({});
             ================================================== */}
 
             <div
-              ref={notificationRef}
+              ref={
+                notificationRef
+              }
               className="relative"
             >
-
               <button
                 type="button"
                 onClick={() =>
@@ -1363,17 +2128,17 @@ const officeClosingNotificationSent = useRef({});
                 }
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50"
               >
-
                 <Bell size={19} />
 
-                {unreadCount > 0 && (
+                {unreadCount >
+                  0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ec3737] px-1 text-[10px] font-bold text-white">
-                    {unreadCount > 99
+                    {unreadCount >
+                    99
                       ? "99+"
                       : unreadCount}
                   </span>
                 )}
-
               </button>
 
               {notificationOpen && (
@@ -1384,18 +2149,20 @@ const officeClosingNotificationSent = useRef({});
                   <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
 
                     <div>
-
                       <h3 className="text-sm font-bold text-gray-900">
                         Notifications
                       </h3>
 
                       <p className="text-xs text-gray-500">
-                        {unreadCount} unread
+                        {
+                          unreadCount
+                        }{" "}
+                        unread
                       </p>
-
                     </div>
 
-                    {unreadCount > 0 && (
+                    {unreadCount >
+                      0 && (
                       <button
                         type="button"
                         onClick={
@@ -1406,17 +2173,14 @@ const officeClosingNotificationSent = useRef({});
                         Mark all read
                       </button>
                     )}
-
                   </div>
 
                   {/* LIST */}
 
                   <div className="max-h-[380px] overflow-y-auto">
-
                     {notifications.length ===
                     0 ? (
                       <div className="px-5 py-10 text-center">
-
                         <Bell
                           size={28}
                           className="mx-auto mb-2 text-gray-300"
@@ -1425,16 +2189,18 @@ const officeClosingNotificationSent = useRef({});
                         <p className="text-sm text-gray-500">
                           No notifications
                         </p>
-
                       </div>
                     ) : (
                       notifications.map(
-                        (notification) => {
+                        (
+                          notification
+                        ) => {
                           const isUnread =
                             Number(
                               notification?.is_read ||
                                 0
-                            ) === 0;
+                            ) ===
+                            0;
 
                           return (
                             <button
@@ -1457,7 +2223,6 @@ const officeClosingNotificationSent = useRef({});
                                   : "bg-white"
                               }`}
                             >
-
                               {/* ICON */}
 
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
@@ -1469,7 +2234,6 @@ const officeClosingNotificationSent = useRef({});
                               {/* CONTENT */}
 
                               <div className="min-w-0 flex-1">
-
                                 <p className="text-sm font-semibold text-gray-800">
                                   {notification.title ||
                                     "Notification"}
@@ -1486,7 +2250,6 @@ const officeClosingNotificationSent = useRef({});
                                       notification.createdAt
                                   )}
                                 </p>
-
                               </div>
 
                               {/* UNREAD DOT */}
@@ -1494,18 +2257,14 @@ const officeClosingNotificationSent = useRef({});
                               {isUnread && (
                                 <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#ec3737]" />
                               )}
-
                             </button>
                           );
                         }
                       )
                     )}
-
                   </div>
-
                 </div>
               )}
-
             </div>
 
             {/* ==================================================
@@ -1532,8 +2291,12 @@ const officeClosingNotificationSent = useRef({});
                   {profileImage &&
                   !imageError ? (
                     <img
-                      src={profileImage}
-                      alt={userName}
+                      src={
+                        profileImage
+                      }
+                      alt={
+                        userName
+                      }
                       className="h-full w-full object-cover"
                       onError={() =>
                         setImageError(
@@ -1555,15 +2318,23 @@ const officeClosingNotificationSent = useRef({});
                 <div className="hidden min-w-0 text-left sm:block">
 
                   <div className="max-w-[120px] truncate text-xs font-bold text-gray-800">
-                    {userName}
+                    {
+                      userName
+                    }
                   </div>
 
                   <div className="text-[10px] capitalize text-gray-500">
-                    {userRole}
+                    {
+                      userRole
+                    }
                   </div>
 
                   <div className="text-[9px] text-gray-400">
-                    ID: {userId || "—"}
+                    ID:{" "}
+                    {
+                      userId ||
+                      "—"
+                    }
                   </div>
 
                 </div>
@@ -1584,7 +2355,7 @@ const officeClosingNotificationSent = useRef({});
               ================================================= */}
 
               {statusDropdownOpen && (
-                <div className="absolute right-0 top-12 z-50 w-[270px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                <div className="absolute right-0 top-12 z-50 w-[290px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
 
                   {/* USER HEADER */}
 
@@ -1622,11 +2393,15 @@ const officeClosingNotificationSent = useRef({});
                       <div className="min-w-0">
 
                         <p className="truncate text-sm font-bold text-gray-900">
-                          {userName}
+                          {
+                            userName
+                          }
                         </p>
 
                         <p className="text-xs capitalize text-gray-500">
-                          {userRole}
+                          {
+                            userRole
+                          }
                         </p>
 
                       </div>
@@ -1658,6 +2433,37 @@ const officeClosingNotificationSent = useRef({});
                           status ===
                           item.value;
 
+                        const isBreak =
+                          Boolean(
+                            BREAK_LIMITS[
+                              item.value
+                            ]
+                          );
+
+                        const usage =
+                          isBreak
+                            ? Number(
+                                breakUsage[
+                                  item.value
+                                ] || 0
+                              )
+                            : 0;
+
+                        const limit =
+                          isBreak
+                            ? BREAK_LIMITS[
+                                item.value
+                              ]
+                            : null;
+
+                        const limitReached =
+                          Boolean(
+                            isBreak &&
+                              limit &&
+                              usage >=
+                                limit.maxUses
+                          );
+
                         return (
                           <button
                             type="button"
@@ -1665,7 +2471,8 @@ const officeClosingNotificationSent = useRef({});
                               item.value
                             }
                             disabled={
-                              loading
+                              loading ||
+                              limitReached
                             }
                             onClick={() =>
                               handleStatusChange(
@@ -1677,14 +2484,15 @@ const officeClosingNotificationSent = useRef({});
                                 ? "bg-gray-100"
                                 : "hover:bg-gray-50"
                             } ${
-                              loading
-                                ? "cursor-not-allowed opacity-60"
+                              loading ||
+                              limitReached
+                                ? "cursor-not-allowed opacity-50"
                                 : ""
                             }`}
                           >
 
                             <div
-                              className={`flex h-8 w-8 items-center justify-center rounded-lg ${item.bg} ${item.color}`}
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${item.bg} ${item.color}`}
                             >
                               <Icon
                                 size={
@@ -1693,9 +2501,33 @@ const officeClosingNotificationSent = useRef({});
                               />
                             </div>
 
-                            <span className="flex-1 text-sm font-medium text-gray-700">
-                              {item.label}
-                            </span>
+                            <div className="min-w-0 flex-1">
+
+                              <span className="block text-sm font-medium text-gray-700">
+                                {
+                                  item.label
+                                }
+                              </span>
+
+                              {isBreak &&
+                                limit && (
+                                  <span className="block text-[10px] text-gray-400">
+                                    {
+                                      limit.minutes
+                                    }{" "}
+                                    min •{" "}
+                                    {
+                                      usage
+                                    }
+                                    /
+                                    {
+                                      limit.maxUses
+                                    }{" "}
+                                    used
+                                  </span>
+                                )}
+
+                            </div>
 
                             {selected && (
                               <Check
@@ -1712,6 +2544,92 @@ const officeClosingNotificationSent = useRef({});
                     )}
 
                   </div>
+
+                  {/* BREAK SUMMARY */}
+
+                  {!isAdmin && (
+                    <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
+
+                      <div className="mb-2 flex items-center justify-between">
+
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                          Daily Breaks
+                        </span>
+
+                        <span className="text-[10px] font-semibold text-gray-500">
+                          {Object.values(
+                            breakUsage
+                          ).reduce(
+                            (
+                              total,
+                              value
+                            ) =>
+                              total +
+                              Number(
+                                value ||
+                                  0
+                              ),
+                            0
+                          )}
+                          /
+                          {
+                            MAX_BREAKS
+                          }
+                        </span>
+
+                      </div>
+
+                      <div className="space-y-1.5">
+
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500">
+                            Short
+                          </span>
+
+                          <span className="font-semibold text-gray-600">
+                            {
+                              breakUsage[
+                                "Short Break"
+                              ]
+                            }
+                            /3
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500">
+                            Lunch
+                          </span>
+
+                          <span className="font-semibold text-gray-600">
+                            {
+                              breakUsage[
+                                "Lunch Break"
+                              ]
+                            }
+                            /1
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-gray-500">
+                            Namaz
+                          </span>
+
+                          <span className="font-semibold text-gray-600">
+                            {
+                              breakUsage[
+                                "Namaz Break"
+                              ]
+                            }
+                            /1
+                          </span>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  )}
 
                   {/* LOGOUT */}
 
@@ -1732,7 +2650,9 @@ const officeClosingNotificationSent = useRef({});
 
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
                           <LogOut
-                            size={16}
+                            size={
+                              16
+                            }
                           />
                         </div>
 
@@ -1751,7 +2671,6 @@ const officeClosingNotificationSent = useRef({});
             </div>
 
           </div>
-
         </div>
       </header>
 
@@ -1778,7 +2697,9 @@ const officeClosingNotificationSent = useRef({});
                   </p>
 
                   <h2 className="mt-1 text-xl font-bold text-gray-900">
-                    {timerStatus}
+                    {
+                      timerStatus
+                    }
                   </h2>
 
                 </div>
@@ -1808,10 +2729,37 @@ const officeClosingNotificationSent = useRef({});
                 </p>
 
                 <div className="mt-3 font-mono text-5xl font-bold tracking-wider text-gray-900 sm:text-6xl">
-                  {formatTimer(
-                    timerSeconds
-                  )}
+                  {
+                    formatTimer(
+                      timerSeconds
+                    )
+                  }
                 </div>
+
+                {/* BREAK LIMIT */}
+
+                {currentBreakLimit && (
+                  <>
+                    <p className="mt-3 text-xs font-medium text-gray-500">
+                      Limit:{" "}
+                      {
+                        currentBreakLimit.minutes
+                      }{" "}
+                      minutes
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-400">
+                      Used today:{" "}
+                      {
+                        currentBreakUsed
+                      }
+                      /
+                      {
+                        currentBreakLimit.maxUses
+                      }
+                    </p>
+                  </>
+                )}
 
                 {isNewTimer && (
                   <p className="mt-3 text-xs font-medium text-green-600">
@@ -1834,7 +2782,9 @@ const officeClosingNotificationSent = useRef({});
 
                 <button
                   type="button"
-                  disabled={loading}
+                  disabled={
+                    loading
+                  }
                   onClick={
                     endStatusTimer
                   }
@@ -1864,3 +2814,4 @@ const officeClosingNotificationSent = useRef({});
     </>
   );
 }
+

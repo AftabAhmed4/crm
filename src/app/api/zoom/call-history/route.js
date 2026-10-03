@@ -5,9 +5,9 @@ import db from "../../../lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* =========================================================
-   CONFIG
-========================================================= */
+// =========================================================
+// CONFIG
+// =========================================================
 
 const ZOOM_CALL_HISTORY_URL =
   "https://api.zoom.us/v2/phone/call_history";
@@ -15,30 +15,22 @@ const ZOOM_CALL_HISTORY_URL =
 const ZOOM_TOKEN_URL =
   "https://zoom.us/oauth/token";
 
-const CRM_TIME_ZONE =
-  "America/Los_Angeles";
+const CRM_TIME_ZONE = "America/Los_Angeles";
 
 const PAGE_SIZE = 300;
 
-const MAX_FULL_PAGES = 200;
-const MAX_LIVE_PAGES = 50;
+const MAX_FULL_PAGES = 500;
+const MAX_LIVE_PAGES = 500;
 
 const TOKEN_REFRESH_THRESHOLD_MS =
   2 * 60 * 1000;
 
-/*
- * DB CACHE TTL
- *
- * FULL = 10 minutes
- * LIVE = 5 minutes
- */
-const FULL_CACHE_TTL_SECONDS = 10 * 60;
-const LIVE_CACHE_TTL_SECONDS = 5 * 60;
+const FULL_CACHE_TTL_SECONDS =
+  2 * 60;
 
-/*
- * If Zoom gives 429 and there is no cached data,
- * don't continuously hit Zoom.
- */
+const LIVE_CACHE_TTL_SECONDS =
+  30;
+
 const FALLBACK_RATE_LIMIT_SECONDS =
   5 * 60;
 
@@ -50,9 +42,9 @@ const NO_CACHE_HEADERS = {
   "Surrogate-Control": "no-store",
 };
 
-/* =========================================================
-   BASIC HELPERS
-========================================================= */
+// =========================================================
+// BASIC HELPERS
+// =========================================================
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -72,39 +64,34 @@ function firstValue(...values) {
   return "";
 }
 
-/* =========================================================
-   EXTENSION
-========================================================= */
+// =========================================================
+// EXTENSION NORMALIZATION
+// =========================================================
 
 function normalizeExtension(value) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
+  if (value === null || value === undefined) {
     return "";
   }
 
-  let extension =
-    String(value)
-      .trim()
-      .toLowerCase();
+  let extension = String(value)
+    .trim()
+    .toLowerCase();
 
   if (!extension) {
     return "";
   }
 
-  extension =
-    extension
-      .replace(
-        /^extension[\s:._-]*/i,
-        ""
-      )
-      .replace(
-        /^ext[\s:._-]*/i,
-        ""
-      )
-      .trim();
+  // Examples:
+  // Ext.804       -> 804
+  // Ext 804       -> 804
+  // Extension:804 -> 804
+  // extension-804 -> 804
+  extension = extension
+    .replace(/^extension[\s:._-]*/i, "")
+    .replace(/^ext[\s:._-]*/i, "")
+    .trim();
 
+  // 804.0 -> 804
   if (/^\d+\.\d+$/.test(extension)) {
     const [numberPart, decimalPart] =
       extension.split(".");
@@ -114,18 +101,17 @@ function normalizeExtension(value) {
     }
   }
 
-  extension =
-    extension.replace(
-      /[^0-9a-z_-]/g,
-      ""
-    );
+  // Remove remaining spaces / punctuation.
+  extension = extension
+    .replace(/[^0-9a-z_-]/g, "")
+    .trim();
 
   return extension;
 }
 
-/* =========================================================
-   CALIFORNIA DATE
-========================================================= */
+// =========================================================
+// CALIFORNIA DATE
+// =========================================================
 
 function getCaliforniaDateString(
   date = new Date()
@@ -135,20 +121,14 @@ function getCaliforniaDateString(
       ? date
       : new Date(date);
 
-  if (
-    Number.isNaN(
-      parsed.getTime()
-    )
-  ) {
+  if (Number.isNaN(parsed.getTime())) {
     return "";
   }
 
   return new Intl.DateTimeFormat(
     "en-CA",
     {
-      timeZone:
-        CRM_TIME_ZONE,
-
+      timeZone: CRM_TIME_ZONE,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -156,9 +136,9 @@ function getCaliforniaDateString(
   ).format(parsed);
 }
 
-/* =========================================================
-   CALIFORNIA DATE/TIME
-========================================================= */
+// =========================================================
+// CALIFORNIA DATE/TIME
+// =========================================================
 
 function getCaliforniaDateTimeInfo() {
   const now = new Date();
@@ -167,17 +147,13 @@ function getCaliforniaDateTimeInfo() {
     new Intl.DateTimeFormat(
       "en-US",
       {
-        timeZone:
-          CRM_TIME_ZONE,
-
+        timeZone: CRM_TIME_ZONE,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
-
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
-
         hour12: false,
       }
     ).formatToParts(now);
@@ -185,12 +161,8 @@ function getCaliforniaDateTimeInfo() {
   const values = {};
 
   for (const part of parts) {
-    if (
-      part.type !==
-      "literal"
-    ) {
-      values[part.type] =
-        part.value;
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
     }
   }
 
@@ -209,62 +181,93 @@ function getCaliforniaDateTimeInfo() {
     now,
     date,
     time,
-    iso:
-      now.toISOString(),
+    iso: now.toISOString(),
   };
 }
 
-/* =========================================================
-   DEFAULT RANGE
-   LAST 7 DAYS
-========================================================= */
+// =========================================================
+// DATE PARSER
+// =========================================================
+
+function parseDateString(value) {
+  if (
+    !value ||
+    typeof value !== "string"
+  ) {
+    return null;
+  }
+
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day
+    )
+  );
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+// =========================================================
+// ADD DAYS
+// =========================================================
+
+function addDays(dateString, days) {
+  const date =
+    parseDateString(dateString);
+
+  if (!date) {
+    return null;
+  }
+
+  date.setUTCDate(
+    date.getUTCDate() + days
+  );
+
+  return [
+    date.getUTCFullYear(),
+    pad2(date.getUTCMonth() + 1),
+    pad2(date.getUTCDate()),
+  ].join("-");
+}
+
+// =========================================================
+// DEFAULT RANGE
+// =========================================================
 
 function getDefaultDateRange() {
   const today =
     getCaliforniaDateString();
 
-  const [
-    year,
-    month,
-    day,
-  ] =
-    today
-      .split("-")
-      .map(Number);
-
-  const fromDate =
-    new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day
-      )
-    );
-
-  fromDate.setUTCDate(
-    fromDate.getUTCDate() - 6
-  );
-
   return {
-    from:
-      [
-        fromDate.getUTCFullYear(),
-        pad2(
-          fromDate.getUTCMonth() + 1
-        ),
-        pad2(
-          fromDate.getUTCDate()
-        ),
-      ].join("-"),
-
-    to:
-      today,
+    from: addDays(today, -6),
+    to: today,
   };
 }
 
-/* =========================================================
-   TODAY
-========================================================= */
+// =========================================================
+// TODAY
+// =========================================================
 
 function getTodayRange() {
   const today =
@@ -276,126 +279,70 @@ function getTodayRange() {
   };
 }
 
-/* =========================================================
-   DATE PARSER
-========================================================= */
-
-function parseDateString(value) {
-  if (
-    !value ||
-    typeof value !==
-      "string"
-  ) {
-    return null;
-  }
-
-  const match =
-    value.match(
-      /^(\d{4})-(\d{2})-(\d{2})$/
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  const year =
-    Number(match[1]);
-
-  const month =
-    Number(match[2]);
-
-  const day =
-    Number(match[3]);
-
-  const date =
-    new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day
-      )
-    );
-
-  if (
-    date.getUTCFullYear() !==
-      year ||
-    date.getUTCMonth() !==
-      month - 1 ||
-    date.getUTCDate() !==
-      day
-  ) {
-    return null;
-  }
-
-  return date;
-}
-
-/* =========================================================
-   DIRECTION
-========================================================= */
+// =========================================================
+// DIRECTION
+// =========================================================
 
 function getCallDirection(call) {
-  const raw =
-    firstValue(
-      call?.direction,
-      call?.call_direction,
-      call?.callDirection,
-      call?.type,
-      call?.call_type,
-      call?.callType
-    );
+  const raw = firstValue(
+    call?.direction,
+    call?.call_direction,
+    call?.callDirection,
+    call?.type,
+    call?.call_type,
+    call?.callType
+  );
 
-  return String(raw || "")
-    .toLowerCase()
-    .trim();
-}
-
-function isInboundCall(call) {
   const direction =
-    getCallDirection(call);
+    String(raw || "")
+      .trim()
+      .toLowerCase();
 
-  return (
+  if (
     direction === "in" ||
     direction === "inbound" ||
     direction === "incoming" ||
-    direction.includes(
-      "inbound"
-    ) ||
-    direction.includes(
-      "incoming"
-    )
+    direction.includes("inbound") ||
+    direction.includes("incoming")
+  ) {
+    return "inbound";
+  }
+
+  if (
+    direction === "out" ||
+    direction === "outbound" ||
+    direction === "outgoing" ||
+    direction.includes("outbound") ||
+    direction.includes("outgoing")
+  ) {
+    return "outbound";
+  }
+
+  return "";
+}
+
+function isInboundCall(call) {
+  return (
+    getCallDirection(call) ===
+    "inbound"
   );
 }
 
 function isOutboundCall(call) {
-  const direction =
-    getCallDirection(call);
-
   return (
-    direction === "out" ||
-    direction === "outbound" ||
-    direction === "outgoing" ||
-    direction.includes(
-      "outbound"
-    ) ||
-    direction.includes(
-      "outgoing"
-    )
+    getCallDirection(call) ===
+    "outbound"
   );
 }
 
-/* =========================================================
-   FIND EXTENSION
-========================================================= */
+// =========================================================
+// FIND EXTENSION
+// =========================================================
 
-function findExtension(
-  ...values
-) {
+function findExtension(...values) {
   for (const value of values) {
     const extension =
-      normalizeExtension(
-        value
-      );
+      normalizeExtension(value);
 
     if (extension) {
       return extension;
@@ -405,9 +352,9 @@ function findExtension(
   return "";
 }
 
-/* =========================================================
-   CALLER EXTENSION
-========================================================= */
+// =========================================================
+// CALLER EXTENSION
+// =========================================================
 
 function getCallerExtension(call) {
   return findExtension(
@@ -460,9 +407,9 @@ function getCallerExtension(call) {
   );
 }
 
-/* =========================================================
-   CALLEE EXTENSION
-========================================================= */
+// =========================================================
+// CALLEE EXTENSION
+// =========================================================
 
 function getCalleeExtension(call) {
   return findExtension(
@@ -515,9 +462,9 @@ function getCalleeExtension(call) {
   );
 }
 
-/* =========================================================
-   TOP LEVEL EXTENSION
-========================================================= */
+// =========================================================
+// TOP LEVEL EXTENSION
+// =========================================================
 
 function getTopLevelExtension(call) {
   return findExtension(
@@ -558,21 +505,32 @@ function getTopLevelExtension(call) {
   );
 }
 
-/* =========================================================
-   CRM EXTENSION
-========================================================= */
+// =========================================================
+// CRM EXTENSION / OWNER
+// =========================================================
 
 function getExtensionFromCall(call) {
   const caller =
-    getCallerExtension(call);
+    normalizeExtension(
+      getCallerExtension(call)
+    );
 
   const callee =
-    getCalleeExtension(call);
+    normalizeExtension(
+      getCalleeExtension(call)
+    );
 
   const top =
-    getTopLevelExtension(call);
+    normalizeExtension(
+      getTopLevelExtension(call)
+    );
 
-  if (isInboundCall(call)) {
+  const direction =
+    getCallDirection(call);
+
+  // INBOUND:
+  // User/CRM extension is the receiver/callee.
+  if (direction === "inbound") {
     return (
       callee ||
       top ||
@@ -581,7 +539,9 @@ function getExtensionFromCall(call) {
     );
   }
 
-  if (isOutboundCall(call)) {
+  // OUTBOUND:
+  // User/CRM extension is the caller.
+  if (direction === "outbound") {
     return (
       caller ||
       top ||
@@ -590,17 +550,30 @@ function getExtensionFromCall(call) {
     );
   }
 
-  return (
-    top ||
-    caller ||
-    callee ||
-    ""
-  );
+  // If Zoom does not provide direction,
+  // use an existing owner/top-level extension.
+  if (top) {
+    return top;
+  }
+
+  // If only one side contains an extension,
+  // that extension can safely be the owner.
+  if (caller && !callee) {
+    return caller;
+  }
+
+  if (callee && !caller) {
+    return callee;
+  }
+
+  // Both sides are extensions but direction is unknown.
+  // Do NOT randomly assign the call.
+  return "";
 }
 
-/* =========================================================
-   ENRICH
-========================================================= */
+// =========================================================
+// ENRICH CALL
+// =========================================================
 
 function enrichCall(call) {
   const caller =
@@ -625,51 +598,75 @@ function enrichCall(call) {
       callee || null,
 
     crm_direction:
-      getCallDirection(call) ||
-      null,
+      getCallDirection(call) || null,
   };
 }
 
-/* =========================================================
-   ZOOM ERROR
-========================================================= */
+// =========================================================
+// ALL EXTENSIONS - DIAGNOSTIC ONLY
+// =========================================================
 
-async function readZoomError(
-  response
-) {
+function getAllCallExtensions(call) {
+  const set = new Set();
+
+  const caller =
+    normalizeExtension(
+      getCallerExtension(call)
+    );
+
+  const callee =
+    normalizeExtension(
+      getCalleeExtension(call)
+    );
+
+  const top =
+    normalizeExtension(
+      getTopLevelExtension(call)
+    );
+
+  const crm =
+    normalizeExtension(
+      call?.crm_extension
+    );
+
+  if (caller) set.add(caller);
+  if (callee) set.add(callee);
+  if (top) set.add(top);
+  if (crm) set.add(crm);
+
+  return set;
+}
+
+// =========================================================
+// ZOOM ERROR
+// =========================================================
+
+async function readZoomError(response) {
   try {
     const data =
       await response.json();
 
     return {
-      code:
-        data?.code,
-
+      code: data?.code,
       message:
         data?.message ||
         data?.error ||
         `Zoom API returned ${response.status}`,
-
-      raw:
-        data,
+      raw: data,
     };
   } catch {
     return {
-      code:
-        undefined,
-
+      code: undefined,
       message:
         `Zoom API returned ${response.status}`,
-
-      raw:
-        null,
+      raw: null,
     };
   }
 }
 
-/* =========================================================
-   ZOOM PAGE
-========================================================= */
+// =========================================================
+// FETCH ONE ZOOM PAGE
+// =========================================================
 
 async function fetchZoomPage({
   accessToken,
@@ -686,15 +683,8 @@ async function fetchZoomPage({
     String(PAGE_SIZE)
   );
 
-  params.set(
-    "from",
-    from
-  );
-
-  params.set(
-    "to",
-    to
-  );
+  params.set("from", from);
+  params.set("to", to);
 
   if (nextPageToken) {
     params.set(
@@ -703,38 +693,34 @@ async function fetchZoomPage({
     );
   }
 
+  const url =
+    `${ZOOM_CALL_HISTORY_URL}?${params.toString()}`;
+
+  console.log(
+    `[Zoom] PAGE ${pageNumber} ${from} -> ${to}`
+  );
+
   const response =
-    await fetch(
-      `${ZOOM_CALL_HISTORY_URL}?${params.toString()}`,
-      {
-        method: "GET",
-
-        headers: {
-          Authorization:
-            `Bearer ${accessToken}`,
-
-          Accept:
-            "application/json",
-        },
-
-        cache:
-          "no-store",
-      }
-    );
+    await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization:
+          `Bearer ${accessToken}`,
+        Accept:
+          "application/json",
+      },
+      cache: "no-store",
+    });
 
   if (response.ok) {
     return await response.json();
   }
 
   const error =
-    await readZoomError(
-      response
-    );
+    await readZoomError(response);
 
   const err =
-    new Error(
-      error.message
-    );
+    new Error(error.message);
 
   err.status =
     response.status;
@@ -758,18 +744,17 @@ async function fetchZoomPage({
   err.pageNumber =
     pageNumber;
 
-  /*
-   * IMPORTANT:
-   *
-   * NO 429 RETRY HERE.
-   */
   throw err;
 }
 
-/* =========================================================
-   FETCH ALL CALLS
-   NO DEDUPLICATION
-========================================================= */
+// =========================================================
+// FETCH ALL CALLS
+//
+// IMPORTANT:
+// NO PHONE DEDUP
+// NO CALL ID DEDUP
+// EVERY ZOOM RECORD IS KEPT
+// =========================================================
 
 async function fetchAllCalls({
   accessToken,
@@ -784,11 +769,8 @@ async function fetchAllCalls({
 
   const allCalls = [];
 
-  let nextPageToken =
-    "";
-
-  let pagesFetched =
-    0;
+  let nextPageToken = "";
+  let pagesFetched = 0;
 
   let stoppedBecauseNoNextToken =
     false;
@@ -798,18 +780,13 @@ async function fetchAllCalls({
 
   const pageStats = [];
 
-  /*
-   * ONLY pagination-token protection.
-   *
-   * NOT call deduplication.
-   */
   const seenPageTokens =
     new Set();
 
-  while (
-    pagesFetched <
-    maxPages
-  ) {
+  let zoomServerTotalRecords =
+    null;
+
+  while (pagesFetched < maxPages) {
     if (
       nextPageToken &&
       seenPageTokens.has(
@@ -817,7 +794,7 @@ async function fetchAllCalls({
       )
     ) {
       console.warn(
-        "[Zoom] Pagination token repeated. Stopping."
+        "[Zoom] Same pagination token repeated. Stopping."
       );
 
       break;
@@ -841,7 +818,17 @@ async function fetchAllCalls({
         pageNumber,
       });
 
-    pagesFetched += 1;
+    pagesFetched++;
+
+    if (
+      zoomServerTotalRecords === null &&
+      Number.isFinite(
+        Number(data?.total_records)
+      )
+    ) {
+      zoomServerTotalRecords =
+        Number(data.total_records);
+    }
 
     let pageCalls = [];
 
@@ -868,9 +855,9 @@ async function fetchAllCalls({
         data.call_history;
     }
 
-    /*
-     * NEVER DEDUPE.
-     */
+    // IMPORTANT:
+    // Push every record.
+    // Do NOT deduplicate.
     allCalls.push(
       ...pageCalls
     );
@@ -881,19 +868,13 @@ async function fetchAllCalls({
       "";
 
     pageStats.push({
-      page:
-        pageNumber,
-
+      page: pageNumber,
       records:
         pageCalls.length,
-
       totalSoFar:
         allCalls.length,
-
       hasNextPage:
-        Boolean(
-          nextPageToken
-        ),
+        Boolean(nextPageToken),
     });
 
     console.log(
@@ -910,46 +891,43 @@ async function fetchAllCalls({
 
   if (
     nextPageToken &&
-    pagesFetched >=
-      maxPages
+    pagesFetched >= maxPages
   ) {
     stoppedBecauseMaxPages =
       true;
+
+    console.warn(
+      `[Zoom] MAX PAGE LIMIT REACHED: ${maxPages}`
+    );
   }
 
   return {
-    calls:
-      allCalls,
-
+    calls: allCalls,
     pagesFetched,
-
     stoppedBecauseNoNextToken,
-
     stoppedBecauseMaxPages,
-
     pageStats,
+    zoomServerTotalRecords,
   };
 }
 
-/* =========================================================
-   MYSQL CACHE
-========================================================= */
+// =========================================================
+// CACHE
+//
+// v3 = corrected user extension logic
+// =========================================================
 
 function makeCacheKey({
   mode,
   from,
   to,
 }) {
-  return `zoom-call-history:${mode}:${from}:${to}`;
+  return (
+    `zoom-call-history-v3:${mode}:${from}:${to}`
+  );
 }
 
-/* =========================================================
-   GET CACHE
-========================================================= */
-
-async function getDbCache(
-  cacheKey
-) {
+async function getDbCache(cacheKey) {
   const [rows] =
     await db.query(
       `
@@ -976,14 +954,11 @@ async function getDbCache(
     return null;
   }
 
-  const row =
-    rows[0];
+  const row = rows[0];
 
   let payload = null;
 
-  if (
-    row.payload_json
-  ) {
+  if (row.payload_json) {
     try {
       payload =
         typeof row.payload_json ===
@@ -994,28 +969,19 @@ async function getDbCache(
           : row.payload_json;
     } catch (error) {
       console.error(
-        "[Zoom Cache] Invalid JSON:",
+        "[Zoom Cache] Invalid JSON",
         error
       );
-
-      payload = null;
     }
   }
 
   return {
     ...row,
-
     payload,
   };
 }
 
-/* =========================================================
-   CACHE FRESH CHECK
-========================================================= */
-
-function isCacheFresh(
-  cache
-) {
+function isCacheFresh(cache) {
   if (
     !cache?.payload ||
     !cache?.expires_at
@@ -1042,10 +1008,6 @@ function isCacheFresh(
   );
 }
 
-/* =========================================================
-   SAVE CACHE
-========================================================= */
-
 async function saveDbCache({
   cacheKey,
   from,
@@ -1059,9 +1021,7 @@ async function saveDbCache({
       : FULL_CACHE_TTL_SECONDS;
 
   const payloadJson =
-    JSON.stringify(
-      payload
-    );
+    JSON.stringify(payload);
 
   const fetchedAt =
     new Date();
@@ -1107,9 +1067,9 @@ async function saveDbCache({
   );
 }
 
-/* =========================================================
-   TOKEN REFRESH
-========================================================= */
+// =========================================================
+// TOKEN
+// =========================================================
 
 async function refreshZoomToken(
   connection
@@ -1140,35 +1100,27 @@ async function refreshZoomToken(
   const basicAuth =
     Buffer.from(
       `${clientId}:${clientSecret}`
-    ).toString(
-      "base64"
-    );
+    ).toString("base64");
 
   const response =
     await fetch(
       ZOOM_TOKEN_URL,
       {
         method: "POST",
-
         headers: {
           Authorization:
             `Basic ${basicAuth}`,
-
           "Content-Type":
             "application/x-www-form-urlencoded",
         },
-
         body:
           new URLSearchParams({
             grant_type:
               "refresh_token",
-
             refresh_token:
               connection.refresh_token,
           }),
-
-        cache:
-          "no-store",
+        cache: "no-store",
       }
     );
 
@@ -1180,8 +1132,7 @@ async function refreshZoomToken(
 
     const err =
       new Error(
-        error.message ||
-          "Unable to refresh Zoom token"
+        error.message
       );
 
     err.status =
@@ -1244,16 +1195,18 @@ async function refreshZoomToken(
   };
 }
 
-/* =========================================================
-   DUPLICATE COUNT
-   DIAGNOSTIC ONLY
-========================================================= */
+// =========================================================
+// DUPLICATE DIAGNOSTIC
+//
+// IMPORTANT:
+// This NEVER removes duplicates.
+// It only tells us how many duplicate IDs exist.
+// =========================================================
 
 function calculateDuplicateTotal(
   calls
 ) {
-  const map =
-    new Map();
+  const map = new Map();
 
   for (const call of calls) {
     const id =
@@ -1279,10 +1232,7 @@ function calculateDuplicateTotal(
 
   let duplicates = 0;
 
-  for (
-    const count of
-    map.values()
-  ) {
+  for (const count of map.values()) {
     if (count > 1) {
       duplicates +=
         count - 1;
@@ -1292,9 +1242,9 @@ function calculateDuplicateTotal(
   return duplicates;
 }
 
-/* =========================================================
-   CALL DATE
-========================================================= */
+// =========================================================
+// CALL DATE
+// =========================================================
 
 function getDateFromCall(call) {
   const raw =
@@ -1327,9 +1277,9 @@ function getDateFromCall(call) {
   );
 }
 
-/* =========================================================
-   CALL TIMESTAMP
-========================================================= */
+// =========================================================
+// CALL TIMESTAMP
+// =========================================================
 
 function getCallTimestamp(call) {
   const raw =
@@ -1360,9 +1310,9 @@ function getCallTimestamp(call) {
   return timestamp;
 }
 
-/* =========================================================
-   DATE FILTER
-========================================================= */
+// =========================================================
+// DATE FILTER
+// =========================================================
 
 function filterCallsByDate({
   calls,
@@ -1372,14 +1322,8 @@ function filterCallsByDate({
   return calls.filter(
     (call) => {
       const date =
-        getDateFromCall(
-          call
-        );
+        getDateFromCall(call);
 
-      /*
-       * Preserve calls whose date
-       * cannot be determined.
-       */
       if (!date) {
         return true;
       }
@@ -1403,18 +1347,26 @@ function filterCallsByDate({
   );
 }
 
-/* =========================================================
-   USER FILTER
-========================================================= */
+// =========================================================
+// USER FILTER
+//
+// IMPORTANT:
+//
+// NON-ADMIN USER TOTAL = EXACT crm_extension MATCH
+//
+// We DO NOT count caller/callee/top separately here.
+//
+// This prevents:
+// User 804 from getting calls merely because 804
+// appears on the other side of the call.
+//
+// =========================================================
 
 function filterCallsByUser({
   calls,
   isAdmin,
   userExtension,
 }) {
-  /*
-   * ADMIN = ALL CALLS.
-   */
   if (isAdmin) {
     return calls;
   }
@@ -1430,49 +1382,25 @@ function filterCallsByUser({
 
   return calls.filter(
     (call) => {
-      const caller =
-        normalizeExtension(
-          getCallerExtension(
-            call
-          )
-        );
-
-      const callee =
-        normalizeExtension(
-          getCalleeExtension(
-            call
-          )
-        );
-
-      const top =
-        normalizeExtension(
-          getTopLevelExtension(
-            call
-          )
-        );
-
-      const crm =
+      const crmExtension =
         normalizeExtension(
           call?.crm_extension
         );
 
       return (
-        caller ===
-          extension ||
-        callee ===
-          extension ||
-        top ===
-          extension ||
-        crm ===
-          extension
+        crmExtension === extension
       );
     }
   );
 }
 
-/* =========================================================
-   EXTENSION COUNTS
-========================================================= */
+// =========================================================
+// EXTENSION COUNTS
+//
+// IMPORTANT:
+// Counts OWNER extension only.
+// This is what should be used for user totals.
+// =========================================================
 
 function getExtensionCounts(
   calls
@@ -1490,22 +1418,20 @@ function getExtensionCounts(
     }
 
     counts[extension] =
-      (counts[extension] || 0) +
-      1;
+      (counts[extension] || 0) + 1;
   }
 
   return counts;
 }
 
-/* =========================================================
-   AVAILABLE EXTENSIONS
-========================================================= */
+// =========================================================
+// AVAILABLE EXTENSIONS
+// =========================================================
 
 function getAvailableExtensions(
   calls
 ) {
-  const set =
-    new Set();
+  const set = new Set();
 
   for (const call of calls) {
     const extension =
@@ -1514,58 +1440,48 @@ function getAvailableExtensions(
       );
 
     if (extension) {
-      set.add(
-        extension
-      );
+      set.add(extension);
     }
   }
 
-  return Array.from(
-    set
-  ).sort(
+  return Array.from(set).sort(
     (a, b) =>
       a.localeCompare(
         b,
         undefined,
         {
           numeric: true,
-          sensitivity:
-            "base",
+          sensitivity: "base",
         }
       )
   );
 }
 
-/* =========================================================
-   DATE COUNTS
-========================================================= */
+// =========================================================
+// DATE COUNTS
+// =========================================================
 
-function getDateCounts(
-  calls
-) {
+function getDateCounts(calls) {
   const counts = {};
 
   for (const call of calls) {
     const date =
-      getDateFromCall(
-        call
-      );
+      getDateFromCall(call);
 
     if (!date) {
       continue;
     }
 
     counts[date] =
-      (counts[date] || 0) +
-      1;
+      (counts[date] || 0) + 1;
   }
 
   return counts;
 }
 
-/* =========================================================
-   SORT
-========================================================= */
+// =========================================================
+// SORT
+// =========================================================
 
 function sortCallsNewestFirst(
   calls
@@ -1573,31 +1489,22 @@ function sortCallsNewestFirst(
   return calls.sort(
     (a, b) => {
       const aTime =
-        getCallTimestamp(
-          a
-        ) || 0;
+        getCallTimestamp(a) || 0;
 
       const bTime =
-        getCallTimestamp(
-          b
-        ) || 0;
+        getCallTimestamp(b) || 0;
 
-      return (
-        bTime -
-        aTime
-      );
+      return bTime - aTime;
     }
   );
 }
 
-/* =========================================================
-   GET CONNECTION
-========================================================= */
+// =========================================================
+// ZOOM CONNECTION
+// =========================================================
 
 async function getZoomConnection() {
-  const [
-    rows,
-  ] =
+  const [rows] =
     await db.query(
       `
         SELECT
@@ -1621,17 +1528,94 @@ async function getZoomConnection() {
   return rows[0];
 }
 
-/* =========================================================
-   MAIN
-========================================================= */
+// =========================================================
+// USER EXTENSION DEBUG
+// =========================================================
 
-export async function GET(
-  request
+function getUserExtensionMatchStats(
+  calls,
+  userExtension
 ) {
+  const extension =
+    normalizeExtension(
+      userExtension
+    );
+
+  const stats = {
+    caller: 0,
+    callee: 0,
+    top: 0,
+    crm: 0,
+    exactOwner: 0,
+    any: 0,
+  };
+
+  if (!extension) {
+    return stats;
+  }
+
+  for (const call of calls) {
+    const caller =
+      normalizeExtension(
+        getCallerExtension(call)
+      );
+
+    const callee =
+      normalizeExtension(
+        getCalleeExtension(call)
+      );
+
+    const top =
+      normalizeExtension(
+        getTopLevelExtension(call)
+      );
+
+    const crm =
+      normalizeExtension(
+        call?.crm_extension
+      );
+
+    if (caller === extension) {
+      stats.caller++;
+    }
+
+    if (callee === extension) {
+      stats.callee++;
+    }
+
+    if (top === extension) {
+      stats.top++;
+    }
+
+    if (crm === extension) {
+      stats.crm++;
+      stats.exactOwner++;
+    }
+
+    const allExtensions =
+      getAllCallExtensions(call);
+
+    if (
+      allExtensions.has(
+        extension
+      )
+    ) {
+      stats.any++;
+    }
+  }
+
+  return stats;
+}
+
+// =========================================================
+// MAIN GET
+// =========================================================
+
+export async function GET(request) {
   try {
-    /* =====================================================
-       AUTH
-    ===================================================== */
+    // =====================================================
+    // AUTH
+    // =====================================================
 
     const token =
       request.cookies.get(
@@ -1642,8 +1626,7 @@ export async function GET(
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Unauthorized",
+          message: "Unauthorized",
         },
         {
           status: 401,
@@ -1714,13 +1697,11 @@ export async function GET(
       );
     }
 
-    /* =====================================================
-       USER
-    ===================================================== */
+    // =====================================================
+    // USER
+    // =====================================================
 
-    const [
-      users,
-    ] =
+    const [users] =
       await db.query(
         `
           SELECT
@@ -1771,9 +1752,9 @@ export async function GET(
         user.zoom_extension
       );
 
-    /* =====================================================
-       QUERY
-    ===================================================== */
+    // =====================================================
+    // QUERY
+    // =====================================================
 
     const params =
       new URL(request.url)
@@ -1781,9 +1762,8 @@ export async function GET(
 
     let mode =
       String(
-        params.get(
-          "mode"
-        ) || "full"
+        params.get("mode") ||
+          "full"
       )
         .trim()
         .toLowerCase();
@@ -1801,9 +1781,9 @@ export async function GET(
     let to =
       params.get("to");
 
-    /* =====================================================
-       LIVE = TODAY
-    ===================================================== */
+    // =====================================================
+    // LIVE = TODAY
+    // =====================================================
 
     if (mode === "live") {
       const today =
@@ -1837,19 +1817,15 @@ export async function GET(
       }
     }
 
-    /* =====================================================
-       DATE VALIDATION
-    ===================================================== */
+    // =====================================================
+    // VALIDATE
+    // =====================================================
 
     const fromDate =
-      parseDateString(
-        from
-      );
+      parseDateString(from);
 
     const toDate =
-      parseDateString(
-        to
-      );
+      parseDateString(to);
 
     if (
       !fromDate ||
@@ -1870,8 +1846,7 @@ export async function GET(
     }
 
     if (
-      fromDate >
-      toDate
+      fromDate > toDate
     ) {
       return NextResponse.json(
         {
@@ -1893,9 +1868,9 @@ export async function GET(
     const currentDate =
       timeInfo.date;
 
-    /* =====================================================
-       USER WITHOUT EXTENSION
-    ===================================================== */
+    // =====================================================
+    // NON ADMIN WITHOUT EXTENSION
+    // =====================================================
 
     if (
       !isAdmin &&
@@ -1904,108 +1879,101 @@ export async function GET(
       return NextResponse.json(
         {
           success: true,
-
           calls: [],
-
           total: 0,
-
           rawTotal: 0,
-
           enrichedTotal: 0,
-
+          dateFilteredTotal: 0,
+          filteredTotal: 0,
           uniqueTotal: 0,
-
           duplicateTotal: 0,
 
-          filteredTotal: 0,
-
-          dateFilteredTotal: 0,
-
           mode,
-
           live:
             mode === "live",
 
           from,
-
           to,
 
           timeZone:
             CRM_TIME_ZONE,
 
           currentDate,
-
           currentTime:
             timeInfo.time,
-
           currentTimeIso:
             timeInfo.iso,
-
-          currentTimeApplied:
-            false,
 
           isAdmin: false,
 
           user: {
-            id:
-              user.id,
-
-            name:
-              user.name,
-
-            email:
-              user.email,
-
-            role:
-              user.role,
-
-            zoom_extension:
-              null,
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            zoom_extension: null,
           },
 
           pagesFetched: 0,
-
           pageStats: [],
 
           pagination: {
-            pageSize:
-              PAGE_SIZE,
-
+            pageSize: PAGE_SIZE,
             maxPages:
               mode === "live"
                 ? MAX_LIVE_PAGES
                 : MAX_FULL_PAGES,
-
             stoppedBecauseNoNextToken:
               true,
-
             stoppedBecauseMaxPages:
               false,
           },
 
           extensionCounts: {},
-
+          extensionTotals: {},
           availableExtensions: [],
-
           detectedExtensions: [],
-
           detectedExtensionCounts: {},
 
           detectedTotal: 0,
-
           callsWithoutExtension: 0,
 
           dateCounts: {},
 
+          countCheck: {
+            total: 0,
+            dateCountsTotal: 0,
+            matched: true,
+          },
+
+          userExtensionMatchStats: {
+            caller: 0,
+            callee: 0,
+            top: 0,
+            crm: 0,
+            exactOwner: 0,
+            any: 0,
+          },
+
           cache: {
             hit: false,
-
             stale: false,
-
             rateLimited: false,
+            ttlMinutes:
+              mode === "live"
+                ? LIVE_CACHE_TTL_SECONDS / 60
+                : FULL_CACHE_TTL_SECONDS / 60,
           },
-        },
 
+          zoom: {
+            tokenRefreshed: false,
+            rateLimited: false,
+            staleCache: false,
+            cacheHit: false,
+          },
+
+          warning: null,
+        },
         {
           status: 200,
           headers:
@@ -2014,9 +1982,29 @@ export async function GET(
       );
     }
 
-    /* =====================================================
-       CACHE KEY
-    ===================================================== */
+    // =====================================================
+    // EXPANDED ZOOM RANGE
+    //
+    // Requested California range is still filtered locally.
+    // =====================================================
+
+    const zoomFrom =
+      addDays(from, -1);
+
+    const zoomTo =
+      addDays(to, 1);
+
+    console.log(
+      `[Call History] California range: ${from} -> ${to}`
+    );
+
+    console.log(
+      `[Call History] Zoom range: ${zoomFrom} -> ${zoomTo}`
+    );
+
+    // =====================================================
+    // CACHE
+    // =====================================================
 
     const cacheKey =
       makeCacheKey({
@@ -2024,15 +2012,6 @@ export async function GET(
         from,
         to,
       });
-
-    console.log(
-      `[Call History] cacheKey=${cacheKey}`
-    );
-
-    /* =====================================================
-       STEP 1:
-       CHECK DB CACHE FIRST
-    ===================================================== */
 
     let cache =
       await getDbCache(
@@ -2051,6 +2030,13 @@ export async function GET(
     let rateLimited =
       false;
 
+    let tokenRefreshed =
+      false;
+
+    // =====================================================
+    // FRESH CACHE
+    // =====================================================
+
     if (
       cache &&
       isCacheFresh(cache)
@@ -2062,37 +2048,24 @@ export async function GET(
       fetchResult =
         cache.payload;
 
-      cacheHit =
-        true;
+      cacheHit = true;
     }
 
-    /* =====================================================
-       STEP 2:
-       CACHE MISS
-    ===================================================== */
+    // =====================================================
+    // ZOOM FETCH
+    // =====================================================
 
     if (!fetchResult) {
-      /*
-       * Get Zoom connection only now.
-       *
-       * Cache hit does NOT need Zoom token.
-       */
-      let connection =
+      const connection =
         await getZoomConnection();
 
       if (!connection) {
-        /*
-         * If old cache exists, use it.
-         */
         if (cache?.payload) {
           fetchResult =
             cache.payload;
 
-          cacheHit =
-            true;
-
-          staleCache =
-            true;
+          cacheHit = true;
+          staleCache = true;
         } else {
           return NextResponse.json(
             {
@@ -2109,15 +2082,8 @@ export async function GET(
         }
       }
 
-      /* ===================================================
-         TOKEN
-      =================================================== */
-
       let accessToken =
         connection?.access_token;
-
-      let tokenRefreshed =
-        false;
 
       if (
         connection &&
@@ -2150,20 +2116,15 @@ export async function GET(
         }
       }
 
-      /* ===================================================
-         FETCH IF CACHE MISS
-      =================================================== */
-
       if (
         !fetchResult &&
         accessToken
       ) {
         try {
-          /*
-           * Re-check DB cache.
-           *
-           * Another browser/user may have filled it.
-           */
+          // =================================================
+          // SECOND CACHE CHECK
+          // =================================================
+
           cache =
             await getDbCache(
               cacheKey
@@ -2173,39 +2134,29 @@ export async function GET(
             cache &&
             isCacheFresh(cache)
           ) {
-            console.log(
-              `[Zoom DB Cache] SECOND HIT ${cacheKey}`
-            );
-
             fetchResult =
               cache.payload;
 
-            cacheHit =
-              true;
+            cacheHit = true;
           }
 
-          /* ===============================================
-             ACTUAL ZOOM REQUEST
-          =============================================== */
+          // =================================================
+          // ACTUAL FETCH
+          // =================================================
 
           if (!fetchResult) {
             console.log(
-              `[Zoom] FETCHING ${from} -> ${to} mode=${mode}`
+              `[Zoom] ACTUAL FETCH ${zoomFrom} -> ${zoomTo}`
             );
 
             fetchResult =
               await fetchAllCalls({
                 accessToken,
-                from,
-                to,
+                from: zoomFrom,
+                to: zoomTo,
                 mode,
               });
 
-            /*
-             * SAVE RAW ZOOM DATA.
-             *
-             * Duplicates preserved.
-             */
             await saveDbCache({
               cacheKey,
               from,
@@ -2216,21 +2167,19 @@ export async function GET(
             });
 
             console.log(
-              `[Zoom] FETCH COMPLETE records=${fetchResult.calls.length}`
+              `[Zoom] FETCH COMPLETE rawRecords=${fetchResult.calls.length}`
             );
           }
         } catch (error) {
-          /* ===============================================
-             TOKEN EXPIRED
-          =============================================== */
+          // ===============================================
+          // AUTH ERROR
+          // ===============================================
 
           const authError =
-            Number(
-              error?.status
-            ) === 401 ||
-            Number(
-              error?.zoomCode
-            ) === 124;
+            Number(error?.status) ===
+              401 ||
+            Number(error?.zoomCode) ===
+              124;
 
           if (
             authError &&
@@ -2238,7 +2187,7 @@ export async function GET(
             !tokenRefreshed
           ) {
             console.log(
-              "[Zoom] Access token expired. Refreshing..."
+              "[Zoom] Token expired. Refreshing..."
             );
 
             const refreshed =
@@ -2255,8 +2204,8 @@ export async function GET(
             fetchResult =
               await fetchAllCalls({
                 accessToken,
-                from,
-                to,
+                from: zoomFrom,
+                to: zoomTo,
                 mode,
               });
 
@@ -2269,62 +2218,35 @@ export async function GET(
                 fetchResult,
             });
           } else if (
-            Number(
-              error?.status
-            ) === 429
+            Number(error?.status) ===
+            429
           ) {
-            /*
-             * =============================================
-             * ZOOM DAILY RATE LIMIT
-             * =============================================
-             *
-             * DO NOT RETRY.
-             *
-             * Use stale DB cache if available.
-             */
-
             console.error(
-              "[Zoom] DAILY RATE LIMIT REACHED"
+              "[Zoom] RATE LIMIT"
             );
 
-            if (
-              cache?.payload
-            ) {
-              console.warn(
-                "[Zoom] Returning stale DB cache."
-              );
-
+            if (cache?.payload) {
               fetchResult =
                 cache.payload;
 
-              cacheHit =
-                true;
-
-              staleCache =
-                true;
-
-              rateLimited =
-                true;
+              cacheHit = true;
+              staleCache = true;
+              rateLimited = true;
             } else {
               return NextResponse.json(
                 {
                   success: false,
-
                   message:
-                    "Zoom API daily rate limit has been reached and no cached data is available yet.",
-
+                    "Zoom API rate limit reached and no cached data is available.",
                   rateLimited:
                     true,
-
                   retryAfter:
                     FALLBACK_RATE_LIMIT_SECONDS,
                 },
                 {
                   status: 429,
-
                   headers: {
                     ...NO_CACHE_HEADERS,
-
                     "Retry-After":
                       String(
                         FALLBACK_RATE_LIMIT_SECONDS
@@ -2340,9 +2262,9 @@ export async function GET(
       }
     }
 
-    /* =====================================================
-       SAFETY
-    ===================================================== */
+    // =====================================================
+    // RAW
+    // =====================================================
 
     const rawCalls =
       Array.isArray(
@@ -2351,79 +2273,78 @@ export async function GET(
         ? fetchResult.calls
         : [];
 
-    /* =====================================================
-       ENRICH
-    ===================================================== */
+    // =====================================================
+    // ENRICH
+    // =====================================================
 
     const enrichedCalls =
       rawCalls.map(
         enrichCall
       );
 
-    /*
-     * NO DEDUPLICATION.
-     */
+    // =====================================================
+    // NO DEDUPLICATION
+    // =====================================================
+
     const allCalls =
       enrichedCalls;
 
-    /* =====================================================
-       DUPLICATES
-       DIAGNOSTIC ONLY
-    ===================================================== */
+    // =====================================================
+    // DUPLICATE DIAGNOSTIC
+    // =====================================================
 
     const duplicateTotal =
       calculateDuplicateTotal(
         allCalls
       );
 
-    /* =====================================================
-       DATE FILTER
-    ===================================================== */
+    // =====================================================
+    // DATE FILTER
+    // =====================================================
 
     const dateFilteredCalls =
       filterCallsByDate({
-        calls:
-          allCalls,
-
+        calls: allCalls,
         from,
-
         to,
       });
 
-    /* =====================================================
-       USER FILTER
-    ===================================================== */
+    // =====================================================
+    // USER FILTER
+    //
+    // THIS IS THE MAIN FIX
+    // =====================================================
 
     const filteredCalls =
       filterCallsByUser({
         calls:
           dateFilteredCalls,
-
         isAdmin,
-
         userExtension,
       });
 
-    /* =====================================================
-       SORT
-    ===================================================== */
+    // =====================================================
+    // SORT
+    // =====================================================
 
     sortCallsNewestFirst(
       filteredCalls
     );
 
-    /* =====================================================
-       EXTENSIONS
-    ===================================================== */
+    // =====================================================
+    // EXTENSION COUNTS
+    //
+    // OWNER ONLY
+    // =====================================================
 
     const extensionCounts =
       getExtensionCounts(
-        filteredCalls
+        dateFilteredCalls
       );
 
     const availableExtensions =
       getAvailableExtensions(
-        filteredCalls
+        dateFilteredCalls
       );
 
     const detectedExtensionCounts =
@@ -2436,9 +2357,9 @@ export async function GET(
         dateFilteredCalls
       );
 
-    /* =====================================================
-       DATE COUNTS
-    ===================================================== */
+    // =====================================================
+    // DATE COUNTS
+    // =====================================================
 
     const dateCounts =
       getDateCounts(
@@ -2449,20 +2370,15 @@ export async function GET(
       Object.values(
         dateCounts
       ).reduce(
-        (
-          total,
-          value
-        ) =>
-          total +
-          Number(
-            value || 0
-          ),
+        (sum, value) =>
+          sum +
+          Number(value || 0),
         0
       );
 
-    /* =====================================================
-       WITHOUT EXTENSION
-    ===================================================== */
+    // =====================================================
+    // CALLS WITHOUT OWNER EXTENSION
+    // =====================================================
 
     const callsWithoutExtension =
       dateFilteredCalls.filter(
@@ -2472,30 +2388,65 @@ export async function GET(
           )
       );
 
-    /* =====================================================
-       FINAL
-    ===================================================== */
+    // =====================================================
+    // TOTAL
+    //
+    // For non-admin:
+    // exact crm_extension total
+    //
+    // For admin:
+    // all date-filtered records
+    // =====================================================
 
     const total =
       filteredCalls.length;
+
+    // =====================================================
+    // USER MATCH STATS
+    // =====================================================
+
+    const userExtensionMatchStats =
+      getUserExtensionMatchStats(
+        dateFilteredCalls,
+        userExtension
+      );
+
+    // =====================================================
+    // EXACT USER TOTALS
+    //
+    // Admin can use this to show:
+    // 802 -> exact owner records
+    // 803 -> exact owner records
+    // 804 -> exact owner records
+    // =====================================================
+
+    const extensionTotals =
+      getExtensionCounts(
+        dateFilteredCalls
+      );
+
+    // =====================================================
+    // DEBUG
+    // =====================================================
 
     console.log(
       "================================================="
     );
 
     console.log(
-      "[Call History] FINAL"
+      "[Call History] FINAL COUNT"
     );
 
     console.log({
-      userId:
-        user.id,
+      requestedFrom: from,
+      requestedTo: to,
 
-      user:
-        user.name,
+      zoomFrom,
+      zoomTo,
 
-      role:
-        user.role,
+      userId: user.id,
+      user: user.name,
+      role: user.role,
 
       isAdmin,
 
@@ -2503,14 +2454,8 @@ export async function GET(
 
       mode,
 
-      from,
-
-      to,
-
       cacheHit,
-
       staleCache,
-
       rateLimited,
 
       rawTotal:
@@ -2519,35 +2464,65 @@ export async function GET(
       enrichedTotal:
         enrichedCalls.length,
 
+      dateFilteredTotal:
+        dateFilteredCalls.length,
+
       filteredTotal:
         filteredCalls.length,
 
+      finalTotal:
+        total,
+
       duplicateTotal,
+
+      userExtensionMatchStats,
+
+      exactExtensionTotals:
+        extensionTotals,
+
+      callsWithoutExtension:
+        callsWithoutExtension.length,
 
       pagesFetched:
         fetchResult?.pagesFetched ||
         0,
+
+      zoomServerTotalRecords:
+        fetchResult?.zoomServerTotalRecords ??
+        null,
+
+      stoppedBecauseNoNextToken:
+        Boolean(
+          fetchResult?.stoppedBecauseNoNextToken
+        ),
+
+      stoppedBecauseMaxPages:
+        Boolean(
+          fetchResult?.stoppedBecauseMaxPages
+        ),
     });
 
     console.log(
       "================================================="
     );
 
-    /* =====================================================
-       RESPONSE
-    ===================================================== */
+    // =====================================================
+    // RESPONSE
+    // =====================================================
 
     return NextResponse.json(
       {
         success: true,
 
-        /*
-         * ALL RECORDS.
-         *
-         * DUPLICATES INCLUDED.
-         */
+        // Every matching record.
+        // Duplicate phones INCLUDED.
+        // Duplicate call IDs INCLUDED.
         calls:
           filteredCalls,
+
+        // =================================================
+        // FINAL USER TOTAL
+        // =================================================
 
         total,
 
@@ -2557,21 +2532,19 @@ export async function GET(
         enrichedTotal:
           enrichedCalls.length,
 
-        /*
-         * NOT UNIQUE.
-         *
-         * Kept for frontend compatibility.
-         */
-        uniqueTotal:
-          allCalls.length,
-
-        duplicateTotal,
-
         dateFilteredTotal:
           dateFilteredCalls.length,
 
         filteredTotal:
           filteredCalls.length,
+
+        // Compatibility only.
+        // No deduplication was performed.
+        uniqueTotal:
+          allCalls.length,
+
+        // Diagnostic only.
+        duplicateTotal,
 
         mode,
 
@@ -2579,14 +2552,17 @@ export async function GET(
           mode === "live",
 
         from,
-
         to,
+
+        zoomFetchRange: {
+          from: zoomFrom,
+          to: zoomTo,
+        },
 
         timeZone:
           CRM_TIME_ZONE,
 
-        currentDate:
-          currentDate,
+        currentDate,
 
         currentTime:
           timeInfo.time,
@@ -2600,26 +2576,18 @@ export async function GET(
         isAdmin,
 
         user: {
-          id:
-            user.id,
-
-          name:
-            user.name,
-
-          email:
-            user.email,
-
-          role:
-            user.role,
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
 
           zoom_extension:
-            userExtension ||
-            null,
+            userExtension || null,
         },
 
-        /* =================================================
-           PAGINATION
-        ================================================= */
+        // =================================================
+        // PAGINATION
+        // =================================================
 
         pagesFetched:
           fetchResult?.pagesFetched ||
@@ -2649,11 +2617,24 @@ export async function GET(
             ),
         },
 
-        /* =================================================
-           EXTENSIONS
-        ================================================= */
+        // =================================================
+        // ZOOM SERVER TOTAL
+        // =================================================
 
+        zoomServerTotalRecords:
+          fetchResult?.zoomServerTotalRecords ??
+          null,
+
+        // =================================================
+        // EXTENSIONS
+        // =================================================
+
+        // IMPORTANT:
+        // These are owner-extension counts,
+        // not caller+callee counts.
         extensionCounts,
+
+        extensionTotals,
 
         availableExtensions,
 
@@ -2667,9 +2648,15 @@ export async function GET(
         callsWithoutExtension:
           callsWithoutExtension.length,
 
-        /* =================================================
-           DATES
-        ================================================= */
+        // =================================================
+        // USER EXTENSION MATCH
+        // =================================================
+
+        userExtensionMatchStats,
+
+        // =================================================
+        // DATE COUNTS
+        // =================================================
 
         dateCounts,
 
@@ -2683,9 +2670,9 @@ export async function GET(
             dateCountsTotal,
         },
 
-        /* =================================================
-           CACHE STATUS
-        ================================================= */
+        // =================================================
+        // CACHE
+        // =================================================
 
         cache: {
           hit:
@@ -2698,38 +2685,49 @@ export async function GET(
 
           ttlMinutes:
             mode === "live"
-              ? LIVE_CACHE_TTL_SECONDS /
-                60
-              : FULL_CACHE_TTL_SECONDS /
-                60,
+              ? LIVE_CACHE_TTL_SECONDS / 60
+              : FULL_CACHE_TTL_SECONDS / 60,
         },
 
+        // =================================================
+        // ZOOM
+        // =================================================
+
         zoom: {
-          tokenRefreshed:
-            typeof tokenRefreshed !==
-            "undefined"
-              ? tokenRefreshed
-              : false,
+          tokenRefreshed,
 
           rateLimited,
 
           staleCache,
 
           cacheHit,
+
+          fetchedRange: {
+            from: zoomFrom,
+            to: zoomTo,
+          },
+
+          rawRecords:
+            rawCalls.length,
+
+          dateRecords:
+            dateFilteredCalls.length,
+
+          finalRecords:
+            total,
+
+          serverTotalRecords:
+            fetchResult?.zoomServerTotalRecords ??
+            null,
         },
 
-        /*
-         * Useful frontend message.
-         */
         warning:
           rateLimited
             ? "Zoom rate limit reached. Showing cached call history."
             : null,
       },
-
       {
         status: 200,
-
         headers:
           NO_CACHE_HEADERS,
       }
@@ -2740,35 +2738,28 @@ export async function GET(
       error
     );
 
-    /* =====================================================
-       429
-    ===================================================== */
+    // =====================================================
+    // 429
+    // =====================================================
 
     if (
-      Number(
-        error?.status
-      ) === 429
+      Number(error?.status) ===
+      429
     ) {
       return NextResponse.json(
         {
           success: false,
-
           message:
-            "Zoom API daily rate limit has been reached. Please wait for Zoom's limit to reset.",
-
+            "Zoom API rate limit has been reached.",
           error:
             error?.message ||
             "Too many requests",
-
-          rateLimited:
-            true,
+          rateLimited: true,
         },
         {
           status: 429,
-
           headers: {
             ...NO_CACHE_HEADERS,
-
             "Retry-After":
               String(
                 FALLBACK_RATE_LIMIT_SECONDS
@@ -2778,41 +2769,36 @@ export async function GET(
       );
     }
 
-    /* =====================================================
-       AUTH ERROR
-    ===================================================== */
+    // =====================================================
+    // AUTH
+    // =====================================================
 
     if (
-      Number(
-        error?.status
-      ) === 401 ||
-      Number(
-        error?.zoomCode
-      ) === 124
+      Number(error?.status) ===
+        401 ||
+      Number(error?.zoomCode) ===
+        124
     ) {
       return NextResponse.json(
         {
           success: false,
-
           message:
             "Zoom authorization has expired. Please reconnect Zoom.",
-
           error:
             error?.message ||
             "Zoom authorization expired",
         },
         {
           status: 401,
-
           headers:
             NO_CACHE_HEADERS,
         }
       );
     }
 
-    /* =====================================================
-       GENERAL
-    ===================================================== */
+    // =====================================================
+    // GENERAL
+    // =====================================================
 
     return NextResponse.json(
       {
@@ -2842,7 +2828,6 @@ export async function GET(
       },
       {
         status: 500,
-
         headers:
           NO_CACHE_HEADERS,
       }

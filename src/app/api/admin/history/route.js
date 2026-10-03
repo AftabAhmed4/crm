@@ -1,649 +1,184 @@
-// import { NextResponse } from "next/server";
-// import { query } from "../../../lib/db";
-// import jwt from "jsonwebtoken";
-
-// /*
-// ============================================================
-// ADMIN HISTORY / REPORTS API
-// ============================================================
-
-// ROLE RULE
-// ------------------------------------------------------------
-// ADMIN
-// -----
-// Admin / Administrator / Superadmin:
-//     -> ALL employees ke records dekh sakta hai.
-
-// NORMAL USER / EMPLOYEE
-// ----------------------
-// Normal employee:
-//     -> Sirf apne records dekh sakta hai.
-
-// SECURITY
-// ------------------------------------------------------------
-// Filtering DATABASE level par hoti hai.
-
-// Frontend se employee ID bhejne ki zaroorat nahi.
-
-// Normal user ke liye:
-//     WHERE da.employee_id = loggedInUserId
-
-// Admin ke liye:
-//     koi employee restriction nahi.
-
-// SOURCE OF TRUTH
-// ------------------------------------------------------------
-
-// daily_assignments
-//     status
-//     comment
-//     is_completed
-//     assignment_date
-//     employee_id
-//     task_id
-
-// master_tasks
-//     name
-//     phone_number
-//     business_name
-//     sequence_no
-
-// users
-//     employee information
-//     role
-
-// IMPORTANT
-// ------------------------------------------------------------
-
-// Employee PATCH jab status save karta hai:
-
-// daily_assignments.status
-
-// Aur comment save karta hai:
-
-// daily_assignments.comment
-
-// Isliye Reports API hamesha exact status/comment
-// daily_assignments se read karti hai.
-
-// ============================================================
-// */
-
-// export async function GET(request) {
-//   try {
-//     // ======================================================
-//     // REQUEST
-//     // ======================================================
-
-//     const { searchParams } = new URL(request.url);
-
-//     const dateStr = searchParams.get("date");
-
-//     // ======================================================
-//     // DATE VALIDATION
-//     // ======================================================
-
-//     if (
-//       dateStr &&
-//       !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Invalid date format. Use YYYY-MM-DD.",
-//         },
-//         {
-//           status: 400,
-//         }
-//       );
-//     }
-
-//     // ======================================================
-//     // GET LOGIN TOKEN
-//     // ======================================================
-
-//     const token = request.cookies.get("token")?.value;
-
-//     if (!token) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Unauthorized. Please login again.",
-//         },
-//         {
-//           status: 401,
-//         }
-//       );
-//     }
-
-//     // ======================================================
-//     // VERIFY JWT
-//     // ======================================================
-
-//     let decoded;
-
-//     try {
-//       decoded = jwt.verify(
-//         token,
-//         process.env.JWT_SECRET
-//       );
-//     } catch (authError) {
-//       console.error(
-//         "ADMIN HISTORY JWT ERROR:",
-//         authError
-//       );
-
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Invalid or expired login session.",
-//         },
-//         {
-//           status: 401,
-//         }
-//       );
-//     }
-
-//     // ======================================================
-//     // GET LOGGED-IN USER ID
-//     // ======================================================
-
-//     const currentUserId =
-//       decoded?.id ??
-//       decoded?._id ??
-//       decoded?.userId ??
-//       decoded?.user_id;
-
-//     if (!currentUserId) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "User ID not found in login session.",
-//         },
-//         {
-//           status: 401,
-//         }
-//       );
-//     }
-
-//     // ======================================================
-//     // GET CURRENT USER
-//     // ======================================================
-
-//     const currentUsers = await query(
-//       `
-//         SELECT
-//           id,
-//           name,
-//           email,
-//           role
-//         FROM users
-//         WHERE id = ?
-//         LIMIT 1
-//       `,
-//       [currentUserId]
-//     );
-
-//     if (
-//       !Array.isArray(currentUsers) ||
-//       currentUsers.length === 0
-//     ) {
-//       return NextResponse.json(
-//         {
-//           success: false,
-//           message:
-//             "Logged-in user was not found.",
-//         },
-//         {
-//           status: 401,
-//         }
-//       );
-//     }
-
-//     const currentUser = currentUsers[0];
-
-//     // ======================================================
-//     // NORMALIZE ROLE
-//     // ======================================================
-
-//     const role = String(
-//       currentUser?.role || ""
-//     )
-//       .trim()
-//       .toLowerCase();
-
-//     // ======================================================
-//     // ADMIN ROLES
-//     // ======================================================
-
-//     const isAdmin =
-//       role === "admin" ||
-//       role === "administrator" ||
-//       role === "superadmin" ||
-//       role === "super_admin";
-
-//     // ======================================================
-//     // BASE SQL
-//     // ======================================================
-
-//     let sql = `
-//       SELECT
-
-//         /* ==================================================
-//            DAILY ASSIGNMENT
-//         ================================================== */
-
-//         da.id AS id,
-
-//         da.id AS assignment_id,
-
-//         da.id AS daily_assignment_id,
-
-//         da.assignment_date AS assignmentDate,
-
-//         DATE(da.assignment_date) AS assignedDate,
-
-//         da.assignment_date AS assignment_date,
-
-//         da.updated_at AS updatedAt,
-
-//         da.updated_at AS updated_at,
-
-//         da.created_at AS createdAt,
-
-//         da.created_at AS created_at,
-
-//         /* ==================================================
-//            EMPLOYEE ID
-//         ================================================== */
-
-//         da.employee_id AS employee_id,
-
-//         da.employee_id AS assigned_employee_id,
-
-//         /* ==================================================
-//            EXACT USER SELECTED STATUS
-//         ================================================== */
-
-//         da.status AS status,
-
-//         da.status AS assignment_status,
-
-//         da.status AS assignment_status_name,
-
-//         da.status AS selected_status,
-
-//         da.status AS selectedStatus,
-
-//         da.status AS result,
-
-//         da.status AS result_status,
-
-//         da.status AS task_status,
-
-//         da.status AS call_status,
-
-//         da.status AS disposition,
-
-//         da.status AS outcome,
-
-//         da.status AS current_status,
-
-//         /* ==================================================
-//            EXACT USER COMMENT
-//         ================================================== */
-
-//         da.comment AS comment,
-
-//         da.comment AS comments,
-
-//         da.comment AS notes,
-
-//         /* ==================================================
-//            COMPLETION
-//         ================================================== */
-
-//         da.is_completed AS is_completed,
-
-//         /* ==================================================
-//            MASTER TASK
-//         ================================================== */
-
-//         mt.id AS taskId,
-
-//         mt.id AS task_id,
-
-//         mt.id AS master_task_id,
-
-//         mt.sequence_no AS sequenceNo,
-
-//         mt.sequence_no AS sequence_no,
-
-//         mt.name AS name,
-
-//         mt.name AS contactName,
-
-//         mt.name AS contact_name,
-
-//         mt.phone_number AS phone,
-
-//         mt.phone_number AS phoneNumber,
-
-//         mt.phone_number AS phone_number,
-
-//         mt.business_name AS businessName,
-
-//         mt.business_name AS business_name,
-
-//         mt.current_status AS master_current_status,
-
-//         mt.is_locked AS is_locked,
-
-//         /* ==================================================
-//            STAFF / EMPLOYEE
-//         ================================================== */
-
-//         u.id AS staffId,
-
-//         u.id AS employeeId,
-
-//         u.id AS userId,
-
-//         u.id AS staff_id,
-
-//         u.id AS employee_id_user,
-
-//         u.name AS assignedToName,
-
-//         u.name AS employeeName,
-
-//         u.name AS staffName,
-
-//         u.name AS userName,
-
-//         u.name AS user_name,
-
-//         u.email AS staffEmail,
-
-//         u.email AS employeeEmail,
-
-//         u.email AS userEmail,
-
-//         u.role AS staffRole,
-
-//         u.role AS employeeRole,
-
-//         u.role AS userRole
-
-//       FROM daily_assignments da
-
-//       INNER JOIN master_tasks mt
-//         ON da.task_id = mt.id
-
-//       INNER JOIN users u
-//         ON da.employee_id = u.id
-//     `;
-
-//     // ======================================================
-//     // WHERE CONDITIONS
-//     // ======================================================
-
-//     const where = [];
-//     const params = [];
-
-//     // ======================================================
-//     // NORMAL EMPLOYEE
-//     // ======================================================
-//     //
-//     // Employee ko sirf apne records milenge.
-//     //
-//     // Example:
-//     //
-//     // Logged-in employee ID = 7
-//     //
-//     // WHERE da.employee_id = 7
-//     //
-//     // ======================================================
-
-//     if (!isAdmin) {
-//       where.push(
-//         `da.employee_id = ?`
-//       );
-
-//       params.push(currentUserId);
-//     }
-
-//     // ======================================================
-//     // DATE FILTER
-//     // ======================================================
-
-//     if (dateStr) {
-//       where.push(
-//         `DATE(da.assignment_date) = ?`
-//       );
-
-//       params.push(dateStr);
-//     }
-
-//     // ======================================================
-//     // ADD WHERE CLAUSE
-//     // ======================================================
-
-//     if (where.length > 0) {
-//       sql += `
-//         WHERE ${where.join(" AND ")}
-//       `;
-//     }
-
-//     // ======================================================
-//     // ORDER
-//     // ======================================================
-
-//     sql += `
-//       ORDER BY
-//         da.assignment_date DESC,
-//         da.updated_at DESC,
-//         da.id DESC
-//     `;
-
-//     // ======================================================
-//     // DATABASE QUERY
-//     // ======================================================
-
-//     const tasks = await query(
-//       sql,
-//       params
-//     );
-
-//     // ======================================================
-//     // NORMALIZE DATA
-//     // ======================================================
-
-//     const normalizedTasks = Array.isArray(tasks)
-//       ? tasks.map((row) => {
-//           // ----------------------------------------------
-//           // EXACT STATUS
-//           // ----------------------------------------------
-
-//           const exactStatus =
-//             row?.status !== null &&
-//             row?.status !== undefined
-//               ? String(row.status).trim()
-//               : "";
-
-//           // ----------------------------------------------
-//           // EXACT COMMENT
-//           // ----------------------------------------------
-
-//           const exactComment =
-//             row?.comment !== null &&
-//             row?.comment !== undefined
-//               ? String(row.comment).trim()
-//               : "";
-
-//           // ----------------------------------------------
-//           // RETURN
-//           // ----------------------------------------------
-
-//           return {
-//             ...row,
-
-//             // ============================================
-//             // STATUS
-//             // ============================================
-
-//             status: exactStatus,
-
-//             assignment_status:
-//               exactStatus,
-
-//             assignment_status_name:
-//               exactStatus,
-
-//             selected_status:
-//               exactStatus,
-
-//             selectedStatus:
-//               exactStatus,
-
-//             result:
-//               exactStatus,
-
-//             result_status:
-//               exactStatus,
-
-//             task_status:
-//               exactStatus,
-
-//             call_status:
-//               exactStatus,
-
-//             disposition:
-//               exactStatus,
-
-//             outcome:
-//               exactStatus,
-
-//             current_status:
-//               exactStatus,
-
-//             // ============================================
-//             // COMMENT
-//             // ============================================
-
-//             comment:
-//               exactComment || null,
-
-//             comments:
-//               exactComment || null,
-
-//             notes:
-//               exactComment || null,
-
-//             // ============================================
-//             // COMPLETION
-//             // ============================================
-
-//             is_completed:
-//               Number(
-//                 row?.is_completed || 0
-//               ),
-//           };
-//         })
-//       : [];
-
-//     // ======================================================
-//     // RESPONSE
-//     // ======================================================
-
-//     return NextResponse.json(
-//       {
-//         success: true,
-
-//         data: normalizedTasks,
-
-//         count: normalizedTasks.length,
-
-//         date: dateStr || null,
-
-//         timezone:
-//           "America/Los_Angeles",
-
-//         source:
-//           "daily_assignments",
-
-//         // ==================================================
-//         // CURRENT VIEWER
-//         // ==================================================
-
-//         viewer: {
-//           id: currentUser.id,
-
-//           name:
-//             currentUser.name || "",
-
-//           email:
-//             currentUser.email || "",
-
-//           role:
-//             currentUser.role || "",
-
-//           isAdmin,
-//         },
-//       },
-//       {
-//         status: 200,
-
-//         headers: {
-//           "Cache-Control":
-//             "no-store, no-cache, must-revalidate, proxy-revalidate",
-//           Pragma: "no-cache",
-//           Expires: "0",
-//         },
-//       }
-//     );
-//   } catch (error) {
-//     // ======================================================
-//     // ERROR
-//     // ======================================================
-
-//     console.error(
-//       "ADMIN HISTORY ERROR:",
-//       error
-//     );
-
-//     return NextResponse.json(
-//       {
-//         success: false,
-
-//         message:
-//           error?.message ||
-//           "Failed to fetch admin history",
-//       },
-//       {
-//         status: 500,
-//       }
-//     );
-//   }
-// }
-
-
-
 import { NextResponse } from "next/server";
 import { query } from "../../../lib/db";
 import jwt from "jsonwebtoken";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function isValidDate(value) {
+  if (!value) return true;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  const d = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    d.getUTCFullYear() === year &&
+    d.getUTCMonth() === month - 1 &&
+    d.getUTCDate() === day
+  );
+}
+
+function cleanString(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function getUserIdFromToken(decoded) {
+  return (
+    decoded?.id ??
+    decoded?.userId ??
+    decoded?.user_id ??
+    decoded?._id
+  );
+}
+
+function isAdminRole(role) {
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    normalized === "admin" ||
+    normalized === "administrator" ||
+    normalized === "superadmin" ||
+    normalized === "super_admin"
+  );
+}
+
+// ============================================================
+// AUTHENTICATION
+// ============================================================
+
+async function authenticate(request) {
+  const token = request.cookies.get("token")?.value;
+
+  if (!token) {
+    return {
+      error: NextResponse.json(
+        {
+          success: false,
+          message: "Unauthorized. Please login again.",
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  let decoded;
+
+  try {
+    decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+  } catch (error) {
+    console.error(
+      "ADMIN HISTORY JWT ERROR:",
+      error
+    );
+
+    return {
+      error: NextResponse.json(
+        {
+          success: false,
+          message: "Invalid or expired login session.",
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const currentUserId =
+    getUserIdFromToken(decoded);
+
+  if (!currentUserId) {
+    return {
+      error: NextResponse.json(
+        {
+          success: false,
+          message: "User ID not found in token.",
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const users = await query(
+    `
+      SELECT
+        id,
+        name,
+        email,
+        role
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [currentUserId]
+  );
+
+  if (
+    !Array.isArray(users) ||
+    users.length === 0
+  ) {
+    return {
+      error: NextResponse.json(
+        {
+          success: false,
+          message: "Logged-in user was not found.",
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const currentUser = users[0];
+
+  return {
+    currentUser,
+    currentUserId,
+    isAdmin: isAdminRole(currentUser.role),
+  };
+}
+
+// ============================================================
+// RESPONSE HEADERS
+// ============================================================
+
+function noCacheHeaders() {
+  return {
+    "Cache-Control":
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "Surrogate-Control": "no-store",
+  };
+}
+
+// ============================================================
+// GET
+// ============================================================
+
 export async function GET(request) {
   try {
-    // =====================================================
+    // ========================================================
     // QUERY PARAMS
-    // =====================================================
+    // ========================================================
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } =
+      new URL(request.url);
 
     const dateStr = String(
       searchParams.get("date") || ""
@@ -657,31 +192,9 @@ export async function GET(request) {
       searchParams.get("to") || ""
     ).trim();
 
-    // =====================================================
-    // DATE VALIDATOR
-    // =====================================================
-
-    function isValidDate(value) {
-      if (!value) return true;
-
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return false;
-      }
-
-      const [year, month, day] = value
-        .split("-")
-        .map(Number);
-
-      const d = new Date(
-        Date.UTC(year, month - 1, day)
-      );
-
-      return (
-        d.getUTCFullYear() === year &&
-        d.getUTCMonth() === month - 1 &&
-        d.getUTCDate() === day
-      );
-    }
+    // ========================================================
+    // DATE VALIDATION
+    // ========================================================
 
     if (
       !isValidDate(dateStr) ||
@@ -691,148 +204,67 @@ export async function GET(request) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid date format. Use YYYY-MM-DD.",
+          message:
+            "Invalid date format. Use YYYY-MM-DD.",
         },
-        { status: 400 }
-      );
-    }
-
-    if (fromDate && toDate && fromDate > toDate) {
-      return NextResponse.json(
         {
-          success: false,
-          message: "From date cannot be greater than To date.",
-        },
-        { status: 400 }
+          status: 400,
+          headers: noCacheHeaders(),
+        }
       );
     }
-
-    // =====================================================
-    // AUTH TOKEN
-    // =====================================================
-
-    const token =
-      request.cookies.get("token")?.value;
-
-    if (!token) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized. Please login again.",
-        },
-        { status: 401 }
-      );
-    }
-
-    // =====================================================
-    // VERIFY JWT
-    // =====================================================
-
-    let decoded;
-
-    try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET
-      );
-    } catch (error) {
-      console.error(
-        "ADMIN HISTORY JWT ERROR:",
-        error
-      );
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid or expired login session.",
-        },
-        { status: 401 }
-      );
-    }
-
-    // =====================================================
-    // CURRENT USER ID
-    // =====================================================
-
-    const currentUserId =
-      decoded?.id ??
-      decoded?.userId ??
-      decoded?.user_id ??
-      decoded?._id;
-
-    if (!currentUserId) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "User ID not found in token.",
-        },
-        { status: 401 }
-      );
-    }
-
-    // =====================================================
-    // CURRENT USER
-    // =====================================================
-
-    const users = await query(
-      `
-        SELECT
-          id,
-          name,
-          email,
-          role
-        FROM users
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [currentUserId]
-    );
 
     if (
-      !Array.isArray(users) ||
-      users.length === 0
+      fromDate &&
+      toDate &&
+      fromDate > toDate
     ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Logged-in user was not found.",
+          message:
+            "From date cannot be greater than To date.",
         },
-        { status: 401 }
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
       );
     }
 
-    const currentUser = users[0];
+    // ========================================================
+    // AUTH
+    // ========================================================
 
-    // =====================================================
-    // ROLE
-    // =====================================================
+    const auth = await authenticate(request);
 
-    const role = String(
-      currentUser?.role || ""
-    )
-      .trim()
-      .toLowerCase();
+    if (auth.error) {
+      return auth.error;
+    }
 
-    const isAdmin =
-      role === "admin" ||
-      role === "administrator" ||
-      role === "superadmin" ||
-      role === "super_admin";
+    const {
+      currentUser,
+      currentUserId,
+      isAdmin,
+    } = auth;
 
-    // =====================================================
+    // ========================================================
     // MAIN QUERY
+    // ========================================================
     //
     // IMPORTANT:
-    // LEFT JOIN means history will NOT disappear if
-    // master_tasks or users record is missing.
-    // =====================================================
+    // NO updated_at COLUMN IS USED.
+    //
+    // Your daily_assignments table uses created_at.
+    //
+    // ========================================================
 
     let sql = `
       SELECT
 
-        /* =================================================
+        /* ==================================================
            DAILY ASSIGNMENT
-        ================================================= */
+        ================================================== */
 
         da.id AS id,
 
@@ -852,9 +284,9 @@ export async function GET(request) {
 
         da.employee_id AS assignedEmployeeId,
 
-        /* =================================================
+        /* ==================================================
            DATE
-        ================================================= */
+        ================================================== */
 
         da.assignment_date AS assignment_date,
 
@@ -870,22 +302,18 @@ export async function GET(request) {
 
         DATE(da.assignment_date) AS date,
 
-        /* =================================================
-           TIME
-        ================================================= */
+        /* ==================================================
+           CREATED TIME
+           updated_at REMOVED
+        ================================================== */
 
         da.created_at AS created_at,
 
         da.created_at AS createdAt,
 
-        da.updated_at AS updated_at,
-
-        da.updated_at AS updatedAt,
-
-        /* =================================================
-           EMPLOYEE SELECTED STATUS
-           THIS IS THE MAIN STATUS
-        ================================================= */
+        /* ==================================================
+           STATUS
+        ================================================== */
 
         da.status AS status,
 
@@ -919,9 +347,9 @@ export async function GET(request) {
 
         da.status AS selected_result,
 
-        /* =================================================
-           EMPLOYEE COMMENT
-        ================================================= */
+        /* ==================================================
+           COMMENT
+        ================================================== */
 
         da.comment AS comment,
 
@@ -933,17 +361,17 @@ export async function GET(request) {
 
         da.comment AS taskComment,
 
-        /* =================================================
+        /* ==================================================
            COMPLETION
-        ================================================= */
+        ================================================== */
 
         da.is_completed AS is_completed,
 
         da.is_completed AS isCompleted,
 
-        /* =================================================
+        /* ==================================================
            MASTER TASK
-        ================================================= */
+        ================================================== */
 
         mt.id AS taskId,
 
@@ -973,9 +401,9 @@ export async function GET(request) {
 
         mt.is_locked AS is_locked,
 
-        /* =================================================
-           USER / EMPLOYEE
-        ================================================= */
+        /* ==================================================
+           USER
+        ================================================== */
 
         u.id AS staffId,
 
@@ -1022,17 +450,16 @@ export async function GET(request) {
         ON da.employee_id = u.id
     `;
 
-    // =====================================================
+    // ========================================================
     // WHERE
-    // =====================================================
+    // ========================================================
 
     const where = [];
     const params = [];
 
-    // =====================================================
+    // --------------------------------------------------------
     // NORMAL USER
-    // ONLY OWN HISTORY
-    // =====================================================
+    // --------------------------------------------------------
 
     if (!isAdmin) {
       where.push(
@@ -1042,10 +469,9 @@ export async function GET(request) {
       params.push(currentUserId);
     }
 
-    // =====================================================
+    // --------------------------------------------------------
     // SINGLE DATE
-    // ?date=2026-09-30
-    // =====================================================
+    // --------------------------------------------------------
 
     if (dateStr) {
       where.push(
@@ -1055,10 +481,9 @@ export async function GET(request) {
       params.push(dateStr);
     }
 
-    // =====================================================
+    // --------------------------------------------------------
     // FROM DATE
-    // ?from=2026-09-01
-    // =====================================================
+    // --------------------------------------------------------
 
     if (fromDate) {
       where.push(
@@ -1068,10 +493,9 @@ export async function GET(request) {
       params.push(fromDate);
     }
 
-    // =====================================================
+    // --------------------------------------------------------
     // TO DATE
-    // ?to=2026-09-30
-    // =====================================================
+    // --------------------------------------------------------
 
     if (toDate) {
       where.push(
@@ -1081,9 +505,9 @@ export async function GET(request) {
       params.push(toDate);
     }
 
-    // =====================================================
+    // ========================================================
     // APPLY WHERE
-    // =====================================================
+    // ========================================================
 
     if (where.length > 0) {
       sql += `
@@ -1091,55 +515,65 @@ export async function GET(request) {
       `;
     }
 
-    // =====================================================
+    // ========================================================
     // ORDER
-    // =====================================================
+    // ========================================================
+    //
+    // updated_at REMOVED.
+    //
+    // Newest assignment date first,
+    // then newest ID.
+    //
+    // ========================================================
 
     sql += `
       ORDER BY
         da.assignment_date DESC,
-        da.updated_at DESC,
         da.id DESC
     `;
 
-    // =====================================================
-    // DATABASE QUERY
-    // =====================================================
+    // ========================================================
+    // DATABASE
+    // ========================================================
 
     const rows = await query(
       sql,
       params
     );
 
-    // =====================================================
-    // NORMALIZE RESPONSE
-    // =====================================================
+    // ========================================================
+    // NORMALIZE
+    // ========================================================
 
     const normalizedTasks =
       Array.isArray(rows)
         ? rows.map((row) => {
-
             const status =
               row?.status === null ||
               row?.status === undefined
                 ? ""
-                : String(row.status).trim();
+                : String(
+                    row.status
+                  ).trim();
 
             const comment =
               row?.comment === null ||
               row?.comment === undefined
                 ? ""
-                : String(row.comment).trim();
+                : String(
+                    row.comment
+                  ).trim();
 
             return {
               ...row,
 
-              // ===========================================
+              // ==================================================
               // DATE
-              // ===========================================
+              // ==================================================
 
               assignment_date:
-                row?.assignment_date || null,
+                row?.assignment_date ||
+                null,
 
               assignmentDate:
                 row?.assignmentDate ||
@@ -1147,6 +581,11 @@ export async function GET(request) {
                 null,
 
               assignedDate:
+                row?.assignedDate ||
+                null,
+
+              assignmentDateOnly:
+                row?.assignmentDateOnly ||
                 row?.assignedDate ||
                 null,
 
@@ -1165,9 +604,9 @@ export async function GET(request) {
                 row?.assignedDate ||
                 null,
 
-              // ===========================================
+              // ==================================================
               // STATUS
-              // ===========================================
+              // ==================================================
 
               status,
 
@@ -1216,9 +655,9 @@ export async function GET(request) {
               selected_result:
                 status,
 
-              // ===========================================
+              // ==================================================
               // COMMENT
-              // ===========================================
+              // ==================================================
 
               comment:
                 comment || null,
@@ -1235,9 +674,9 @@ export async function GET(request) {
               taskComment:
                 comment || null,
 
-              // ===========================================
-              // COMPLETED
-              // ===========================================
+              // ==================================================
+              // COMPLETION
+              // ==================================================
 
               is_completed:
                 Number(
@@ -1249,12 +688,13 @@ export async function GET(request) {
                   row?.is_completed ?? 0
                 ),
 
-              // ===========================================
+              // ==================================================
               // EMPLOYEE
-              // ===========================================
+              // ==================================================
 
               employee_id:
-                row?.employee_id ?? null,
+                row?.employee_id ??
+                null,
 
               employeeId:
                 row?.employeeId ??
@@ -1311,18 +751,16 @@ export async function GET(request) {
           })
         : [];
 
-    // =====================================================
+    // ========================================================
     // RESPONSE
-    // =====================================================
+    // ========================================================
 
     return NextResponse.json(
       {
         success: true,
 
-        // Main
         data: normalizedTasks,
 
-        // Compatibility
         records: normalizedTasks,
 
         history: normalizedTasks,
@@ -1332,7 +770,6 @@ export async function GET(request) {
         count:
           normalizedTasks.length,
 
-        // Filters
         date:
           dateStr || null,
 
@@ -1342,14 +779,12 @@ export async function GET(request) {
         to:
           toDate || null,
 
-        // Information
         source:
           "daily_assignments",
 
         timezone:
           "America/Los_Angeles",
 
-        // Viewer
         viewer: {
           id:
             currentUser.id,
@@ -1368,26 +803,12 @@ export async function GET(request) {
       },
       {
         status: 200,
-
-        headers: {
-          "Cache-Control":
-            "no-store, no-cache, must-revalidate, proxy-revalidate",
-
-          Pragma:
-            "no-cache",
-
-          Expires:
-            "0",
-
-          "Surrogate-Control":
-            "no-store",
-        },
+        headers: noCacheHeaders(),
       }
     );
-
   } catch (error) {
     console.error(
-      "ADMIN HISTORY ERROR:",
+      "ADMIN HISTORY GET ERROR:",
       error
     );
 
@@ -1400,13 +821,1088 @@ export async function GET(request) {
           "Failed to fetch admin history",
 
         error:
-          process.env.NODE_ENV === "development"
+          process.env.NODE_ENV ===
+          "development"
             ? String(error)
             : undefined,
       },
       {
         status: 500,
+        headers: {
+          "Cache-Control":
+            "no-store",
+        },
+      }
+    );
+  }
+}
 
+// ============================================================
+// PUT
+// EDIT REPORT / HISTORY RECORD
+// ============================================================
+
+export async function PUT(request) {
+  try {
+    // ========================================================
+    // AUTH
+    // ========================================================
+
+    const auth =
+      await authenticate(request);
+
+    if (auth.error) {
+      return auth.error;
+    }
+
+    const {
+      currentUserId,
+      isAdmin,
+    } = auth;
+
+    // ========================================================
+    // ADMIN ONLY
+    // ========================================================
+
+    if (!isAdmin) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Only admin can edit report records.",
+        },
+        {
+          status: 403,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // BODY
+    // ========================================================
+
+    let body;
+
+    try {
+      body = await request.json();
+    } catch (error) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid JSON request body.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // ASSIGNMENT ID
+    // ========================================================
+
+    const assignmentId = Number(
+      body?.assignment_id ??
+      body?.assignmentId ??
+      body?.daily_assignment_id ??
+      body?.id
+    );
+
+    if (
+      !Number.isInteger(
+        assignmentId
+      ) ||
+      assignmentId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Valid assignment_id is required.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // FIND ASSIGNMENT
+    // ========================================================
+
+    const assignmentRows =
+      await query(
+        `
+          SELECT
+            id,
+            task_id,
+            employee_id,
+            assignment_date,
+            status,
+            comment,
+            is_completed
+          FROM daily_assignments
+          WHERE id = ?
+          LIMIT 1
+        `,
+        [assignmentId]
+      );
+
+    if (
+      !Array.isArray(
+        assignmentRows
+      ) ||
+      assignmentRows.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Assignment record not found.",
+        },
+        {
+          status: 404,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    const assignment =
+      assignmentRows[0];
+
+    const taskId = Number(
+      assignment.task_id
+    );
+
+    if (
+      !Number.isInteger(taskId) ||
+      taskId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "This assignment does not have a valid task.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // FIND MASTER TASK
+    // ========================================================
+
+    const taskRows =
+      await query(
+        `
+          SELECT
+            id,
+            name,
+            phone_number,
+            business_name
+          FROM master_tasks
+          WHERE id = ?
+          LIMIT 1
+        `,
+        [taskId]
+      );
+
+    if (
+      !Array.isArray(taskRows) ||
+      taskRows.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Master task not found.",
+        },
+        {
+          status: 404,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // BODY FIELD HELPER
+    // ========================================================
+
+    const hasOwn = (key) =>
+      Object.prototype.hasOwnProperty.call(
+        body,
+        key
+      );
+
+    // ========================================================
+    // DATE
+    // ========================================================
+
+    let assignmentDate;
+
+    if (hasOwn("assignment_date")) {
+      assignmentDate =
+        cleanString(
+          body.assignment_date
+        );
+    } else if (
+      hasOwn("assignmentDate")
+    ) {
+      assignmentDate =
+        cleanString(
+          body.assignmentDate
+        );
+    } else if (
+      hasOwn("date")
+    ) {
+      assignmentDate =
+        cleanString(
+          body.date
+        );
+    }
+
+    if (
+      assignmentDate !== undefined
+    ) {
+      if (!assignmentDate) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Assignment date cannot be empty.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+
+      if (
+        !isValidDate(
+          assignmentDate
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid assignment date. Use YYYY-MM-DD.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+    }
+
+    // ========================================================
+    // EMPLOYEE
+    // ========================================================
+
+    let employeeId;
+
+    if (hasOwn("employee_id")) {
+      employeeId = Number(
+        body.employee_id
+      );
+    } else if (
+      hasOwn("employeeId")
+    ) {
+      employeeId = Number(
+        body.employeeId
+      );
+    } else if (
+      hasOwn(
+        "assigned_employee_id"
+      )
+    ) {
+      employeeId = Number(
+        body.assigned_employee_id
+      );
+    }
+
+    if (
+      employeeId !== undefined
+    ) {
+      if (
+        !Number.isInteger(
+          employeeId
+        ) ||
+        employeeId <= 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Valid employee_id is required.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+
+      const employeeRows =
+        await query(
+          `
+            SELECT
+              id,
+              name,
+              role
+            FROM users
+            WHERE id = ?
+            LIMIT 1
+          `,
+          [employeeId]
+        );
+
+      if (
+        !Array.isArray(
+          employeeRows
+        ) ||
+        employeeRows.length === 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Selected employee was not found.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+    }
+
+    // ========================================================
+    // STATUS
+    // ========================================================
+
+    let status;
+
+    if (hasOwn("status")) {
+      status = cleanString(
+        body.status
+      );
+    } else if (
+      hasOwn("selected_status")
+    ) {
+      status = cleanString(
+        body.selected_status
+      );
+    } else if (
+      hasOwn("selectedStatus")
+    ) {
+      status = cleanString(
+        body.selectedStatus
+      );
+    }
+
+    if (status !== undefined) {
+      if (!status) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Status cannot be empty.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+
+      if (status.length > 100) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Status is too long.",
+          },
+          {
+            status: 400,
+            headers:
+              noCacheHeaders(),
+          }
+        );
+      }
+    }
+
+    // ========================================================
+    // COMMENT
+    // ========================================================
+
+    let comment;
+
+    if (hasOwn("comment")) {
+      comment = cleanString(
+        body.comment
+      );
+    } else if (
+      hasOwn("comments")
+    ) {
+      comment = cleanString(
+        body.comments
+      );
+    } else if (
+      hasOwn("notes")
+    ) {
+      comment = cleanString(
+        body.notes
+      );
+    }
+
+    if (
+      comment !== undefined &&
+      comment.length > 5000
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Comment is too long. Maximum 5000 characters.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // BUSINESS NAME
+    // ========================================================
+
+    let businessName;
+
+    if (
+      hasOwn("business_name")
+    ) {
+      businessName =
+        cleanString(
+          body.business_name
+        );
+    } else if (
+      hasOwn("businessName")
+    ) {
+      businessName =
+        cleanString(
+          body.businessName
+        );
+    }
+
+    if (
+      businessName !== undefined &&
+      businessName.length > 500
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Business name is too long.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // CONTACT NAME
+    // ========================================================
+
+    let contactName;
+
+    if (hasOwn("name")) {
+      contactName =
+        cleanString(
+          body.name
+        );
+    } else if (
+      hasOwn("contactName")
+    ) {
+      contactName =
+        cleanString(
+          body.contactName
+        );
+    } else if (
+      hasOwn("contact_name")
+    ) {
+      contactName =
+        cleanString(
+          body.contact_name
+        );
+    }
+
+    if (
+      contactName !== undefined &&
+      contactName.length > 500
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Contact name is too long.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // PHONE
+    // ========================================================
+
+    let phone;
+
+    if (hasOwn("phone")) {
+      phone = cleanString(
+        body.phone
+      );
+    } else if (
+      hasOwn("phone_number")
+    ) {
+      phone = cleanString(
+        body.phone_number
+      );
+    } else if (
+      hasOwn("phoneNumber")
+    ) {
+      phone = cleanString(
+        body.phoneNumber
+      );
+    }
+
+    if (
+      phone !== undefined &&
+      phone.length > 100
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Phone number is too long.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // CHECK EDITABLE FIELDS
+    // ========================================================
+
+    if (
+      assignmentDate === undefined &&
+      employeeId === undefined &&
+      status === undefined &&
+      comment === undefined &&
+      businessName === undefined &&
+      contactName === undefined &&
+      phone === undefined
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "No editable fields were provided.",
+        },
+        {
+          status: 400,
+          headers: noCacheHeaders(),
+        }
+      );
+    }
+
+    // ========================================================
+    // UPDATE DAILY ASSIGNMENT
+    // ========================================================
+
+    const assignmentUpdates = [];
+    const assignmentParams = [];
+
+    if (
+      assignmentDate !== undefined
+    ) {
+      assignmentUpdates.push(
+        "assignment_date = ?"
+      );
+
+      assignmentParams.push(
+        assignmentDate
+      );
+    }
+
+    if (
+      employeeId !== undefined
+    ) {
+      assignmentUpdates.push(
+        "employee_id = ?"
+      );
+
+      assignmentParams.push(
+        employeeId
+      );
+    }
+
+    if (status !== undefined) {
+      assignmentUpdates.push(
+        "status = ?"
+      );
+
+      assignmentParams.push(
+        status
+      );
+
+      // ------------------------------------------------------
+      // AUTO COMPLETION
+      // ------------------------------------------------------
+
+      const normalizedStatus =
+        status
+          .trim()
+          .toLowerCase();
+
+      const completedStatuses = [
+        "completed",
+        "complete",
+        "done",
+      ];
+
+      const isCompleted =
+        completedStatuses.includes(
+          normalizedStatus
+        );
+
+      assignmentUpdates.push(
+        "is_completed = ?"
+      );
+
+      assignmentParams.push(
+        isCompleted ? 1 : 0
+      );
+    }
+
+    if (
+      comment !== undefined
+    ) {
+      assignmentUpdates.push(
+        "comment = ?"
+      );
+
+      assignmentParams.push(
+        comment || null
+      );
+    }
+
+    // ========================================================
+    // SAVE ASSIGNMENT
+    // ========================================================
+
+    if (
+      assignmentUpdates.length > 0
+    ) {
+      assignmentParams.push(
+        assignmentId
+      );
+
+      await query(
+        `
+          UPDATE daily_assignments
+          SET
+            ${assignmentUpdates.join(
+              ", "
+            )}
+          WHERE id = ?
+          LIMIT 1
+        `,
+        assignmentParams
+      );
+    }
+
+    // ========================================================
+    // UPDATE MASTER TASK
+    // ========================================================
+
+    const taskUpdates = [];
+    const taskParams = [];
+
+    if (
+      businessName !== undefined
+    ) {
+      taskUpdates.push(
+        "business_name = ?"
+      );
+
+      taskParams.push(
+        businessName || null
+      );
+    }
+
+    if (
+      contactName !== undefined
+    ) {
+      taskUpdates.push(
+        "name = ?"
+      );
+
+      taskParams.push(
+        contactName || null
+      );
+    }
+
+    if (phone !== undefined) {
+      taskUpdates.push(
+        "phone_number = ?"
+      );
+
+      taskParams.push(
+        phone || null
+      );
+    }
+
+    // ========================================================
+    // SAVE MASTER TASK
+    // ========================================================
+
+    if (
+      taskUpdates.length > 0
+    ) {
+      taskParams.push(taskId);
+
+      await query(
+        `
+          UPDATE master_tasks
+          SET
+            ${taskUpdates.join(
+              ", "
+            )}
+          WHERE id = ?
+          LIMIT 1
+        `,
+        taskParams
+      );
+    }
+
+    // ========================================================
+    // FETCH UPDATED RECORD
+    // ========================================================
+
+    const updatedRows =
+      await query(
+        `
+          SELECT
+
+            /* ==================================================
+               ASSIGNMENT
+            ================================================== */
+
+            da.id AS id,
+
+            da.id AS assignment_id,
+
+            da.id AS daily_assignment_id,
+
+            da.task_id AS assignment_task_id,
+
+            da.task_id AS assignmentTaskId,
+
+            da.employee_id AS employee_id,
+
+            da.employee_id AS employeeId,
+
+            da.employee_id AS assigned_employee_id,
+
+            da.employee_id AS assignedEmployeeId,
+
+            /* ==================================================
+               DATE
+            ================================================== */
+
+            da.assignment_date AS assignment_date,
+
+            da.assignment_date AS assignmentDate,
+
+            DATE(da.assignment_date) AS assignedDate,
+
+            DATE(da.assignment_date) AS assignmentDateOnly,
+
+            DATE(da.assignment_date) AS task_date,
+
+            DATE(da.assignment_date) AS taskDate,
+
+            DATE(da.assignment_date) AS date,
+
+            /* ==================================================
+               CREATED
+               updated_at REMOVED
+            ================================================== */
+
+            da.created_at AS created_at,
+
+            da.created_at AS createdAt,
+
+            /* ==================================================
+               STATUS
+            ================================================== */
+
+            da.status AS status,
+
+            da.status AS assignment_status,
+
+            da.status AS assignmentStatus,
+
+            da.status AS assignment_status_name,
+
+            da.status AS selected_status,
+
+            da.status AS selectedStatus,
+
+            da.status AS result,
+
+            da.status AS result_status,
+
+            da.status AS task_status,
+
+            da.status AS taskStatus,
+
+            da.status AS call_status,
+
+            da.status AS callStatus,
+
+            da.status AS disposition,
+
+            da.status AS outcome,
+
+            da.status AS current_status,
+
+            da.status AS selected_result,
+
+            /* ==================================================
+               COMMENT
+            ================================================== */
+
+            da.comment AS comment,
+
+            da.comment AS comments,
+
+            da.comment AS notes,
+
+            da.comment AS task_comment,
+
+            da.comment AS taskComment,
+
+            /* ==================================================
+               COMPLETION
+            ================================================== */
+
+            da.is_completed AS is_completed,
+
+            da.is_completed AS isCompleted,
+
+            /* ==================================================
+               MASTER TASK
+            ================================================== */
+
+            mt.id AS taskId,
+
+            mt.id AS task_id,
+
+            mt.id AS master_task_id,
+
+            mt.id AS masterTaskId,
+
+            mt.name AS name,
+
+            mt.name AS contactName,
+
+            mt.name AS contact_name,
+
+            mt.phone_number AS phone,
+
+            mt.phone_number AS phoneNumber,
+
+            mt.phone_number AS phone_number,
+
+            mt.business_name AS businessName,
+
+            mt.business_name AS business_name,
+
+            mt.current_status AS master_current_status,
+
+            mt.is_locked AS is_locked,
+
+            /* ==================================================
+               USER
+            ================================================== */
+
+            u.id AS staffId,
+
+            u.id AS staff_id,
+
+            u.id AS userId,
+
+            u.name AS assignedToName,
+
+            u.name AS assigned_to,
+
+            u.name AS employeeName,
+
+            u.name AS employee_name,
+
+            u.name AS staffName,
+
+            u.name AS staff_name,
+
+            u.name AS userName,
+
+            u.name AS user_name,
+
+            u.email AS staffEmail,
+
+            u.email AS employeeEmail,
+
+            u.email AS userEmail,
+
+            u.email AS email,
+
+            u.role AS staffRole,
+
+            u.role AS employeeRole,
+
+            u.role AS userRole
+
+          FROM daily_assignments da
+
+          LEFT JOIN master_tasks mt
+            ON da.task_id = mt.id
+
+          LEFT JOIN users u
+            ON da.employee_id = u.id
+
+          WHERE da.id = ?
+
+          LIMIT 1
+        `,
+        [assignmentId]
+      );
+
+    const updatedRecord =
+      Array.isArray(updatedRows) &&
+      updatedRows.length > 0
+        ? updatedRows[0]
+        : null;
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return NextResponse.json(
+      {
+        success: true,
+
+        message:
+          "Report record updated successfully.",
+
+        data:
+          updatedRecord,
+
+        updated: {
+          assignment_id:
+            assignmentId,
+
+          task_id:
+            taskId,
+
+          employee_id:
+            employeeId ??
+            assignment.employee_id,
+
+          assignment_date:
+            assignmentDate ??
+            assignment.assignment_date ??
+            null,
+
+          status:
+            status ??
+            assignment.status ??
+            null,
+
+          comment:
+            comment ??
+            assignment.comment ??
+            null,
+
+          business_name:
+            businessName ??
+            taskRows[0]
+              ?.business_name ??
+            null,
+
+          name:
+            contactName ??
+            taskRows[0]?.name ??
+            null,
+
+          phone:
+            phone ??
+            taskRows[0]?.phone_number ??
+            null,
+
+          updated_by:
+            currentUserId,
+        },
+      },
+      {
+        status: 200,
+        headers: noCacheHeaders(),
+      }
+    );
+  } catch (error) {
+    console.error(
+      "ADMIN HISTORY PUT ERROR:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+
+        message:
+          error?.message ||
+          "Failed to update report record.",
+
+        error:
+          process.env.NODE_ENV ===
+          "development"
+            ? String(error)
+            : undefined,
+      },
+      {
+        status: 500,
         headers: {
           "Cache-Control":
             "no-store",

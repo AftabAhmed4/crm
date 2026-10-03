@@ -22,12 +22,15 @@ import {
   BarChart3,
   Activity,
   MessageSquare,
-  Filter,
   FileText,
   TrendingUp,
   CircleDot,
-  ChevronDown,
   SlidersHorizontal,
+  Pencil,
+  Save,
+  UserRound,
+  Loader2,
+  RotateCcw,
 } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
@@ -52,18 +55,17 @@ function safeString(value) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
+
 function normalizeDate(value) {
   if (!value) return "";
 
   try {
     const str = String(value).trim();
 
-    // Already YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
       return str;
     }
 
-    // MYSQL datetime
     if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
       return str.substring(0, 10);
     }
@@ -79,7 +81,6 @@ function normalizeDate(value) {
       String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0"),
     ].join("-");
-
   } catch {
     return "";
   }
@@ -102,10 +103,6 @@ function formatPhone(value) {
   return phone || "—";
 }
 
-/*
- * IMPORTANT:
- * assignment_status = actual status selected by employee.
- */
 function getStatus(record) {
   return (
     safeString(record?.selected_status) ||
@@ -197,13 +194,39 @@ function getUserName(record) {
   );
 }
 
+function getEmployeeId(record) {
+  return (
+    record?.employee_id ??
+    record?.employeeId ??
+    record?.assigned_employee_id ??
+    record?.assignedEmployeeId ??
+    record?.staffId ??
+    record?.staff_id ??
+    record?.userId ??
+    record?.user_id ??
+    ""
+  );
+}
+
 function getTaskId(record) {
   return (
-    record?.taskId ||
-    record?.task_id ||
-    record?.assignment_id ||
-    record?.id ||
+    record?.taskId ??
+    record?.task_id ??
+    record?.master_task_id ??
+    record?.masterTaskId ??
+    record?.assignment_task_id ??
     "—"
+  );
+}
+
+function getAssignmentId(record) {
+  return (
+    record?.assignment_id ??
+    record?.assignmentId ??
+    record?.daily_assignment_id ??
+    record?.dailyAssignmentId ??
+    record?.id ??
+    ""
   );
 }
 
@@ -361,6 +384,25 @@ export default function AdminReportsPage() {
   const [showLogout, setShowLogout] = useState(false);
 
   /* ============================================================
+     EDIT STATE
+  ============================================================ */
+
+  const [editingId, setEditingId] = useState(null);
+
+  const [editForm, setEditForm] = useState({
+    assignment_id: "",
+    assignment_date: "",
+    employee_id: "",
+    business_name: "",
+    name: "",
+    phone: "",
+    status: "",
+    comment: "",
+  });
+
+  const [savingId, setSavingId] = useState(null);
+
+  /* ============================================================
      LOAD STAFF
   ============================================================ */
 
@@ -398,154 +440,149 @@ export default function AdminReportsPage() {
      LOAD REPORT
   ============================================================ */
 
-
-const fetchReport = useCallback(
-  async (showRefresh = false, isLive = false) => {
-    try {
-      if (showRefresh && !isLive) {
-        setRefreshing(true);
-      } else if (!isLive) {
-        setLoading(true);
-      }
-
-      setError("");
-
-      // =====================================================
-      // BUILD API URL
-      // =====================================================
-
-      const params = new URLSearchParams();
-
-      // Single date
-      if (fromDate && toDate && fromDate === toDate) {
-        params.set("date", fromDate);
-      }
-
-      // Date range
-      else {
-        if (fromDate) {
-          params.set("from", fromDate);
-        }
-
-        if (toDate) {
-          params.set("to", toDate);
-        }
-      }
-
-      params.set("_", Date.now().toString());
-
-      const response = await fetch(
-        `${API_URLS.history}?${params.toString()}`,
-        {
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-          },
-        }
-      );
-
-      const responseText = await response.text();
-
-      let data = {};
-
+  const fetchReport = useCallback(
+    async (showRefresh = false, isLive = false) => {
       try {
-        data = responseText
-          ? JSON.parse(responseText)
-          : {};
-      } catch {
-        throw new Error(
-          "Server returned invalid JSON response."
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            data?.error ||
-            "Unable to load admin report."
-        );
-      }
-
-      // =====================================================
-      // SUPPORT ALL POSSIBLE API RESPONSE SHAPES
-      // =====================================================
-
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.data)
-        ? data.data
-        : Array.isArray(data?.records)
-        ? data.records
-        : Array.isArray(data?.history)
-        ? data.history
-        : Array.isArray(data?.tasks)
-        ? data.tasks
-        : Array.isArray(data?.results)
-        ? data.results
-        : [];
-
-      console.log(
-        "ADMIN HISTORY API:",
-        {
-          requestedFrom: fromDate,
-          requestedTo: toDate,
-          count: list.length,
-          firstRecord: list[0],
-          response: data,
+        if (showRefresh && !isLive) {
+          setRefreshing(true);
+        } else if (!isLive) {
+          setLoading(true);
         }
-      );
 
-      setRecords(list);
-    } catch (err) {
-      console.error(
-        isLive
-          ? "Live report update error:"
-          : "Report error:",
-        err
-      );
+        setError("");
 
-      if (!isLive) {
-        setError(
-          err?.message ||
-            "Unable to load report."
+        const params = new URLSearchParams();
+
+        if (
+          fromDate &&
+          toDate &&
+          fromDate === toDate
+        ) {
+          params.set("date", fromDate);
+        } else {
+          if (fromDate) {
+            params.set("from", fromDate);
+          }
+
+          if (toDate) {
+            params.set("to", toDate);
+          }
+        }
+
+        params.set("_", Date.now().toString());
+
+        const response = await fetch(
+          `${API_URLS.history}?${params.toString()}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+            },
+          }
         );
 
-        setRecords([]);
+        const responseText =
+          await response.text();
 
-        toast.error(
-          err?.message ||
-            "Unable to load report."
+        let data = {};
+
+        try {
+          data = responseText
+            ? JSON.parse(responseText)
+            : {};
+        } catch {
+          throw new Error(
+            "Server returned invalid JSON response."
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Unable to load admin report."
+          );
+        }
+
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.records)
+          ? data.records
+          : Array.isArray(data?.history)
+          ? data.history
+          : Array.isArray(data?.tasks)
+          ? data.tasks
+          : Array.isArray(data?.results)
+          ? data.results
+          : [];
+
+        setRecords(list);
+      } catch (err) {
+        console.error(
+          isLive
+            ? "Live report update error:"
+            : "Report error:",
+          err
         );
+
+        if (!isLive) {
+          setError(
+            err?.message ||
+              "Unable to load report."
+          );
+
+          setRecords([]);
+
+          toast.error(
+            err?.message ||
+              "Unable to load report."
+          );
+        }
+      } finally {
+        if (!isLive) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-    } finally {
-      if (!isLive) {
-        setLoading(false);
-        setRefreshing(false);
+    },
+    [fromDate, toDate]
+  );
+
+  /* ============================================================
+     INITIAL / LIVE REFRESH
+  ============================================================ */
+
+  useEffect(() => {
+    loadStaff();
+    fetchReport(false, false);
+
+    const intervalId = setInterval(() => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        /*
+         * Do not refresh while user is editing.
+         * This prevents the live API from replacing
+         * the values currently being edited.
+         */
+        if (!editingId) {
+          fetchReport(false, true);
+        }
       }
-    }
-  },
-  [fromDate, toDate]
-);
+    }, 5000);
 
-
-
-useEffect(() => {
-  loadStaff();
-  fetchReport(false, false);
-
-  const intervalId = setInterval(() => {
-    if (document.visibilityState === "visible") {
-      fetchReport(false, true);
-    }
-  }, 5000);
-
-  return () => {
-    clearInterval(intervalId);
-  };
-}, [loadStaff, fetchReport]);
-
-
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [
+    loadStaff,
+    fetchReport,
+    editingId,
+  ]);
 
   /* ============================================================
      STATUS OPTIONS
@@ -565,8 +602,29 @@ useEffect(() => {
       }
     });
 
-    return Array.from(values.values()).sort(
-      (a, b) => a.localeCompare(b)
+    const defaults = [
+      "Pending",
+      "In Progress",
+      "Completed",
+      "Callback",
+      "Follow Up",
+      "No Answer",
+      "Voicemail",
+    ];
+
+    defaults.forEach((status) => {
+      if (!values.has(status.toLowerCase())) {
+        values.set(
+          status.toLowerCase(),
+          status
+        );
+      }
+    });
+
+    return Array.from(
+      values.values()
+    ).sort((a, b) =>
+      a.localeCompare(b)
     );
   }, [records]);
 
@@ -579,8 +637,8 @@ useEffect(() => {
 
     staff.forEach((user) => {
       const id =
-        user?.id ||
-        user?.user_id ||
+        user?.id ??
+        user?.user_id ??
         user?._id;
 
       const name =
@@ -597,15 +655,14 @@ useEffect(() => {
     });
 
     records.forEach((record) => {
-      const id =
-        record?.employee_id ||
-        record?.employeeId ||
-        record?.user_id ||
-        record?.userId;
-
+      const id = getEmployeeId(record);
       const name = getUserName(record);
 
-      if (id && name !== "—") {
+      if (
+        id !== "" &&
+        id !== null &&
+        name !== "—"
+      ) {
         values.set(String(id), {
           id: String(id),
           name,
@@ -613,9 +670,10 @@ useEffect(() => {
       }
     });
 
-    return Array.from(values.values()).sort(
-      (a, b) =>
-        a.name.localeCompare(b.name)
+    return Array.from(
+      values.values()
+    ).sort((a, b) =>
+      a.name.localeCompare(b.name)
     );
   }, [staff, records]);
 
@@ -629,7 +687,10 @@ useEffect(() => {
     records.forEach((record) => {
       const sheet = getSheet(record);
 
-      if (sheet && sheet !== "—") {
+      if (
+        sheet &&
+        sheet !== "—"
+      ) {
         values.set(
           sheet.toLowerCase(),
           sheet
@@ -637,104 +698,613 @@ useEffect(() => {
       }
     });
 
-    return Array.from(values.values()).sort(
-      (a, b) =>
-        a.localeCompare(b)
+    return Array.from(
+      values.values()
+    ).sort((a, b) =>
+      a.localeCompare(b)
     );
   }, [records]);
+
+  /* ============================================================
+     START EDIT
+  ============================================================ */
+
+  const startEdit = useCallback(
+    (record) => {
+      const assignmentId =
+        getAssignmentId(record);
+
+      if (!assignmentId) {
+        toast.error(
+          "Assignment ID is missing for this record."
+        );
+        return;
+      }
+
+      const employeeId =
+        getEmployeeId(record);
+
+      setEditingId(
+        String(assignmentId)
+      );
+
+      setEditForm({
+        assignment_id:
+          assignmentId,
+
+        assignment_date:
+          normalizeDate(
+            getDate(record)
+          ),
+
+        employee_id:
+          employeeId !== null &&
+          employeeId !== undefined
+            ? String(employeeId)
+            : "",
+
+        business_name:
+          getBusiness(record) === "—"
+            ? ""
+            : getBusiness(record),
+
+        name:
+          getName(record) === "Unknown"
+            ? ""
+            : getName(record),
+
+        phone:
+          safeString(
+            getPhone(record)
+          ),
+
+        status:
+          getStatus(record),
+
+        comment:
+          getComment(record),
+      });
+    },
+    []
+  );
+
+  /* ============================================================
+     CANCEL EDIT
+  ============================================================ */
+
+  const cancelEdit = useCallback(() => {
+    if (savingId) return;
+
+    setEditingId(null);
+
+    setEditForm({
+      assignment_id: "",
+      assignment_date: "",
+      employee_id: "",
+      business_name: "",
+      name: "",
+      phone: "",
+      status: "",
+      comment: "",
+    });
+  }, [savingId]);
+
+  /* ============================================================
+     EDIT INPUT
+  ============================================================ */
+
+  const updateEditField = (
+    field,
+    value
+  ) => {
+    setEditForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+  };
+
+  /* ============================================================
+     SAVE EDIT
+  ============================================================ */
+
+  const saveEdit = useCallback(
+    async (record) => {
+      const assignmentId =
+        getAssignmentId(record);
+
+      if (!assignmentId) {
+        toast.error(
+          "Assignment ID is missing."
+        );
+        return;
+      }
+
+      if (
+        !editForm.assignment_date
+      ) {
+        toast.error(
+          "Date cannot be empty."
+        );
+        return;
+      }
+
+      if (
+        !editForm.employee_id
+      ) {
+        toast.error(
+          "Please select an employee."
+        );
+        return;
+      }
+
+      if (
+        !editForm.status
+      ) {
+        toast.error(
+          "Status cannot be empty."
+        );
+        return;
+      }
+
+      setSavingId(
+        String(assignmentId)
+      );
+
+      try {
+        const response =
+          await fetch(
+            API_URLS.history,
+            {
+              method: "PUT",
+
+              credentials:
+                "include",
+
+              cache: "no-store",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+
+                Accept:
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                assignment_id:
+                  assignmentId,
+
+                assignment_date:
+                  editForm.assignment_date,
+
+                employee_id:
+                  Number(
+                    editForm.employee_id
+                  ),
+
+                business_name:
+                  editForm.business_name,
+
+                name:
+                  editForm.name,
+
+                phone:
+                  editForm.phone,
+
+                status:
+                  editForm.status,
+
+                comment:
+                  editForm.comment,
+              }),
+            }
+          );
+
+        const responseText =
+          await response.text();
+
+        let data = {};
+
+        try {
+          data =
+            responseText
+              ? JSON.parse(
+                  responseText
+                )
+              : {};
+        } catch {
+          throw new Error(
+            "Server returned invalid JSON response."
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              data?.error ||
+              "Failed to update record."
+          );
+        }
+
+        if (
+          !data?.success
+        ) {
+          throw new Error(
+            data?.message ||
+              "Record update failed."
+          );
+        }
+
+        const updatedRecord =
+          data?.data;
+
+        /*
+         * If API returns updated row,
+         * immediately replace current row.
+         */
+        setRecords((previous) =>
+          previous.map((item) => {
+            const itemId =
+              String(
+                getAssignmentId(
+                  item
+                )
+              );
+
+            if (
+              itemId !==
+              String(
+                assignmentId
+              )
+            ) {
+              return item;
+            }
+
+            if (
+              updatedRecord
+            ) {
+              return {
+                ...item,
+                ...updatedRecord,
+              };
+            }
+
+            /*
+             * Fallback local update
+             * in case API doesn't return row.
+             */
+            return {
+              ...item,
+
+              assignment_date:
+                editForm.assignment_date,
+
+              assignmentDate:
+                editForm.assignment_date,
+
+              assignedDate:
+                editForm.assignment_date,
+
+              task_date:
+                editForm.assignment_date,
+
+              taskDate:
+                editForm.assignment_date,
+
+              date:
+                editForm.assignment_date,
+
+              employee_id:
+                Number(
+                  editForm.employee_id
+                ),
+
+              employeeId:
+                Number(
+                  editForm.employee_id
+                ),
+
+              assigned_employee_id:
+                Number(
+                  editForm.employee_id
+                ),
+
+              assignedEmployeeId:
+                Number(
+                  editForm.employee_id
+                ),
+
+              status:
+                editForm.status,
+
+              assignment_status:
+                editForm.status,
+
+              assignmentStatus:
+                editForm.status,
+
+              selected_status:
+                editForm.status,
+
+              selectedStatus:
+                editForm.status,
+
+              result:
+                editForm.status,
+
+              task_status:
+                editForm.status,
+
+              call_status:
+                editForm.status,
+
+              disposition:
+                editForm.status,
+
+              comment:
+                editForm.comment,
+
+              comments:
+                editForm.comment,
+
+              notes:
+                editForm.comment,
+
+              businessName:
+                editForm.business_name,
+
+              business_name:
+                editForm.business_name,
+
+              name:
+                editForm.name,
+
+              contactName:
+                editForm.name,
+
+              contact_name:
+                editForm.name,
+
+              phone:
+                editForm.phone,
+
+              phoneNumber:
+                editForm.phone,
+
+              phone_number:
+                editForm.phone,
+            };
+          })
+        );
+
+        /*
+         * Update employee name locally
+         * immediately if API response does not
+         * contain the joined user.
+         */
+        if (
+          !updatedRecord
+        ) {
+          const selectedEmployee =
+            userOptions.find(
+              (user) =>
+                String(
+                  user.id
+                ) ===
+                String(
+                  editForm.employee_id
+                )
+            );
+
+          if (
+            selectedEmployee
+          ) {
+            setRecords(
+              (previous) =>
+                previous.map(
+                  (item) => {
+                    if (
+                      String(
+                        getAssignmentId(
+                          item
+                        )
+                      ) !==
+                      String(
+                        assignmentId
+                      )
+                    ) {
+                      return item;
+                    }
+
+                    return {
+                      ...item,
+
+                      employee_name:
+                        selectedEmployee.name,
+
+                      employeeName:
+                        selectedEmployee.name,
+
+                      assignedToName:
+                        selectedEmployee.name,
+
+                      assigned_to:
+                        selectedEmployee.name,
+
+                      staffName:
+                        selectedEmployee.name,
+
+                      staff_name:
+                        selectedEmployee.name,
+
+                      userName:
+                        selectedEmployee.name,
+
+                      user_name:
+                        selectedEmployee.name,
+                    };
+                  }
+                )
+            );
+          }
+        }
+
+        toast.success(
+          "Report record updated successfully."
+        );
+
+        setEditingId(null);
+
+        setEditForm({
+          assignment_id: "",
+          assignment_date: "",
+          employee_id: "",
+          business_name: "",
+          name: "",
+          phone: "",
+          status: "",
+          comment: "",
+        });
+      } catch (err) {
+        console.error(
+          "Save report error:",
+          err
+        );
+
+        toast.error(
+          err?.message ||
+            "Failed to update record."
+        );
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [
+      editForm,
+      userOptions,
+    ]
+  );
 
   /* ============================================================
      FILTERED
   ============================================================ */
 
   const filteredRecords = useMemo(() => {
-    const search = searchQuery
-      .trim()
-      .toLowerCase();
+    const search =
+      searchQuery
+        .trim()
+        .toLowerCase();
 
-    return records.filter((record) => {
-     const recordDate = normalizeDate(
-  getDate(record)
-);
+    return records.filter(
+      (record) => {
+        const recordDate =
+          normalizeDate(
+            getDate(record)
+          );
 
+        if (fromDate) {
+          if (!recordDate) {
+            return false;
+          }
 
-// FROM DATE
-if (fromDate) {
-  if (!recordDate) return false;
+          if (
+            recordDate <
+            fromDate
+          ) {
+            return false;
+          }
+        }
 
-  if (recordDate < fromDate) {
-    return false;
-  }
-}
+        if (toDate) {
+          if (!recordDate) {
+            return false;
+          }
 
-
-// TO DATE
-if (toDate) {
-  if (!recordDate) return false;
-
-  if (recordDate > toDate) {
-    return false;
-  }
-}
-
-      if (
-        statusFilter !== "all" &&
-        getStatus(record).toLowerCase() !==
-          statusFilter.toLowerCase()
-      ) {
-        return false;
-      }
-
-      if (userFilter !== "all") {
-        const recordUserId = String(
-          record?.employee_id ||
-            record?.employeeId ||
-            record?.user_id ||
-            record?.userId ||
-            ""
-        );
+          if (
+            recordDate >
+            toDate
+          ) {
+            return false;
+          }
+        }
 
         if (
-          recordUserId !==
-          String(userFilter)
+          statusFilter !==
+            "all" &&
+          getStatus(record)
+            .toLowerCase() !==
+            statusFilter.toLowerCase()
         ) {
           return false;
         }
-      }
 
-      if (
-        sheetFilter !== "all" &&
-        getSheet(record).toLowerCase() !==
-          sheetFilter.toLowerCase()
-      ) {
-        return false;
-      }
+        if (
+          userFilter !==
+            "all"
+        ) {
+          const recordUserId =
+            String(
+              getEmployeeId(
+                record
+              )
+            );
 
-      if (search) {
-        const searchable = [
-          getName(record),
-          getBusiness(record),
-          getPhone(record),
-          getStatus(record),
-          getComment(record),
-          getSheet(record),
-          getUserName(record),
-          getTaskId(record),
-          getDate(record),
-          safeString(record?.email),
-          safeString(record?.sourceFile),
-          safeString(record?.source_file),
-        ]
-          .join(" ")
-          .toLowerCase();
+          if (
+            recordUserId !==
+            String(
+              userFilter
+            )
+          ) {
+            return false;
+          }
+        }
 
-        if (!searchable.includes(search)) {
+        if (
+          sheetFilter !==
+            "all" &&
+          getSheet(record)
+            .toLowerCase() !==
+            sheetFilter.toLowerCase()
+        ) {
           return false;
         }
-      }
 
-      return true;
-    });
+        if (search) {
+          const searchable = [
+            getName(record),
+            getBusiness(record),
+            getPhone(record),
+            getStatus(record),
+            getComment(record),
+            getSheet(record),
+            getUserName(record),
+            getTaskId(record),
+            getDate(record),
+            safeString(
+              record?.email
+            ),
+            safeString(
+              record?.sourceFile
+            ),
+            safeString(
+              record?.source_file
+            ),
+          ]
+            .join(" ")
+            .toLowerCase();
+
+          if (
+            !searchable.includes(
+              search
+            )
+          ) {
+            return false;
+          }
+        }
+
+        return true;
+      }
+    );
   }, [
     records,
     searchQuery,
@@ -748,206 +1318,207 @@ if (toDate) {
   /* ============================================================
      STATS
   ============================================================ */
-const reportStats = useMemo(() => {
-  let completed = 0;
-  let callback = 0;
-  let followUp = 0;
-  let noAnswer = 0;
-  let voicemail = 0;
-  let pending = 0;
 
-  filteredRecords.forEach((record) => {
-    // =====================================================
-    // EXACT EMPLOYEE SELECTED STATUS
-    // || use kiya hai taake empty string par next field mile
-    // =====================================================
-    const status = String(
-      record?.selected_status ||
-        record?.selectedStatus ||
-        record?.assignment_status ||
-        record?.status ||
-        record?.result ||
-        record?.task_status ||
-        record?.call_status ||
-        record?.disposition ||
-        ""
-    )
-      .trim()
-      .toLowerCase();
+  const reportStats = useMemo(() => {
+    let completed = 0;
+    let callback = 0;
+    let followUp = 0;
+    let noAnswer = 0;
+    let voicemail = 0;
+    let pending = 0;
 
-    // =====================================================
-    // NORMALIZED STATUS
-    // Removes spaces, "-", "_"
-    //
-    // Example:
-    // Callback  -> callback
-    // Call Back -> callback
-    // Call-Back -> callback
-    // Call_Back -> callback
-    // =====================================================
-    const normalizedStatus = status.replace(/[\s_-]+/g, "");
+    filteredRecords.forEach(
+      (record) => {
+        const status =
+          String(
+            record?.selected_status ||
+              record?.selectedStatus ||
+              record?.assignment_status ||
+              record?.status ||
+              record?.result ||
+              record?.task_status ||
+              record?.call_status ||
+              record?.disposition ||
+              ""
+          )
+            .trim()
+            .toLowerCase();
 
-    // =====================================================
-    // COMPLETED
-    // =====================================================
-    if (
-      Number(record?.is_completed) === 1 ||
-      status.includes("complete") ||
-      normalizedStatus === "completed"
-    ) {
-      completed++;
-    }
+        const normalizedStatus =
+          status.replace(
+            /[\s_-]+/g,
+            ""
+          );
 
-    // =====================================================
-    // CALLBACK
-    // Supports:
-    // Callback
-    // CALLBACK
-    // callback
-    // Call Back
-    // Call-Back
-    // Call_Back
-    // =====================================================
-    if (normalizedStatus.includes("callback")) {
-      callback++;
-    }
+        if (
+          Number(
+            record?.is_completed
+          ) === 1 ||
+          status.includes(
+            "complete"
+          ) ||
+          normalizedStatus ===
+            "completed"
+        ) {
+          completed++;
+        }
 
-    // =====================================================
-    // FOLLOW UP
-    // Supports:
-    // Follow Up
-    // Follow UP
-    // Follow-Up
-    // Followup
-    // Follow_Up
-    // =====================================================
-    if (normalizedStatus.includes("followup")) {
-      followUp++;
-    }
+        if (
+          normalizedStatus.includes(
+            "callback"
+          )
+        ) {
+          callback++;
+        }
 
-    // =====================================================
-    // NO ANSWER
-    // Supports:
-    // No Answer
-    // No-Answer
-    // No_Answer
-    // =====================================================
-    if (normalizedStatus.includes("noanswer")) {
-      noAnswer++;
-    }
+        if (
+          normalizedStatus.includes(
+            "followup"
+          )
+        ) {
+          followUp++;
+        }
 
-    // =====================================================
-    // VOICEMAIL
-    // Supports:
-    // Voicemail
-    // Voice Mail
-    // Voice-Mail
-    // Straight to Voicemail
-    // =====================================================
-    if (
-      normalizedStatus.includes("voicemail") ||
-      normalizedStatus.includes("straight")
-    ) {
-      voicemail++;
-    }
+        if (
+          normalizedStatus.includes(
+            "noanswer"
+          )
+        ) {
+          noAnswer++;
+        }
 
-    // =====================================================
-    // PENDING / IN PROGRESS
-    // =====================================================
-    if (
-      status.includes("pending") ||
-      normalizedStatus.includes("inprogress") ||
-      normalizedStatus === "progress"
-    ) {
-      pending++;
-    }
-  });
+        if (
+          normalizedStatus.includes(
+            "voicemail"
+          ) ||
+          normalizedStatus.includes(
+            "straight"
+          )
+        ) {
+          voicemail++;
+        }
 
-  // =====================================================
-  // UNIQUE USERS
-  // =====================================================
-  const uniqueUsers = new Set(
-    filteredRecords
-      .map((record) => getUserName(record))
-      .filter(
-        (name) =>
-          name &&
-          name !== "—"
-      )
-  ).size;
+        if (
+          status.includes(
+            "pending"
+          ) ||
+          normalizedStatus.includes(
+            "inprogress"
+          ) ||
+          normalizedStatus ===
+            "progress"
+        ) {
+          pending++;
+        }
+      }
+    );
 
-  // =====================================================
-  // UNIQUE SHEETS
-  // =====================================================
-  const uniqueSheets = new Set(
-    filteredRecords
-      .map((record) => getSheet(record))
-      .filter(
-        (sheet) =>
-          sheet &&
-          sheet !== "—"
-      )
-  ).size;
+    const uniqueUsers =
+      new Set(
+        filteredRecords
+          .map(
+            (record) =>
+              getUserName(
+                record
+              )
+          )
+          .filter(
+            (name) =>
+              name &&
+              name !== "—"
+          )
+      ).size;
 
-  // =====================================================
-  // RETURN REPORT STATS
-  // =====================================================
-  return {
-    total: filteredRecords.length,
-    completed,
-    callback,
-    followUp,
-    noAnswer,
-    voicemail,
-    pending,
-    uniqueUsers,
-    uniqueSheets,
-  };
-}, [filteredRecords]);
+    const uniqueSheets =
+      new Set(
+        filteredRecords
+          .map(
+            (record) =>
+              getSheet(
+                record
+              )
+          )
+          .filter(
+            (sheet) =>
+              sheet &&
+              sheet !== "—"
+          )
+      ).size;
+
+    return {
+      total:
+        filteredRecords.length,
+
+      completed,
+      callback,
+      followUp,
+      noAnswer,
+      voicemail,
+      pending,
+      uniqueUsers,
+      uniqueSheets,
+    };
+  }, [filteredRecords]);
+
   /* ============================================================
      STATUS BREAKDOWN
   ============================================================ */
 
-  const statusBreakdown = useMemo(() => {
-    const map = new Map();
+  const statusBreakdown =
+    useMemo(() => {
+      const map = new Map();
 
-    filteredRecords.forEach((record) => {
-      const status = getStatus(record);
-      const key = status.toLowerCase();
+      filteredRecords.forEach(
+        (record) => {
+          const status =
+            getStatus(
+              record
+            );
 
-      if (!map.has(key)) {
-        map.set(key, {
-          name: status,
-          count: 0,
-        });
-      }
+          const key =
+            status.toLowerCase();
 
-      map.get(key).count++;
-    });
+          if (
+            !map.has(key)
+          ) {
+            map.set(key, {
+              name: status,
+              count: 0,
+            });
+          }
 
-    return Array.from(map.values())
-      .sort(
-        (a, b) => b.count - a.count
+          map.get(key).count++;
+        }
+      );
+
+      return Array.from(
+        map.values()
       )
-      .slice(0, 8);
-  }, [filteredRecords]);
+        .sort(
+          (a, b) =>
+            b.count - a.count
+        )
+        .slice(0, 8);
+    }, [filteredRecords]);
 
   /* ============================================================
      PAGINATION
   ============================================================ */
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(
-      filteredRecords.length /
-        PAGE_SIZE
-    )
-  );
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        filteredRecords.length /
+          PAGE_SIZE
+      )
+    );
 
-  const safeCurrentPage = Math.min(
-    currentPage,
-    totalPages
-  );
+  const safeCurrentPage =
+    Math.min(
+      currentPage,
+      totalPages
+    );
 
   const paginatedRecords =
     filteredRecords.slice(
@@ -978,11 +1549,16 @@ const reportStats = useMemo(() => {
     setCurrentPage(1);
   };
 
-  const changePage = (page) => {
+  const changePage = (
+    page
+  ) => {
     setCurrentPage(
       Math.max(
         1,
-        Math.min(page, totalPages)
+        Math.min(
+          page,
+          totalPages
+        )
       )
     );
   };
@@ -1015,7 +1591,7 @@ const reportStats = useMemo(() => {
         <div className="max-w-[1900px] mx-auto px-4 sm:px-6 xl:px-8 py-5 sm:py-7">
 
           {/* ==================================================
-              PREMIUM HEADER
+              HEADER
           ================================================== */}
 
           <div className="relative overflow-hidden rounded-[24px] bg-slate-950 text-white mb-5 shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
@@ -1023,7 +1599,8 @@ const reportStats = useMemo(() => {
             <div
               className="absolute -right-24 -top-24 h-72 w-72 rounded-full blur-3xl opacity-20"
               style={{
-                backgroundColor: ACCENT,
+                backgroundColor:
+                  ACCENT,
               }}
             />
 
@@ -1032,15 +1609,19 @@ const reportStats = useMemo(() => {
 
                 <div>
                   <div className="flex items-center gap-3 mb-3">
+
                     <div
                       className="h-11 w-11 rounded-xl flex items-center justify-center"
                       style={{
                         backgroundColor:
                           "rgba(236,55,55,0.14)",
-                        color: ACCENT,
+                        color:
+                          ACCENT,
                       }}
                     >
-                      <BarChart3 size={22} />
+                      <BarChart3
+                        size={22}
+                      />
                     </div>
 
                     <div>
@@ -1052,6 +1633,7 @@ const reportStats = useMemo(() => {
                         Reports
                       </h1>
                     </div>
+
                   </div>
 
                   <p className="text-sm text-slate-400 max-w-2xl">
@@ -1065,9 +1647,17 @@ const reportStats = useMemo(() => {
                   <button
                     type="button"
                     onClick={() =>
-                      fetchReport(true)
+                      fetchReport(
+                        true,
+                        false
+                      )
                     }
-                    disabled={refreshing}
+                    disabled={
+                      refreshing ||
+                      Boolean(
+                        editingId
+                      )
+                    }
                     className="h-10 px-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 inline-flex items-center gap-2 text-xs font-bold transition disabled:opacity-50"
                   >
                     <RefreshCw
@@ -1078,6 +1668,7 @@ const reportStats = useMemo(() => {
                           : ""
                       }
                     />
+
                     Refresh
                   </button>
 
@@ -1094,7 +1685,9 @@ const reportStats = useMemo(() => {
                         ACCENT,
                     }}
                   >
-                    <Download size={15} />
+                    <Download
+                      size={15}
+                    />
                     Export
                   </button>
 
@@ -1104,7 +1697,7 @@ const reportStats = useMemo(() => {
           </div>
 
           {/* ==================================================
-              KPI STRIP
+              KPI
           ================================================== */}
 
           <section className="bg-white border border-slate-200 rounded-[20px] shadow-[0_5px_25px_rgba(15,23,42,0.04)] mb-5 overflow-hidden">
@@ -1113,74 +1706,103 @@ const reportStats = useMemo(() => {
 
               {[
                 {
-                  label: "Total Tasks",
-                  value: reportStats.total,
+                  label:
+                    "Total Tasks",
+                  value:
+                    reportStats.total,
                   icon: FileText,
-                  accent: "text-slate-800",
+                  accent:
+                    "text-slate-800",
                 },
                 {
-                  label: "Completed",
-                  value: reportStats.completed,
-                  icon: CheckCircle2,
-                  accent: "text-emerald-600",
+                  label:
+                    "Completed",
+                  value:
+                    reportStats.completed,
+                  icon:
+                    CheckCircle2,
+                  accent:
+                    "text-emerald-600",
                 },
                 {
-                  label: "Callback",
-                  value: reportStats.callback,
+                  label:
+                    "Callback",
+                  value:
+                    reportStats.callback,
                   icon: Phone,
-                  accent: "text-amber-600",
+                  accent:
+                    "text-amber-600",
                 },
                 {
-                  label: "Follow Up",
-                  value: reportStats.followUp,
-                  icon: Activity,
-                  accent: "text-sky-600",
+                  label:
+                    "Follow Up",
+                  value:
+                    reportStats.followUp,
+                  icon:
+                    Activity,
+                  accent:
+                    "text-sky-600",
                 },
                 {
-                  label: "No Answer",
-                  value: reportStats.noAnswer,
-                  icon: CircleDot,
-                  accent: "text-orange-600",
+                  label:
+                    "No Answer",
+                  value:
+                    reportStats.noAnswer,
+                  icon:
+                    CircleDot,
+                  accent:
+                    "text-orange-600",
                 },
                 {
-                  label: "Voicemail",
-                  value: reportStats.voicemail,
-                  icon: MessageSquare,
-                  accent: "text-violet-600",
+                  label:
+                    "Voicemail",
+                  value:
+                    reportStats.voicemail,
+                  icon:
+                    MessageSquare,
+                  accent:
+                    "text-violet-600",
                 },
-              ].map((item) => {
-                const Icon = item.icon;
+              ].map(
+                (item) => {
+                  const Icon =
+                    item.icon;
 
-                return (
-                  <div
-                    key={item.label}
-                    className="px-4 sm:px-5 py-4 hover:bg-slate-50/70 transition"
-                  >
-                    <div className="flex items-center justify-between gap-3">
+                  return (
+                    <div
+                      key={
+                        item.label
+                      }
+                      className="px-4 sm:px-5 py-4 hover:bg-slate-50/70 transition"
+                    >
+                      <div className="flex items-center justify-between gap-3">
 
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider font-black text-slate-400">
-                          {item.label}
-                        </p>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider font-black text-slate-400">
+                            {
+                              item.label
+                            }
+                          </p>
 
-                        <p
-                          className={`text-2xl font-black mt-1 ${item.accent}`}
-                        >
-                          {item.value.toLocaleString()}
-                        </p>
+                          <p
+                            className={`text-2xl font-black mt-1 ${item.accent}`}
+                          >
+                            {item.value.toLocaleString()}
+                          </p>
+                        </div>
+
+                        <div className="h-9 w-9 rounded-xl bg-slate-50 flex items-center justify-center">
+                          <Icon
+                            size={16}
+                            className="text-slate-400"
+                          />
+                        </div>
+
                       </div>
-
-                      <div className="h-9 w-9 rounded-xl bg-slate-50 flex items-center justify-center">
-                        <Icon
-                          size={16}
-                          className="text-slate-400"
-                        />
-                      </div>
-
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                }
+              )}
 
             </div>
           </section>
@@ -1195,8 +1817,6 @@ const reportStats = useMemo(() => {
 
               <div className="flex flex-col xl:flex-row xl:items-center gap-3">
 
-                {/* SEARCH */}
-
                 <div className="relative flex-1 min-w-0">
 
                   <Search
@@ -1205,7 +1825,9 @@ const reportStats = useMemo(() => {
                   />
 
                   <input
-                    value={searchQuery}
+                    value={
+                      searchQuery
+                    }
                     onChange={(e) =>
                       setSearchQuery(
                         e.target.value
@@ -1219,11 +1841,15 @@ const reportStats = useMemo(() => {
                     <button
                       type="button"
                       onClick={() =>
-                        setSearchQuery("")
+                        setSearchQuery(
+                          ""
+                        )
                       }
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 h-7 w-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
                     >
-                      <X size={14} />
+                      <X
+                        size={14}
+                      />
                     </button>
                   )}
 
@@ -1250,7 +1876,9 @@ const reportStats = useMemo(() => {
 
                 <button
                   type="button"
-                  onClick={clearFilters}
+                  onClick={
+                    clearFilters
+                  }
                   className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-500 hover:bg-slate-50 transition"
                 >
                   Clear
@@ -1261,7 +1889,7 @@ const reportStats = useMemo(() => {
               {showFilters && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mt-4 pt-4 border-t border-slate-100">
 
-                  {/* DATE FROM */}
+                  {/* FROM */}
 
                   <div>
                     <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
@@ -1275,16 +1903,28 @@ const reportStats = useMemo(() => {
                       />
 
                       <input
- type="date"
- value={fromDate}
- max={toDate || undefined}
- onChange={(e)=>setFromDate(e.target.value)}
+                        type="date"
+                        value={
+                          fromDate
+                        }
+                        max={
+                          toDate ||
+                          undefined
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setFromDate(
+                            e.target
+                              .value
+                          )
+                        }
                         className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
                       />
                     </div>
                   </div>
 
-                  {/* DATE TO */}
+                  {/* TO */}
 
                   <div>
                     <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
@@ -1297,12 +1937,23 @@ const reportStats = useMemo(() => {
                         className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                       />
 
-                     <input
- type="date"
- value={toDate}
- min={fromDate || undefined}
- onChange={(e)=>setToDate(e.target.value)}
-
+                      <input
+                        type="date"
+                        value={
+                          toDate
+                        }
+                        min={
+                          fromDate ||
+                          undefined
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setToDate(
+                            e.target
+                              .value
+                          )
+                        }
                         className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
                       />
                     </div>
@@ -1316,10 +1967,15 @@ const reportStats = useMemo(() => {
                     </label>
 
                     <select
-                      value={userFilter}
-                      onChange={(e) =>
+                      value={
+                        userFilter
+                      }
+                      onChange={(
+                        e
+                      ) =>
                         setUserFilter(
-                          e.target.value
+                          e.target
+                            .value
                         )
                       }
                       className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
@@ -1329,12 +1985,20 @@ const reportStats = useMemo(() => {
                       </option>
 
                       {userOptions.map(
-                        (user) => (
+                        (
+                          user
+                        ) => (
                           <option
-                            key={user.id}
-                            value={user.id}
+                            key={
+                              user.id
+                            }
+                            value={
+                              user.id
+                            }
                           >
-                            {user.name}
+                            {
+                              user.name
+                            }
                           </option>
                         )
                       )}
@@ -1349,10 +2013,15 @@ const reportStats = useMemo(() => {
                     </label>
 
                     <select
-                      value={sheetFilter}
-                      onChange={(e) =>
+                      value={
+                        sheetFilter
+                      }
+                      onChange={(
+                        e
+                      ) =>
                         setSheetFilter(
-                          e.target.value
+                          e.target
+                            .value
                         )
                       }
                       className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
@@ -1362,12 +2031,20 @@ const reportStats = useMemo(() => {
                       </option>
 
                       {sheetOptions.map(
-                        (sheet) => (
+                        (
+                          sheet
+                        ) => (
                           <option
-                            key={sheet}
-                            value={sheet}
+                            key={
+                              sheet
+                            }
+                            value={
+                              sheet
+                            }
                           >
-                            {sheet}
+                            {
+                              sheet
+                            }
                           </option>
                         )
                       )}
@@ -1382,10 +2059,15 @@ const reportStats = useMemo(() => {
                     </label>
 
                     <select
-                      value={statusFilter}
-                      onChange={(e) =>
+                      value={
+                        statusFilter
+                      }
+                      onChange={(
+                        e
+                      ) =>
                         setStatusFilter(
-                          e.target.value
+                          e.target
+                            .value
                         )
                       }
                       className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
@@ -1395,12 +2077,20 @@ const reportStats = useMemo(() => {
                       </option>
 
                       {statusOptions.map(
-                        (status) => (
+                        (
+                          status
+                        ) => (
                           <option
-                            key={status}
-                            value={status}
+                            key={
+                              status
+                            }
+                            value={
+                              status
+                            }
                           >
-                            {status}
+                            {
+                              status
+                            }
                           </option>
                         )
                       )}
@@ -1420,10 +2110,12 @@ const reportStats = useMemo(() => {
           <section className="mb-5">
 
             <div className="flex items-center gap-2 mb-3 px-1">
+
               <Activity
                 size={15}
                 style={{
-                  color: ACCENT,
+                  color:
+                    ACCENT,
                 }}
               />
 
@@ -1432,8 +2124,12 @@ const reportStats = useMemo(() => {
               </span>
 
               <span className="text-[10px] font-bold text-slate-400">
-                {statusBreakdown.length} active statuses
+                {
+                  statusBreakdown.length
+                }{" "}
+                active statuses
               </span>
+
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1441,15 +2137,19 @@ const reportStats = useMemo(() => {
               <button
                 type="button"
                 onClick={() =>
-                  setStatusFilter("all")
+                  setStatusFilter(
+                    "all"
+                  )
                 }
                 className={`shrink-0 h-9 px-4 rounded-xl border text-xs font-black transition ${
-                  statusFilter === "all"
+                  statusFilter ===
+                  "all"
                     ? "text-white border-transparent"
                     : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
                 }`}
                 style={
-                  statusFilter === "all"
+                  statusFilter ===
+                  "all"
                     ? {
                         backgroundColor:
                           ACCENT,
@@ -1459,14 +2159,18 @@ const reportStats = useMemo(() => {
               >
                 All
                 <span className="ml-2 opacity-70">
-                  {filteredRecords.length}
+                  {
+                    filteredRecords.length
+                  }
                 </span>
               </button>
 
               {statusBreakdown.map(
                 (item) => (
                   <button
-                    key={item.name}
+                    key={
+                      item.name
+                    }
                     type="button"
                     onClick={() =>
                       setStatusFilter(
@@ -1477,9 +2181,14 @@ const reportStats = useMemo(() => {
                       item.name
                     )}`}
                   >
-                    {item.name}
+                    {
+                      item.name
+                    }
+
                     <span className="ml-2 opacity-70">
-                      {item.count}
+                      {
+                        item.count
+                      }
                     </span>
                   </button>
                 )
@@ -1489,7 +2198,7 @@ const reportStats = useMemo(() => {
           </section>
 
           {/* ==================================================
-              REPORT TABLE
+              TABLE
           ================================================== */}
 
           <section className="bg-white border border-slate-200 rounded-[22px] shadow-[0_8px_35px_rgba(15,23,42,0.05)] overflow-hidden">
@@ -1507,7 +2216,8 @@ const reportStats = useMemo(() => {
                     style={{
                       backgroundColor:
                         "#fff1f1",
-                      color: ACCENT,
+                      color:
+                        ACCENT,
                     }}
                   >
                     <TrendingUp
@@ -1527,26 +2237,38 @@ const reportStats = useMemo(() => {
 
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
 
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-black text-slate-500">
-                    <Users size={13} />
-                    {reportStats.uniqueUsers}
+                    <Users
+                      size={13}
+                    />
+
+                    {
+                      reportStats.uniqueUsers
+                    }{" "}
                     Users
                   </span>
 
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-black text-slate-500">
-                    <Layers3 size={13} />
-                    {reportStats.uniqueSheets}
+                    <Layers3
+                      size={13}
+                    />
+
+                    {
+                      reportStats.uniqueSheets
+                    }{" "}
                     Sheets
                   </span>
 
                   <span className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-black">
-                    {filteredRecords.length.toLocaleString()} Records
+                    {
+                      filteredRecords.length.toLocaleString()
+                    }{" "}
+                    Records
                   </span>
 
                 </div>
-
               </div>
             </div>
 
@@ -1560,7 +2282,8 @@ const reportStats = useMemo(() => {
 
             {/* EMPTY */}
 
-            {filteredRecords.length === 0 ? (
+            {filteredRecords.length ===
+            0 ? (
               <div className="py-20 px-6 text-center">
 
                 <div className="mx-auto h-16 w-16 rounded-2xl bg-slate-100 flex items-center justify-center">
@@ -1580,7 +2303,9 @@ const reportStats = useMemo(() => {
 
                 <button
                   type="button"
-                  onClick={clearFilters}
+                  onClick={
+                    clearFilters
+                  }
                   className="mt-5 h-10 px-4 rounded-xl text-xs font-black text-white"
                   style={{
                     backgroundColor:
@@ -1593,13 +2318,11 @@ const reportStats = useMemo(() => {
               </div>
             ) : (
               <>
-                {/* TABLE */}
+                <div className="max-h-[550px] overflow-auto">
 
-           <div className="max-h-[400px] overflow-auto">
+                  <table className="w-full min-w-[1700px] text-left">
 
-                  <table className="w-full min-w-[1450px] text-left">
-
-                    <thead className="sticky top-0 z-10">
+                    <thead className="sticky top-0 z-20">
 
                       <tr className="bg-slate-50/95 backdrop-blur border-b border-slate-200">
 
@@ -1614,29 +2337,55 @@ const reportStats = useMemo(() => {
                           "Comments",
                           "Sheet",
                           "Task ID",
-                        ].map((heading) => (
-                          <th
-                            key={heading}
-                            className="px-5 py-3.5 text-[10px] uppercase tracking-[0.12em] font-black text-slate-500 whitespace-nowrap"
-                          >
-                            {heading}
-                          </th>
-                        ))}
+                          "Action",
+                        ].map(
+                          (
+                            heading
+                          ) => (
+                            <th
+                              key={
+                                heading
+                              }
+                              className="px-5 py-3.5 text-[10px] uppercase tracking-[0.12em] font-black text-slate-500 whitespace-nowrap"
+                            >
+                              {
+                                heading
+                              }
+                            </th>
+                          )
+                        )}
 
                       </tr>
-
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
 
                       {paginatedRecords.map(
-                        (record, index) => {
-
+                        (
+                          record,
+                          index
+                        ) => {
                           const globalIndex =
-                            (safeCurrentPage - 1) *
+                            (safeCurrentPage -
+                              1) *
                               PAGE_SIZE +
                             index +
                             1;
+
+                          const assignmentId =
+                            String(
+                              getAssignmentId(
+                                record
+                              )
+                            );
+
+                          const isEditing =
+                            editingId ===
+                            assignmentId;
+
+                          const isSaving =
+                            savingId ===
+                            assignmentId;
 
                           const user =
                             getUserName(
@@ -1644,7 +2393,9 @@ const reportStats = useMemo(() => {
                             );
 
                           const contact =
-                            getName(record);
+                            getName(
+                              record
+                            );
 
                           const business =
                             getBusiness(
@@ -1652,7 +2403,9 @@ const reportStats = useMemo(() => {
                             );
 
                           const phone =
-                            getPhone(record);
+                            getPhone(
+                              record
+                            );
 
                           const status =
                             getStatus(
@@ -1665,10 +2418,14 @@ const reportStats = useMemo(() => {
                             );
 
                           const sheet =
-                            getSheet(record);
+                            getSheet(
+                              record
+                            );
 
                           const date =
-                            getDate(record);
+                            getDate(
+                              record
+                            );
 
                           const taskId =
                             getTaskId(
@@ -1677,13 +2434,18 @@ const reportStats = useMemo(() => {
 
                           return (
                             <tr
-                              key={`${record?.assignment_id || record?.id || globalIndex}-${globalIndex}`}
-                              className="group hover:bg-[#fffafa] transition-colors"
+                              key={`${assignmentId}-${globalIndex}`}
+                              className={`group transition-colors ${
+                                isEditing
+                                  ? "bg-red-50/30"
+                                  : "hover:bg-[#fffafa]"
+                              }`}
                             >
 
                               {/* NUMBER */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
+
                                 <span className="text-[11px] font-black text-slate-400">
                                   {String(
                                     globalIndex
@@ -1692,211 +2454,460 @@ const reportStats = useMemo(() => {
                                     "0"
                                   )}
                                 </span>
+
                               </td>
 
                               {/* DATE */}
 
-                              <td className="px-5 py-4">
-                                <div className="flex items-center gap-2.5">
+                              <td className="px-5 py-4 align-top">
 
-                                  <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                                    <CalendarDays
-                                      size={14}
-                                      className="text-slate-500"
-                                    />
+                                {isEditing ? (
+                                  <div className="w-[145px]">
+
+                                    <div className="relative">
+
+                                      <CalendarDays
+                                        size={14}
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                      />
+
+                                      <input
+                                        type="date"
+                                        value={
+                                          editForm.assignment_date
+                                        }
+                                        onChange={(
+                                          e
+                                        ) =>
+                                          updateEditField(
+                                            "assignment_date",
+                                            e
+                                              .target
+                                              .value
+                                          )
+                                        }
+                                        disabled={
+                                          isSaving
+                                        }
+                                        className="w-full h-9 pl-9 pr-2 rounded-lg border border-red-200 bg-white text-[11px] font-bold outline-none focus:ring-4 focus:ring-red-50"
+                                      />
+
+                                    </div>
                                   </div>
+                                ) : (
+                                  <div className="flex items-center gap-2.5">
 
-                                  <div>
-                                    <p className="text-xs font-black text-slate-700 whitespace-nowrap">
-                                      {formatDate(
-                                        date
-                                      )}
-                                    </p>
+                                    <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                                      <CalendarDays
+                                        size={14}
+                                        className="text-slate-500"
+                                      />
+                                    </div>
 
-                                    {normalizeDate(
-                                      date
-                                    ) && (
-                                      <p className="text-[10px] text-slate-400 mt-0.5">
-                                        Task date
+                                    <div>
+                                      <p className="text-xs font-black text-slate-700 whitespace-nowrap">
+                                        {formatDate(
+                                          date
+                                        )}
                                       </p>
-                                    )}
-                                  </div>
 
-                                </div>
+                                      {normalizeDate(
+                                        date
+                                      ) && (
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                          Task date
+                                        </p>
+                                      )}
+                                    </div>
+
+                                  </div>
+                                )}
+
                               </td>
 
                               {/* EMPLOYEE */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <div className="flex items-center gap-2.5">
+                                {isEditing ? (
+                                  <div className="w-[180px]">
 
-                                  <div
-                                    className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0 text-[11px] font-black"
-                                    style={{
-                                      backgroundColor:
-                                        "#fff1f1",
-                                      color:
-                                        ACCENT,
-                                    }}
-                                  >
-                                    {getInitials(
-                                      user
-                                    )}
-                                  </div>
-
-                                  <div className="max-w-[145px]">
-
-                                    <p
-                                      title={
-                                        user
+                                    <select
+                                      value={
+                                        editForm.employee_id
                                       }
-                                      className="text-xs font-black text-slate-800 truncate"
+                                      onChange={(
+                                        e
+                                      ) =>
+                                        updateEditField(
+                                          "employee_id",
+                                          e
+                                            .target
+                                            .value
+                                        )
+                                      }
+                                      disabled={
+                                        isSaving
+                                      }
+                                      className="w-full h-9 px-2.5 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
                                     >
-                                      {user}
-                                    </p>
+                                      <option value="">
+                                        Select Employee
+                                      </option>
 
-                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                      Assigned employee
-                                    </p>
+                                      {userOptions.map(
+                                        (
+                                          employee
+                                        ) => (
+                                          <option
+                                            key={
+                                              employee.id
+                                            }
+                                            value={
+                                              employee.id
+                                            }
+                                          >
+                                            {
+                                              employee.name
+                                            }
+                                          </option>
+                                        )
+                                      )}
+                                    </select>
 
                                   </div>
+                                ) : (
+                                  <div className="flex items-center gap-2.5">
 
-                                </div>
+                                    <div
+                                      className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0 text-[11px] font-black"
+                                      style={{
+                                        backgroundColor:
+                                          "#fff1f1",
+                                        color:
+                                          ACCENT,
+                                      }}
+                                    >
+                                      {getInitials(
+                                        user
+                                      )}
+                                    </div>
+
+                                    <div className="max-w-[145px]">
+
+                                      <p
+                                        title={
+                                          user
+                                        }
+                                        className="text-xs font-black text-slate-800 truncate"
+                                      >
+                                        {
+                                          user
+                                        }
+                                      </p>
+
+                                      <p className="text-[10px] text-slate-400 mt-0.5">
+                                        Assigned employee
+                                      </p>
+
+                                    </div>
+
+                                  </div>
+                                )}
 
                               </td>
 
                               {/* BUSINESS */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <div className="max-w-[210px]">
-
-                                  <p
-                                    title={
-                                      business
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={
+                                      editForm.business_name
                                     }
-                                    className="text-xs font-black text-slate-800 truncate"
-                                  >
-                                    {business}
-                                  </p>
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      updateEditField(
+                                        "business_name",
+                                        e
+                                          .target
+                                          .value
+                                      )
+                                    }
+                                    disabled={
+                                      isSaving
+                                    }
+                                    placeholder="Business name"
+                                    className="w-[210px] h-9 px-3 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                  />
+                                ) : (
+                                  <div className="max-w-[210px]">
 
-                                  {safeString(
-                                    record?.sourceFile
-                                  ) && (
                                     <p
-                                      title={safeString(
-                                        record?.sourceFile
-                                      )}
-                                      className="text-[10px] text-slate-400 mt-1 truncate"
+                                      title={
+                                        business
+                                      }
+                                      className="text-xs font-black text-slate-800 truncate"
                                     >
-                                      {safeString(
-                                        record?.sourceFile
-                                      )}
+                                      {
+                                        business
+                                      }
                                     </p>
-                                  )}
 
-                                </div>
+                                    {safeString(
+                                      record?.sourceFile
+                                    ) && (
+                                      <p
+                                        title={safeString(
+                                          record?.sourceFile
+                                        )}
+                                        className="text-[10px] text-slate-400 mt-1 truncate"
+                                      >
+                                        {safeString(
+                                          record?.sourceFile
+                                        )}
+                                      </p>
+                                    )}
+
+                                  </div>
+                                )}
 
                               </td>
 
                               {/* CONTACT */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <div className="flex items-center gap-2.5">
-
-                                  <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
-                                    {getInitials(
-                                      contact
-                                    )}
-                                  </div>
-
-                                  <span
-                                    title={
-                                      contact
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={
+                                      editForm.name
                                     }
-                                    className="text-xs font-bold text-slate-700 max-w-[150px] truncate"
-                                  >
-                                    {contact}
-                                  </span>
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      updateEditField(
+                                        "name",
+                                        e
+                                          .target
+                                          .value
+                                      )
+                                    }
+                                    disabled={
+                                      isSaving
+                                    }
+                                    placeholder="Contact name"
+                                    className="w-[180px] h-9 px-3 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-2.5">
 
-                                </div>
+                                    <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
+                                      {getInitials(
+                                        contact
+                                      )}
+                                    </div>
+
+                                    <span
+                                      title={
+                                        contact
+                                      }
+                                      className="text-xs font-bold text-slate-700 max-w-[150px] truncate"
+                                    >
+                                      {
+                                        contact
+                                      }
+                                    </span>
+
+                                  </div>
+                                )}
 
                               </td>
 
                               {/* PHONE */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <div className="flex items-center gap-2 whitespace-nowrap">
+                                {isEditing ? (
+                                  <div className="relative w-[160px]">
 
-                                  <Phone
-                                    size={14}
-                                    className="text-slate-400"
-                                  />
+                                    <Phone
+                                      size={13}
+                                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                    />
 
-                                  <span className="text-xs font-black text-slate-700">
-                                    {formatPhone(
-                                      phone
-                                    )}
-                                  </span>
+                                    <input
+                                      type="text"
+                                      value={
+                                        editForm.phone
+                                      }
+                                      onChange={(
+                                        e
+                                      ) =>
+                                        updateEditField(
+                                          "phone",
+                                          e
+                                            .target
+                                            .value
+                                        )
+                                      }
+                                      disabled={
+                                        isSaving
+                                      }
+                                      placeholder="Phone"
+                                      className="w-full h-9 pl-8 pr-2 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                    />
 
-                                </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 whitespace-nowrap">
+
+                                    <Phone
+                                      size={14}
+                                      className="text-slate-400"
+                                    />
+
+                                    <span className="text-xs font-black text-slate-700">
+                                      {formatPhone(
+                                        phone
+                                      )}
+                                    </span>
+
+                                  </div>
+                                )}
 
                               </td>
 
                               {/* STATUS */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setStatusFilter(
+                                {isEditing ? (
+                                  <select
+                                    value={
+                                      editForm.status
+                                    }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      updateEditField(
+                                        "status",
+                                        e
+                                          .target
+                                          .value
+                                      )
+                                    }
+                                    disabled={
+                                      isSaving
+                                    }
+                                    className="w-[160px] h-9 px-2.5 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                  >
+                                    <option value="">
+                                      Select Status
+                                    </option>
+
+                                    {statusOptions.map(
+                                      (
+                                        item
+                                      ) => (
+                                        <option
+                                          key={
+                                            item
+                                          }
+                                          value={
+                                            item
+                                          }
+                                        >
+                                          {
+                                            item
+                                          }
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setStatusFilter(
+                                        status
+                                      )
+                                    }
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-black whitespace-nowrap hover:shadow-sm transition ${statusClasses(
                                       status
-                                    )
-                                  }
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-black whitespace-nowrap hover:shadow-sm transition ${statusClasses(
-                                    status
-                                  )}`}
-                                  title="Filter by this status"
-                                >
-                                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                    )}`}
+                                    title="Filter by this status"
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
 
-                                  {status}
-                                </button>
+                                    {
+                                      status
+                                    }
+                                  </button>
+                                )}
 
                               </td>
 
                               {/* COMMENTS */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
-                                <div className="flex items-start gap-2 max-w-[260px]">
-
-                                  <MessageSquare
-                                    size={14}
-                                    className="text-slate-300 mt-0.5 shrink-0"
-                                  />
-
-                                  <p
-                                    title={
-                                      comment
+                                {isEditing ? (
+                                  <textarea
+                                    value={
+                                      editForm.comment
                                     }
-                                    className="text-xs text-slate-500 leading-5 truncate"
-                                  >
-                                    {comment ||
-                                      "No comments"}
-                                  </p>
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      updateEditField(
+                                        "comment",
+                                        e
+                                          .target
+                                          .value
+                                      )
+                                    }
+                                    disabled={
+                                      isSaving
+                                    }
+                                    placeholder="Comments"
+                                    rows={
+                                      2
+                                    }
+                                    className="w-[270px] min-h-[72px] px-3 py-2 rounded-lg border border-red-200 bg-white text-[11px] font-medium text-slate-700 outline-none resize-none focus:ring-4 focus:ring-red-50"
+                                  />
+                                ) : (
+                                  <div className="flex items-start gap-2 max-w-[260px]">
 
-                                </div>
+                                    <MessageSquare
+                                      size={14}
+                                      className="text-slate-300 mt-0.5 shrink-0"
+                                    />
+
+                                    <p
+                                      title={
+                                        comment
+                                      }
+                                      className="text-xs text-slate-500 leading-5 truncate"
+                                    >
+                                      {
+                                        comment ||
+                                        "No comments"
+                                      }
+                                    </p>
+
+                                  </div>
+                                )}
 
                               </td>
 
                               {/* SHEET */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
                                 <button
                                   type="button"
@@ -1907,7 +2918,10 @@ const reportStats = useMemo(() => {
                                       sheet
                                     )
                                   }
-                                  className="inline-flex items-center gap-1.5 max-w-[180px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[10px] font-black text-slate-600 hover:bg-slate-100 transition"
+                                  disabled={
+                                    isEditing
+                                  }
+                                  className="inline-flex items-center gap-1.5 max-w-[180px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[10px] font-black text-slate-600 hover:bg-slate-100 transition disabled:opacity-70"
                                 >
                                   <Layers3
                                     size={12}
@@ -1915,7 +2929,9 @@ const reportStats = useMemo(() => {
                                   />
 
                                   <span className="truncate">
-                                    {sheet}
+                                    {
+                                      sheet
+                                    }
                                   </span>
                                 </button>
 
@@ -1923,11 +2939,102 @@ const reportStats = useMemo(() => {
 
                               {/* TASK ID */}
 
-                              <td className="px-5 py-4">
+                              <td className="px-5 py-4 align-top">
 
                                 <span className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-slate-950 text-white text-[10px] font-black font-mono whitespace-nowrap">
-                                  #{taskId}
+                                  #
+                                  {
+                                    taskId
+                                  }
                                 </span>
+
+                              </td>
+
+                              {/* ACTION */}
+
+                              <td className="px-5 py-4 align-top">
+
+                                {isEditing ? (
+                                  <div className="flex items-center gap-2">
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        saveEdit(
+                                          record
+                                        )
+                                      }
+                                      disabled={
+                                        isSaving
+                                      }
+                                      className="h-9 px-3 rounded-lg text-white text-[10px] font-black inline-flex items-center gap-1.5 transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      style={{
+                                        backgroundColor:
+                                          "#16a34a",
+                                      }}
+                                    >
+                                      {isSaving ? (
+                                        <Loader2
+                                          size={
+                                            13
+                                          }
+                                          className="animate-spin"
+                                        />
+                                      ) : (
+                                        <Save
+                                          size={
+                                            13
+                                          }
+                                        />
+                                      )}
+
+                                      {isSaving
+                                        ? "Saving..."
+                                        : "Save"}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={
+                                        cancelEdit
+                                      }
+                                      disabled={
+                                        isSaving
+                                      }
+                                      className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-[10px] font-black inline-flex items-center gap-1.5 hover:bg-slate-50 transition disabled:opacity-50"
+                                    >
+                                      <X
+                                        size={
+                                          13
+                                        }
+                                      />
+                                      Cancel
+                                    </button>
+
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      startEdit(
+                                        record
+                                      )
+                                    }
+                                    disabled={
+                                      Boolean(
+                                        editingId
+                                      )
+                                    }
+                                    className="h-9 px-3 rounded-lg border border-red-200 bg-red-50 text-red-600 text-[10px] font-black inline-flex items-center gap-1.5 hover:bg-red-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                  >
+                                    <Pencil
+                                      size={
+                                        13
+                                      }
+                                    />
+                                    Edit
+                                  </button>
+                                )}
 
                               </td>
 
@@ -1998,7 +3105,10 @@ const reportStats = useMemo(() => {
                         }
                         disabled={
                           safeCurrentPage <=
-                          1
+                          1 ||
+                          Boolean(
+                            editingId
+                          )
                         }
                         className="h-9 w-9 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
@@ -2009,15 +3119,19 @@ const reportStats = useMemo(() => {
 
                       {Array.from(
                         {
-                          length: Math.min(
-                            totalPages,
-                            7
-                          ),
+                          length:
+                            Math.min(
+                              totalPages,
+                              7
+                            ),
                         },
-                        (_, index) => {
-
+                        (
+                          _,
+                          index
+                        ) => {
                           let page =
-                            index + 1;
+                            index +
+                            1;
 
                           if (
                             totalPages >
@@ -2037,13 +3151,18 @@ const reportStats = useMemo(() => {
                           return (
                             <button
                               type="button"
-                              key={page}
+                              key={
+                                page
+                              }
                               onClick={() =>
                                 changePage(
                                   page
                                 )
                               }
-                              className={`h-9 min-w-9 px-2 rounded-lg text-[11px] font-black transition ${
+                              disabled={Boolean(
+                                editingId
+                              )}
+                              className={`h-9 min-w-9 px-2 rounded-lg text-[11px] font-black transition disabled:opacity-40 ${
                                 safeCurrentPage ===
                                 page
                                   ? "text-white"
@@ -2059,7 +3178,9 @@ const reportStats = useMemo(() => {
                                   : undefined
                               }
                             >
-                              {page}
+                              {
+                                page
+                              }
                             </button>
                           );
                         }
@@ -2075,7 +3196,10 @@ const reportStats = useMemo(() => {
                         }
                         disabled={
                           safeCurrentPage >=
-                          totalPages
+                            totalPages ||
+                          Boolean(
+                            editingId
+                          )
                         }
                         className="h-9 w-9 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
@@ -2094,6 +3218,24 @@ const reportStats = useMemo(() => {
 
           </section>
 
+          {/* ==================================================
+              EDIT INFO
+          ================================================== */}
+
+          <div className="mt-4 flex items-center gap-2 px-1 text-[10px] text-slate-400 font-medium">
+
+            <UserRound
+              size={12}
+            />
+
+            <span>
+              Admin can edit Date, Employee, Business, Contact,
+              Phone, Status and Comments. Sheet and Task ID are
+              read-only.
+            </span>
+
+          </div>
+
         </div>
       </main>
 
@@ -2104,11 +3246,17 @@ const reportStats = useMemo(() => {
       {showLogout && (
         <LogoutModal
           onClose={() =>
-            setShowLogout(false)
+            setShowLogout(
+              false
+            )
           }
           onConfirm={() => {
-            setShowLogout(false);
-            router.push("/login");
+            setShowLogout(
+              false
+            );
+            router.push(
+              "/login"
+            );
           }}
         />
       )}

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import LogoutModal from "../../components/LogoutModal";
+
 import {
   useState,
   useCallback,
@@ -438,11 +439,21 @@ export default function DashboardPage() {
         return null;
       }
 
+      /*
+       * 804.0 -> 804
+       * 804.00 -> 804
+       */
       if (
-        /^\d+\.0+$/.test(cleaned)
+        /^\d+\.\d+$/.test(cleaned)
       ) {
-        cleaned =
-          cleaned.split(".")[0];
+        const [
+          numberPart,
+          decimalPart,
+        ] = cleaned.split(".");
+
+        if (/^0+$/.test(decimalPart)) {
+          cleaned = numberPart;
+        }
       }
 
       cleaned = cleaned.replace(
@@ -643,13 +654,19 @@ export default function DashboardPage() {
         }
 
         const hMatch =
-          trimmed.match(/(\d+)\s*h/i);
+          trimmed.match(
+            /(\d+)\s*h/i
+          );
 
         const mMatch =
-          trimmed.match(/(\d+)\s*m/i);
+          trimmed.match(
+            /(\d+)\s*m/i
+          );
 
         const sMatch =
-          trimmed.match(/(\d+)\s*s/i);
+          trimmed.match(
+            /(\d+)\s*s/i
+          );
 
         if (
           hMatch ||
@@ -671,7 +688,8 @@ export default function DashboardPage() {
           );
         }
 
-        const numeric = Number(trimmed);
+        const numeric =
+          Number(trimmed);
 
         if (!Number.isNaN(numeric)) {
           return numeric;
@@ -820,8 +838,7 @@ export default function DashboardPage() {
   /* =======================================================
      GET OWNER EXTENSION
 
-     IMPORTANT:
-     API crm_extension is PRIMARY.
+     crm_extension = PRIMARY OWNER
   ======================================================= */
 
   const getCallOwnerExtension =
@@ -829,28 +846,38 @@ export default function DashboardPage() {
       (call) => {
         if (!call) return null;
 
-        /* -----------------------------------------------
-           API CALCULATED EXTENSION
-        ----------------------------------------------- */
-
+        /*
+         * FIRST PRIORITY:
+         * API calculated CRM extension.
+         */
         const apiExtension =
           normalizeExtension(
             call?.crm_extension
-          ) ||
-          normalizeExtension(
-            call?.owner_extension
           );
 
         if (apiExtension) {
           return apiExtension;
         }
 
+        /*
+         * SECOND:
+         * Existing owner extension.
+         */
+        const ownerExtension =
+          normalizeExtension(
+            call?.owner_extension
+          );
+
+        if (ownerExtension) {
+          return ownerExtension;
+        }
+
         const direction =
           getCallDirection(call);
 
-        /* -----------------------------------------------
-           CALLER EXTENSION
-        ----------------------------------------------- */
+        /*
+         * CALLER EXTENSION
+         */
 
         const callerExtension =
           normalizeExtension(
@@ -900,9 +927,9 @@ export default function DashboardPage() {
               ?.ext_number
           );
 
-        /* -----------------------------------------------
-           CALLEE / RECEIVER EXTENSION
-        ----------------------------------------------- */
+        /*
+         * CALLEE EXTENSION
+         */
 
         const receiverExtension =
           normalizeExtension(
@@ -964,9 +991,10 @@ export default function DashboardPage() {
               ?.ext_number
           );
 
-        /* -----------------------------------------------
-           INBOUND = CRM USER IS CALLEE
-        ----------------------------------------------- */
+        /*
+         * INBOUND:
+         * CRM user = callee
+         */
 
         if (direction === "inbound") {
           return (
@@ -976,9 +1004,10 @@ export default function DashboardPage() {
           );
         }
 
-        /* -----------------------------------------------
-           OUTBOUND = CRM USER IS CALLER
-        ----------------------------------------------- */
+        /*
+         * OUTBOUND:
+         * CRM user = caller
+         */
 
         if (direction === "outbound") {
           return (
@@ -988,9 +1017,9 @@ export default function DashboardPage() {
           );
         }
 
-        /* -----------------------------------------------
-           UNKNOWN DIRECTION
-        ----------------------------------------------- */
+        /*
+         * UNKNOWN
+         */
 
         return (
           normalizeExtension(
@@ -1203,118 +1232,11 @@ export default function DashboardPage() {
     }, []);
 
   /* =======================================================
-     CALL UNIQUE KEY
-  ======================================================= */
-
-  const getCallUniqueKey =
-    useCallback((call, index = 0) => {
-      if (!call) {
-        return `unknown-${index}`;
-      }
-
-      const directId =
-        call?.id ??
-        call?.call_id ??
-        call?.callId ??
-        call?.zoom_call_id ??
-        call?.call_history_uuid ??
-        call?.uuid ??
-        call?.call_uuid;
-
-      if (
-        directId !== undefined &&
-        directId !== null
-      ) {
-        return `id-${String(
-          directId
-        )}`;
-      }
-
-      const start =
-        call?.start_time ||
-        call?.startTime ||
-        call?.start_datetime ||
-        call?.startDateTime ||
-        "";
-
-      const caller =
-        call?.caller_number ||
-        call?.callerNumber ||
-        call?.from_number ||
-        call?.fromNumber ||
-        "";
-
-      const receiver =
-        call?.receiver_number ||
-        call?.receiverNumber ||
-        call?.to_number ||
-        call?.toNumber ||
-        "";
-
-      const extension =
-        call?.crm_extension ||
-        call?.caller_extension ||
-        call?.callee_extension ||
-        call?.extension ||
-        "";
-
-      return [
-        "fallback",
-        start,
-        caller,
-        receiver,
-        extension,
-      ]
-        .map(String)
-        .join("|");
-    }, []);
-
-  /* =======================================================
-     MERGE CALLS
-  ======================================================= */
-
-  const mergeCalls =
-    useCallback(
-      (oldCalls, newCalls) => {
-        const map = new Map();
-
-        if (Array.isArray(oldCalls)) {
-          oldCalls.forEach(
-            (call, index) => {
-              map.set(
-                getCallUniqueKey(
-                  call,
-                  index
-                ),
-                call
-              );
-            }
-          );
-        }
-
-        if (Array.isArray(newCalls)) {
-          newCalls.forEach(
-            (call, index) => {
-              map.set(
-                getCallUniqueKey(
-                  call,
-                  index
-                ),
-                call
-              );
-            }
-          );
-        }
-
-        return Array.from(
-          map.values()
-        );
-      },
-      [getCallUniqueKey]
-    );
-
-  /* =======================================================
      FETCH CALL HISTORY
+
+     IMPORTANT:
+     NO DEDUPLICATION HERE.
+     Every API record remains a separate call.
   ======================================================= */
 
   const fetchCallHistory =
@@ -1372,6 +1294,16 @@ export default function DashboardPage() {
           );
         }
 
+        /*
+         * IMPORTANT:
+         * Directly return API array.
+         * NO Set.
+         * NO Map.
+         * NO unique filtering.
+         * NO phone filtering.
+         * NO ID filtering.
+         */
+
         return {
           data,
           calls: getCallList(data),
@@ -1398,9 +1330,6 @@ export default function DashboardPage() {
         const currentRequestId =
           ++requestIdRef.current;
 
-        const controller =
-          new AbortController();
-
         try {
           if (showSpinner) {
             setRefreshing(true);
@@ -1413,8 +1342,6 @@ export default function DashboardPage() {
               from: startDate,
               to: endDate,
               mode: "full",
-              signal:
-                controller.signal,
             });
 
           if (
@@ -1424,14 +1351,21 @@ export default function DashboardPage() {
             return;
           }
 
+          /*
+           * Keep complete API response
+           * for debug information.
+           */
           setRawApiResponse(
             result.data
           );
 
+          /*
+           * IMPORTANT:
+           * Store EVERY record.
+           * No dedupe.
+           */
           setCalls(
-            Array.isArray(
-              result.calls
-            )
+            Array.isArray(result.calls)
               ? result.calls
               : []
           );
@@ -1467,6 +1401,15 @@ export default function DashboardPage() {
 
   /* =======================================================
      LIVE TODAY REFRESH
+
+     IMPORTANT:
+     NEVER USE MAP / UNIQUE KEY.
+
+     Historical calls remain.
+     Today's old calls are replaced by
+     today's complete API response.
+
+     Duplicate records are preserved.
   ======================================================= */
 
   const loadTodayLiveCalls =
@@ -1497,9 +1440,6 @@ export default function DashboardPage() {
       const currentRequestId =
         ++requestIdRef.current;
 
-      const controller =
-        new AbortController();
-
       try {
         setLiveRefreshing(true);
 
@@ -1508,8 +1448,6 @@ export default function DashboardPage() {
             from: today,
             to: today,
             mode: "live",
-            signal:
-              controller.signal,
           });
 
         if (
@@ -1520,46 +1458,62 @@ export default function DashboardPage() {
         }
 
         const todayCalls =
-          Array.isArray(
-            result.calls
-          )
+          Array.isArray(result.calls)
             ? result.calls
             : [];
 
-        const oldCalls =
-          Array.isArray(calls)
-            ? calls
-            : [];
+        /*
+         * Functional state update avoids
+         * stale "calls" closure.
+         */
+        setCalls((previousCalls) => {
+          const oldCalls =
+            Array.isArray(
+              previousCalls
+            )
+              ? previousCalls
+              : [];
 
-        const oldHistoricalCalls =
-          oldCalls.filter(
-            (call) => {
-              const date =
-                getCallDate(call);
+          /*
+           * Keep only calls outside today.
+           *
+           * IMPORTANT:
+           * This does NOT deduplicate.
+           */
+          const oldHistoricalCalls =
+            oldCalls.filter(
+              (call) => {
+                const date =
+                  getCallDate(call);
 
-              if (!date) {
-                return true;
-              }
+                if (!date) {
+                  return true;
+                }
 
-              const californiaDate =
-                getCaliforniaDateString(
-                  date
+                const californiaDate =
+                  getCaliforniaDateString(
+                    date
+                  );
+
+                return (
+                  californiaDate !==
+                  today
                 );
+              }
+            );
 
-              return (
-                californiaDate !==
-                today
-              );
-            }
-          );
-
-        const merged =
-          mergeCalls(
-            oldHistoricalCalls,
-            todayCalls
-          );
-
-        setCalls(merged);
+          /*
+           * Simply append ALL today's
+           * records returned by API.
+           *
+           * Duplicate IDs / phone numbers
+           * are intentionally preserved.
+           */
+          return [
+            ...oldHistoricalCalls,
+            ...todayCalls,
+          ];
+        });
 
         setRawApiResponse(
           result.data
@@ -1585,10 +1539,8 @@ export default function DashboardPage() {
     }, [
       startDate,
       endDate,
-      calls,
       getCallDate,
       fetchCallHistory,
-      mergeCalls,
     ]);
 
   /* =======================================================
@@ -1750,10 +1702,15 @@ export default function DashboardPage() {
      NORMALIZED CALLS
 
      ADMIN:
-       ALL CALLS
+       ALL API RECORDS
 
      USER:
-       ONLY OWN EXTENSION
+       ONLY crm_extension === MY EXTENSION
+
+     VERY IMPORTANT:
+       Do NOT check crm_caller_extension
+       Do NOT check crm_callee_extension
+       for user ownership.
   ======================================================= */
 
   const normalizedCalls =
@@ -1778,6 +1735,52 @@ export default function DashboardPage() {
           continue;
         }
 
+        /*
+         * =================================================
+         * PRIMARY OWNER
+         *
+         * API crm_extension is authoritative.
+         * =================================================
+         */
+
+        const apiOwnerExtension =
+          normalizeExtension(
+            call?.crm_extension
+          );
+
+        /*
+         * USER FILTER
+         *
+         * ONLY exact crm_extension.
+         *
+         * Example:
+         *
+         * API:
+         * crm_extension = 804
+         *
+         * Logged user:
+         * zoom_extension = 804
+         *
+         * => COUNT
+         *
+         * Even if:
+         * crm_caller_extension = 804
+         * or
+         * crm_callee_extension = 804
+         *
+         * those fields are NOT used for ownership.
+         */
+
+        if (!isAdmin) {
+          if (
+            !currentUserExtension ||
+            apiOwnerExtension !==
+              currentUserExtension
+          ) {
+            continue;
+          }
+        }
+
         const status =
           getCallStatus(call);
 
@@ -1788,53 +1791,19 @@ export default function DashboardPage() {
           getDurationSeconds(call);
 
         /*
-         * IMPORTANT:
-         * API crm_extension is primary.
+         * Owner:
+         *
+         * Admin -> API crm_extension
+         * User  -> API crm_extension
          */
-        const ownerExtension =
-          normalizeExtension(
-            call?.crm_extension
-          ) ||
-          getCallOwnerExtension(
-            call
-          );
-
         const normalizedOwner =
-          normalizeExtension(
-            ownerExtension
-          );
+          apiOwnerExtension ||
+          (isAdmin
+            ? getCallOwnerExtension(
+                call
+              )
+            : null);
 
-        /*
-         * ===============================================
-         * NORMAL USER FILTER
-         * ===============================================
-         *
-         * Admin:
-         *   No extension restriction.
-         *
-         * User:
-         *   ONLY own extension.
-         */
-
-        if (!isAdmin) {
-          if (
-            !currentUserExtension ||
-            !normalizedOwner
-          ) {
-            continue;
-          }
-
-          if (
-            normalizedOwner !==
-            currentUserExtension
-          ) {
-            continue;
-          }
-        }
-
-        /*
-         * Staff name from extension.
-         */
         const staffFromExtension =
           normalizedOwner
             ? staffByExtension.get(
@@ -1853,8 +1822,19 @@ export default function DashboardPage() {
             date
           );
 
+        /*
+         * IMPORTANT:
+         *
+         * Every call pushes one record.
+         *
+         * No Map.
+         * No Set.
+         * No unique ID.
+         * No phone dedupe.
+         */
         result.push({
           original: call,
+          sourceIndex: index,
           date,
           californiaDate,
           status,
@@ -1897,7 +1877,9 @@ export default function DashboardPage() {
         return normalizedCalls;
       }
 
-      if (startDate > endDate) {
+      if (
+        startDate > endDate
+      ) {
         return [];
       }
 
@@ -1916,8 +1898,6 @@ export default function DashboardPage() {
 
   /* =======================================================
      AVAILABLE EXTENSIONS
-
-     Automatically from actual API calls.
   ======================================================= */
 
   const availableExtensions =
@@ -1938,11 +1918,6 @@ export default function DashboardPage() {
         }
       }
 
-      /*
-       * Normal user should still know
-       * their own extension even when
-       * there are zero calls.
-       */
       if (
         !isAdmin &&
         currentUserExtension
@@ -1983,6 +1958,17 @@ export default function DashboardPage() {
 
   /* =======================================================
      STATS
+
+     EVERY filteredCalls item = 1 call.
+
+     Duplicate call IDs:
+       COUNTED
+
+     Duplicate phone:
+       COUNTED
+
+     Duplicate timestamp:
+       COUNTED
   ======================================================= */
 
   const stats = useMemo(() => {
@@ -1992,6 +1978,9 @@ export default function DashboardPage() {
     let talkSeconds = 0;
 
     for (const call of filteredCalls) {
+      /*
+       * One returned record = one call.
+       */
       total++;
 
       if (
@@ -2086,8 +2075,16 @@ export default function DashboardPage() {
   /* =======================================================
      TOP STAFF
 
-     Uses ACTUAL returned call extensions.
-     No hardcoded extensions.
+     Groups records by crm_extension.
+
+     IMPORTANT:
+     Grouping is NOT deduplication.
+
+     If extension 804 has:
+       610 records
+
+     then:
+       totalCalls = 610
   ======================================================= */
 
   const topStaff =
@@ -2132,6 +2129,9 @@ export default function DashboardPage() {
           );
         }
 
+        /*
+         * Every record increments.
+         */
         data.totalCalls++;
 
         if (
@@ -2242,6 +2242,9 @@ export default function DashboardPage() {
           continue;
         }
 
+        /*
+         * Every call increments once.
+         */
         bucket.total++;
 
         if (
@@ -2316,12 +2319,22 @@ export default function DashboardPage() {
               original?.toNumber ||
               "Unknown Number";
 
+            /*
+             * UI key only.
+             *
+             * This does NOT affect
+             * call counting.
+             */
+            const activityId =
+              original?.id ||
+              original?.zoom_call_id ||
+              original?.call_history_uuid ||
+              `${call.date.getTime()}-${call.sourceIndex}-${index}`;
+
             return {
-              id:
-                original?.id ||
-                original?.zoom_call_id ||
-                original?.call_history_uuid ||
-                `${call.date.getTime()}-${index}`,
+              id: String(
+                activityId
+              ),
 
               name:
                 call.staffName ||
@@ -2480,6 +2493,30 @@ export default function DashboardPage() {
     };
 
   /* =======================================================
+     API DEBUG VALUES
+  ======================================================= */
+
+  const apiReportedTotal =
+    Number(
+      rawApiResponse?.total
+    );
+
+  const apiReportedFilteredTotal =
+    Number(
+      rawApiResponse?.filteredTotal
+    );
+
+  const apiReportedRawTotal =
+    Number(
+      rawApiResponse?.rawTotal
+    );
+
+  const apiReportedDuplicateTotal =
+    Number(
+      rawApiResponse?.duplicateTotal
+    );
+
+  /* =======================================================
      RENDER
   ======================================================= */
 
@@ -2596,13 +2633,17 @@ export default function DashboardPage() {
                     </span>
 
                     <span className="font-semibold text-gray-600">
-                      {currentCaliforniaDate}
+                      {
+                        currentCaliforniaDate
+                      }
                     </span>
 
                     <span>•</span>
 
                     <span className="font-semibold text-gray-600">
-                      {currentCaliforniaTime}
+                      {
+                        currentCaliforniaTime
+                      }
                     </span>
 
                     {!isAdmin &&
@@ -2727,6 +2768,8 @@ export default function DashboardPage() {
               {/* STATS */}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {/* TOTAL */}
+
                 <div className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2735,22 +2778,31 @@ export default function DashboardPage() {
                       </p>
 
                       <h2 className="mt-2 text-3xl font-bold">
-                        {totalCalls}
+                        {
+                          totalCalls
+                        }
                       </h2>
                     </div>
 
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#790214]/10 text-[#790214]">
-                      <Phone size={21} />
+                      <Phone
+                        size={21}
+                      />
                     </div>
                   </div>
 
                   <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
-                    <TrendingUp size={14} />
+                    <TrendingUp
+                      size={14}
+                    />
+
                     <span>
                       Selected date range
                     </span>
                   </div>
                 </div>
+
+                {/* ANSWERED */}
 
                 <div className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
@@ -2760,7 +2812,9 @@ export default function DashboardPage() {
                       </p>
 
                       <h2 className="mt-2 text-3xl font-bold text-green-600">
-                        {answeredCount}
+                        {
+                          answeredCount
+                        }
                       </h2>
                     </div>
 
@@ -2779,6 +2833,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {/* MISSED */}
+
                 <div className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2787,12 +2843,16 @@ export default function DashboardPage() {
                       </p>
 
                       <h2 className="mt-2 text-3xl font-bold text-red-600">
-                        {missedCount}
+                        {
+                          missedCount
+                        }
                       </h2>
                     </div>
 
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600">
-                      <PhoneOff size={21} />
+                      <PhoneOff
+                        size={21}
+                      />
                     </div>
                   </div>
 
@@ -2810,6 +2870,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {/* TALK TIME */}
+
                 <div className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2825,7 +2887,9 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                      <Clock size={21} />
+                      <Clock
+                        size={21}
+                      />
                     </div>
                   </div>
 
@@ -2839,6 +2903,8 @@ export default function DashboardPage() {
               {/* CHART + DONUT */}
 
               <div className="mt-6 grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-3">
+                {/* CHART */}
+
                 <div className="min-w-0 overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6 xl:col-span-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -2854,7 +2920,9 @@ export default function DashboardPage() {
                     <div className="text-sm text-gray-500">
                       Peak:
                       <span className="ml-1 font-semibold text-[#790214]">
-                        {chartMax}
+                        {
+                          chartMax
+                        }
                       </span>
                     </div>
                   </div>
@@ -2930,6 +2998,8 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </div>
+
+                {/* DONUT */}
 
                 <div className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6">
                   <h2 className="text-lg font-bold">
@@ -3128,7 +3198,9 @@ export default function DashboardPage() {
                       </div>
                     ) : (
                       liveActivities.map(
-                        (activity) => (
+                        (
+                          activity
+                        ) => (
                           <div
                             key={
                               activity.id
@@ -3284,14 +3356,64 @@ export default function DashboardPage() {
                     <p className="mt-1 text-xs text-gray-500">
                       Calls loaded from
                       API:{" "}
-                      {calls.length}
+                      <span className="font-semibold text-gray-700">
+                        {
+                          calls.length
+                        }
+                      </span>
                     </p>
 
                     <p className="mt-1 text-xs text-gray-500">
                       Dashboard records:{" "}
-                      {
-                        filteredCalls.length
-                      }
+                      <span className="font-semibold text-[#790214]">
+                        {
+                          filteredCalls.length
+                        }
+                      </span>
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-500">
+                      API reported total:{" "}
+                      <span className="font-semibold text-gray-700">
+                        {Number.isFinite(
+                          apiReportedTotal
+                        )
+                          ? apiReportedTotal
+                          : "-"}
+                      </span>
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-500">
+                      API filtered total:{" "}
+                      <span className="font-semibold text-gray-700">
+                        {Number.isFinite(
+                          apiReportedFilteredTotal
+                        )
+                          ? apiReportedFilteredTotal
+                          : "-"}
+                      </span>
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-500">
+                      API raw total:{" "}
+                      <span className="font-semibold text-gray-700">
+                        {Number.isFinite(
+                          apiReportedRawTotal
+                        )
+                          ? apiReportedRawTotal
+                          : "-"}
+                      </span>
+                    </p>
+
+                    <p className="mt-1 text-xs text-gray-500">
+                      API duplicate records:{" "}
+                      <span className="font-semibold text-[#790214]">
+                        {Number.isFinite(
+                          apiReportedDuplicateTotal
+                        )
+                          ? apiReportedDuplicateTotal
+                          : "0"}
+                      </span>
                     </p>
 
                     <p className="mt-1 text-xs text-gray-500">
