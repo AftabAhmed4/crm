@@ -159,6 +159,7 @@
 
 
 import { NextResponse } from "next/server";
+import { isSessionCurrentForCaliforniaDay } from "./lib/california-logout";
 
 // 1. Restricted Routes: SIRF ADMIN KO DIKHAYENGI
 const adminOnlyRoutes = [
@@ -218,7 +219,12 @@ export function proxy(request) {
     const payload = decodeJwtPayload(token);
     
     // Token expiry check (exp in seconds)
-    if (payload && payload.exp && payload.exp * 1000 > Date.now()) {
+    if (
+      payload &&
+      payload.exp &&
+      payload.exp * 1000 > Date.now() &&
+      isSessionCurrentForCaliforniaDay(payload)
+    ) {
       isAuthenticated = true;
       userRole = payload.role; // Extract 'admin', 'user', or 'agent'
     }

@@ -3,6 +3,7 @@ import "./globals.css";
 import BreakTimerModal from "@/components/BreakTimerModal";
 import { Toaster } from "react-hot-toast";
 import LogoutModal from "@/components/LogoutModal";
+import DailyLogout from "@/components/DailyLogout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <DailyLogout />
         <BreakTimerModal />
         {children} 
         <Toaster position="top-right" />

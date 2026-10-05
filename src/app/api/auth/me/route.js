@@ -185,6 +185,7 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import db from "../../../lib/db";
+import { isSessionCurrentForCaliforniaDay } from "../../../../lib/california-logout";
 
 export const runtime = "nodejs";
 
@@ -210,6 +211,19 @@ export async function GET(request) {
       token,
       process.env.JWT_SECRET
     );
+
+    if (!isSessionCurrentForCaliforniaDay(decoded)) {
+      const response = NextResponse.json(
+        {
+          success: false,
+          message: "Session expired",
+        },
+        { status: 401 }
+      );
+
+      response.cookies.delete("token");
+      return response;
+    }
 
     const userId =
       decoded.id ||
@@ -368,5 +382,4 @@ export async function GET(request) {
     return response;
   }
 }
-
 

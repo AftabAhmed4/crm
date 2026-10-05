@@ -241,6 +241,11 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import db from "../../lib/db";
+import {
+  formatCaliforniaDateTime,
+  getMostRecentCaliforniaLogout,
+  isSessionCurrentForCaliforniaDay,
+} from "../../../lib/california-logout";
 
 export async function POST(request) {
   try {
@@ -267,10 +272,9 @@ export async function POST(request) {
     let decoded;
 
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET
-      );
+      decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        ignoreExpiration: true,
+      });
     } catch (error) {
       console.error("JWT VERIFY ERROR:", error);
 
@@ -297,6 +301,29 @@ export async function POST(request) {
       );
     }
 
+    const now = Date.now();
+    const currentDate = new Date(now);
+    const latestCutoff = getMostRecentCaliforniaLogout(currentDate);
+    const isCurrentSession = isSessionCurrentForCaliforniaDay(
+      decoded,
+      currentDate
+    );
+    const isAutomaticLogout =
+      !isCurrentSession &&
+      now >= latestCutoff &&
+      now < latestCutoff + 2 * 60 * 1000 &&
+      (!decoded.logoutAt || decoded.logoutAt * 1000 === latestCutoff);
+
+    if (
+      (!isCurrentSession && !isAutomaticLogout) ||
+      (decoded.exp * 1000 <= now && !isAutomaticLogout)
+    ) {
+      return NextResponse.json(
+        { success: false, message: "Session expired" },
+        { status: 401 }
+      );
+    }
+
     // ==========================================
     // CALIFORNIA CURRENT TIME
     //
@@ -306,21 +333,8 @@ export async function POST(request) {
     // Daylight Saving Time
     // ==========================================
 
-    const californiaTime = new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        timeZone: "America/Los_Angeles",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      }
-    )
-      .format(new Date())
-      .replace(",", "");
+    const logoutDate = new Date(isAutomaticLogout ? latestCutoff : now);
+    const californiaTime = formatCaliforniaDateTime(logoutDate);
 
     // ==========================================
     // CALIFORNIA TIME

@@ -1400,6 +1400,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import db from "../../lib/db";
+import { getNextCaliforniaLogout } from "../../../lib/california-logout";
 
 export async function POST(request) {
   try {
@@ -1695,6 +1696,7 @@ export async function POST(request) {
     // JWT
     // ==========================================
 
+    const logoutAt = Math.floor(getNextCaliforniaLogout() / 1000);
     const token = jwt.sign(
       {
         id: user.id,
@@ -1702,11 +1704,10 @@ export async function POST(request) {
         role: user.role,
         name: user.name,
         zoom_extension: user.zoom_extension,
+        logoutAt,
+        exp: logoutAt,
       },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "1d",
-      }
+      process.env.JWT_SECRET
     );
 
     // ==========================================
@@ -1738,7 +1739,10 @@ export async function POST(request) {
         secure:
           process.env.NODE_ENV === "production",
         sameSite: "lax",
-        maxAge: 60 * 60 * 24,
+        maxAge: Math.max(
+          1,
+          logoutAt - Math.floor(Date.now() / 1000) + 120
+        ),
         path: "/",
       }
     );
