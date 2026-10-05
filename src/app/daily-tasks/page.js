@@ -801,6 +801,7 @@ function processSheetRows(rawRows) {
     return {
       records: [],
       invalidRows: 0,
+      duplicateRows: 0,
       missingColumns: [],
       totalRows: 0,
     };
@@ -916,6 +917,7 @@ function processSheetRows(rawRows) {
     return {
       records: [],
       invalidRows: rawRows.length,
+      duplicateRows: 0,
       missingColumns,
       totalRows: rawRows.length,
     };
@@ -923,6 +925,7 @@ function processSheetRows(rawRows) {
 
   const records = [];
   let invalidRows = 0;
+  let duplicateRows = 0;
   const seenPhones = new Set();
 
   rawRows.forEach((row) => {
@@ -987,7 +990,7 @@ function processSheetRows(rawRows) {
     }
 
     if (seenPhones.has(digits)) {
-      invalidRows += 1;
+      duplicateRows += 1;
       return;
     }
 
@@ -1028,6 +1031,7 @@ function processSheetRows(rawRows) {
   return {
     records,
     invalidRows,
+    duplicateRows,
     missingColumns,
     totalRows: rawRows.length,
   };
@@ -1272,10 +1276,14 @@ export default function DailyDeskPage() {
           Array.isArray(
             meta?.selectedSheets
           )
-            ? meta.selectedSheets.filter(
-                (id) =>
-                  validIds.has(id)
-              )
+            ? [
+                ...new Set(
+                  meta.selectedSheets.filter(
+                    (id) =>
+                      validIds.has(id)
+                  )
+                ),
+              ]
             : normalizedSheets.map(
                 (sheet) => sheet.id
               );
@@ -1569,6 +1577,41 @@ export default function DailyDeskPage() {
 
       return records;
     }, [selectedSheetObjects]);
+
+  const selectedSheetTotals =
+    useMemo(() => {
+      const rawValidRows =
+        selectedSheetObjects.reduce(
+          (sum, sheet) =>
+            sum +
+            Number(sheet.validRows || 0),
+          0
+        );
+
+      return {
+        validRows: selectedSheetRecords.length,
+        duplicateRows: Math.max(
+          0,
+          rawValidRows - selectedSheetRecords.length
+        ) +
+          selectedSheetObjects.reduce(
+            (sum, sheet) =>
+              sum +
+              Number(sheet.duplicateRows || 0),
+            0
+          ),
+        invalidRows:
+          selectedSheetObjects.reduce(
+            (sum, sheet) =>
+              sum +
+              Number(sheet.invalidRows || 0),
+            0
+          ),
+      };
+    }, [
+      selectedSheetObjects,
+      selectedSheetRecords,
+    ]);
 
   /* =======================================================
      FILTERED HISTORY
@@ -1900,6 +1943,9 @@ export default function DailyDeskPage() {
                 invalidRows:
                   processed.invalidRows,
 
+                duplicateRows:
+                  processed.duplicateRows,
+
                 missingColumns:
                   processed.missingColumns,
               });
@@ -1948,16 +1994,27 @@ export default function DailyDeskPage() {
             selectedFile.name
           );
 
-          const totalNewRows =
-            newSheets.reduce(
-              (sum, sheet) =>
-                sum +
-                Number(
-                  sheet.validRows ||
-                    0
-                ),
-              0
-            );
+          const uploadedPhones = new Set();
+          let totalNewRows = 0;
+          let crossSheetDuplicateRows = 0;
+
+          newSheets.forEach((sheet) => {
+            sheet.records.forEach((record) => {
+              const digits = phoneDigits(
+                record.phoneNumber || record.phone
+              );
+
+              if (!digits) return;
+
+              if (uploadedPhones.has(digits)) {
+                crossSheetDuplicateRows += 1;
+                return;
+              }
+
+              uploadedPhones.add(digits);
+              totalNewRows += 1;
+            });
+          });
 
           const totalInvalidRows =
             newSheets.reduce(
@@ -1967,6 +2024,15 @@ export default function DailyDeskPage() {
                   sheet.invalidRows ||
                     0
                 ),
+              0
+            );
+
+          const totalDuplicateRows =
+            crossSheetDuplicateRows +
+            newSheets.reduce(
+              (sum, sheet) =>
+                sum +
+                Number(sheet.duplicateRows || 0),
               0
             );
 
@@ -1986,7 +2052,7 @@ export default function DailyDeskPage() {
               1
                 ? ""
                 : "s"
-            } added • ${totalNewRows.toLocaleString()} valid rows • ${totalInvalidRows.toLocaleString()} invalid rows`
+            } added • ${totalNewRows.toLocaleString()} valid rows • ${totalDuplicateRows.toLocaleString()} duplicate rows skipped • ${totalInvalidRows.toLocaleString()} invalid rows`
           );
         } catch (error) {
           console.error(
@@ -3167,7 +3233,7 @@ export default function DailyDeskPage() {
                       unselectAllSheets
                     }
                     disabled={
-                      selectedSheets.length ===
+                      selectedSheetObjects.length ===
                       0
                     }
                     className="px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
@@ -3196,7 +3262,7 @@ export default function DailyDeskPage() {
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <MiniMetric
                   label="Total Sheets"
                   value={
@@ -3207,54 +3273,23 @@ export default function DailyDeskPage() {
                 <MiniMetric
                   label="Selected"
                   value={
-                    selectedSheets.length
+                    selectedSheetObjects.length
                   }
                 />
 
                 <MiniMetric
-                  label="Valid Rows"
-                  value={excelSheets
-                    .filter(
-                      (sheet) =>
-                        selectedSheets.includes(
-                          sheet.id
-                        )
-                    )
-                    .reduce(
-                      (
-                        sum,
-                        sheet
-                      ) =>
-                        sum +
-                        Number(
-                          sheet.validRows ||
-                            0
-                        ),
-                      0
-                    )}
+                  label="Unique Valid Rows"
+                  value={selectedSheetTotals.validRows}
+                />
+
+                <MiniMetric
+                  label="Duplicates Skipped"
+                  value={selectedSheetTotals.duplicateRows}
                 />
 
                 <MiniMetric
                   label="Invalid Rows"
-                  value={excelSheets
-                    .filter(
-                      (sheet) =>
-                        selectedSheets.includes(
-                          sheet.id
-                        )
-                    )
-                    .reduce(
-                      (
-                        sum,
-                        sheet
-                      ) =>
-                        sum +
-                        Number(
-                          sheet.invalidRows ||
-                            0
-                        ),
-                      0
-                    )}
+                  value={selectedSheetTotals.invalidRows}
                 />
               </div>
             </div>
@@ -3391,7 +3426,7 @@ export default function DailyDeskPage() {
                             </button>
                           </div>
 
-                          <div className="mt-4 grid grid-cols-3 gap-2">
+                          <div className="mt-4 grid grid-cols-4 gap-2">
                             <SheetMetric
                               label="Rows"
                               value={
@@ -3405,6 +3440,13 @@ export default function DailyDeskPage() {
                                 sheet.validRows
                               }
                               success
+                            />
+
+                            <SheetMetric
+                              label="Duplicates"
+                              value={
+                                sheet.duplicateRows
+                              }
                             />
 
                             <SheetMetric
@@ -3646,7 +3688,7 @@ export default function DailyDeskPage() {
                     <ReadyPill
                       label="Sheets"
                       value={
-                        selectedSheets.length
+                          selectedSheetObjects.length
                       }
                     />
 
