@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 // CONFIG
 // ============================================================
 
+const COOKIE_NAME = "token";
 const CALIFORNIA_TIMEZONE = "America/Los_Angeles";
 
 // ============================================================
@@ -23,8 +24,11 @@ const ALLOWED_STATUSES = [
   "Inactive",
   "On Call",
   "Meeting",
+  "Washroom Break",
+  "Other",
 ];
 
+// Only these 3 are controlled breaks.
 const BREAK_STATUSES = [
   "Namaz Break",
   "Lunch Break",
@@ -32,16 +36,28 @@ const BREAK_STATUSES = [
 ];
 
 // ============================================================
-// BREAK USAGE LIMITS - ROLLING 24 HOURS
+// ROLLING 24 HOUR LIMITS
 // ============================================================
 
 const MAX_BREAKS_PER_24_HOURS = 5;
+
 const MAX_NAMAZ_BREAKS_PER_24_HOURS = 1;
 const MAX_LUNCH_BREAKS_PER_24_HOURS = 1;
 const MAX_SHORT_BREAKS_PER_24_HOURS = 3;
 
 // ============================================================
-// BREAK DURATION LIMITS
+// BREAK MAX DURATION
+//
+// IMPORTANT:
+// These are MAXIMUM durations.
+//
+// Early end:
+// Short 4 min -> 240 seconds
+//
+// Full:
+// Short 10 min -> 600 seconds
+//
+// Never above maximum.
 // ============================================================
 
 const BREAK_DURATION_LIMITS_MINUTES = {
@@ -56,7 +72,7 @@ const BREAK_DURATION_LIMITS_MINUTES = {
 
 function getUserIdFromToken(request) {
   try {
-    const token = request.cookies.get("token")?.value;
+    const token = request.cookies.get(COOKIE_NAME)?.value;
 
     if (!token) {
       return null;
@@ -77,40 +93,58 @@ function getUserIdFromToken(request) {
       decoded?.user_id ??
       decoded?.sub;
 
-    if (!id) {
+    if (
+      id === undefined ||
+      id === null ||
+      id === ""
+    ) {
       return null;
     }
 
     const numericId = Number(id);
 
-    if (!Number.isFinite(numericId)) {
+    if (
+      !Number.isFinite(numericId) ||
+      numericId <= 0
+    ) {
       return null;
     }
 
     return numericId;
   } catch (error) {
-    console.error("JWT verification error:", error);
+    console.error(
+      "JWT verification error:",
+      error
+    );
+
     return null;
   }
 }
 
 // ============================================================
-// CALIFORNIA TIME
+// CALIFORNIA TIME HELPERS
 // ============================================================
 
 function getCaliforniaParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: CALIFORNIA_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  const formatter = new Intl.DateTimeFormat(
+    "en-US",
+    {
+      timeZone: CALIFORNIA_TIMEZONE,
+
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+
+      hour12: false,
+    }
+  );
 
   const parts = formatter.formatToParts(date);
+
   const result = {};
 
   for (const part of parts) {
@@ -123,21 +157,32 @@ function getCaliforniaParts(date = new Date()) {
     year: Number(result.year),
     month: Number(result.month),
     day: Number(result.day),
+
     hour: Number(result.hour),
     minute: Number(result.minute),
     second: Number(result.second),
   };
 }
 
+// ============================================================
+// CALIFORNIA DATE
+// ============================================================
+
 function getCaliforniaDate(date = new Date()) {
   const parts = getCaliforniaParts(date);
 
-  return [
-    String(parts.year).padStart(4, "0"),
-    String(parts.month).padStart(2, "0"),
-    String(parts.day).padStart(2, "0"),
-  ].join("-");
+  return (
+    `${String(parts.year).padStart(4, "0")}-` +
+    `${String(parts.month).padStart(2, "0")}-` +
+    `${String(parts.day).padStart(2, "0")}`
+  );
 }
+
+// ============================================================
+// CALIFORNIA DATETIME FOR MYSQL
+//
+// Stored as California wall-clock DATETIME.
+// ============================================================
 
 function getCaliforniaDBDateTime(date = new Date()) {
   const parts = getCaliforniaParts(date);
@@ -152,67 +197,100 @@ function getCaliforniaDBDateTime(date = new Date()) {
   );
 }
 
+// ============================================================
+// DISPLAY TIME
+// ============================================================
+
 function getCaliforniaDisplayTime(date = new Date()) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: CALIFORNIA_TIMEZONE,
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    "en-US",
+    {
+      timeZone: CALIFORNIA_TIMEZONE,
+
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+
+      hour12: true,
+    }
+  ).format(date);
 }
+
+// ============================================================
+// TIME INFO
+// ============================================================
 
 function getTimeInfo() {
   const now = new Date();
+
   const parts = getCaliforniaParts(now);
 
   return {
     serverNowMs: now.getTime(),
-    californiaDate: getCaliforniaDate(now),
-    californiaNow: getCaliforniaDBDateTime(now),
-    californiaDisplayTime: getCaliforniaDisplayTime(now),
-    californiaHour: parts.hour,
-    californiaMinute: parts.minute,
-    californiaSecond: parts.second,
-    iso: now.toISOString(),
+
+    californiaDate:
+      getCaliforniaDate(now),
+
+    californiaNow:
+      getCaliforniaDBDateTime(now),
+
+    californiaDisplayTime:
+      getCaliforniaDisplayTime(now),
+
+    californiaHour:
+      parts.hour,
+
+    californiaMinute:
+      parts.minute,
+
+    californiaSecond:
+      parts.second,
+
+    iso:
+      now.toISOString(),
   };
 }
 
 // ============================================================
-// BREAK TIME RESTRICTION
+// BREAK START TIME RESTRICTION
 //
-// ONLY 8:00 AM -> 9:00 AM IS BLOCKED.
+// 12:00 AM - 7:59:59 AM = ALLOWED
+// 8:00 AM  - 8:59:59 AM = BLOCKED
+// 9:00 AM onward         = ALLOWED
 //
-// 12:00 AM -> 7:59:59 AM  = ALLOWED
-// 8:00 AM -> 8:59:59 AM   = NOT ALLOWED
-// 9:00 AM -> 11:59:59 PM  = ALLOWED
-//
+// ONLY NEW BREAK STARTS ARE BLOCKED.
+// Existing break is NOT stopped at 8 AM.
 // ============================================================
 
-function isBreakAllowedAtCaliforniaTime(date = new Date()) {
+function isBreakAllowedAtCaliforniaTime(
+  date = new Date()
+) {
   const parts = getCaliforniaParts(date);
 
   const totalMinutes =
-    parts.hour * 60 + parts.minute;
+    parts.hour * 60 +
+    parts.minute;
 
-  const BLOCK_START = 8 * 60; // 08:00 AM
-  const BLOCK_END = 9 * 60;   // 09:00 AM
+  const BLOCK_START = 8 * 60;
+  const BLOCK_END = 9 * 60;
 
-  // ONLY 8:00 AM through 8:59:59 AM is blocked.
-  if (
+  return !(
     totalMinutes >= BLOCK_START &&
     totalMinutes < BLOCK_END
-  ) {
-    return false;
-  }
-
-  return true;
+  );
 }
 
-function getBreakRestrictionMessage(date = new Date()) {
+// ============================================================
+// RESTRICTION MESSAGE
+// ============================================================
+
+function getBreakRestrictionMessage(
+  date = new Date()
+) {
   const parts = getCaliforniaParts(date);
 
   const currentTime =
@@ -221,9 +299,9 @@ function getBreakRestrictionMessage(date = new Date()) {
     `${String(parts.second).padStart(2, "0")}`;
 
   return (
-    `Breaks are not allowed from 8:00 AM to 9:00 AM California time. ` +
+    "Breaks are not allowed from 8:00 AM to 9:00 AM California time. " +
     `Current California time is ${currentTime}. ` +
-    `Breaks are available again at 9:00 AM.`
+    "Breaks are available again at 9:00 AM."
   );
 }
 
@@ -236,74 +314,57 @@ function isBreakStatus(status) {
 }
 
 function getBreakDurationLimitMinutes(status) {
-  return BREAK_DURATION_LIMITS_MINUTES[status] || 0;
+  return (
+    BREAK_DURATION_LIMITS_MINUTES[status] ||
+    0
+  );
 }
 
 function getBreakDurationLimitSeconds(status) {
-  return getBreakDurationLimitMinutes(status) * 60;
+  return (
+    getBreakDurationLimitMinutes(status) *
+    60
+  );
 }
 
 // ============================================================
-// CALIFORNIA DB DATETIME -> REAL TIMESTAMP
+// CALIFORNIA DATETIME -> REAL TIMESTAMP
+//
+// IMPORTANT FIX:
+//
+// mysql2 can return DATETIME as either:
+//   - string
+//   - JavaScript Date
+//
+// We treat database DATETIME as California wall-clock time.
+// We DO NOT blindly call new Date(value).
 // ============================================================
 
 function californiaDateTimeToMs(value) {
-  if (!value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
     return null;
   }
 
   try {
-    let text = String(value).trim();
+    // ========================================================
+    // CASE 1: JavaScript Date
+    // ========================================================
 
-    if (!text) {
-      return null;
-    }
-
-    text = text.replace("T", " ");
-
-    const match = text.match(
-      /^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2}):(\d{2})$/
-    );
-
-    if (!match) {
-      const parsed = new Date(value);
-
-      if (Number.isNaN(parsed.getTime())) {
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
         return null;
       }
 
-      return parsed.getTime();
-    }
+      const year = value.getFullYear();
+      const month = value.getMonth() + 1;
+      const day = value.getDate();
 
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const hour = Number(match[4]);
-    const minute = Number(match[5]);
-    const second = Number(match[6]);
-
-    let guess = Date.UTC(
-      year,
-      month - 1,
-      day,
-      hour,
-      minute,
-      second
-    );
-
-    for (let i = 0; i < 5; i++) {
-      const parts = getCaliforniaParts(
-        new Date(guess)
-      );
-
-      const wallAsUTC = Date.UTC(
-        parts.year,
-        parts.month - 1,
-        parts.day,
-        parts.hour,
-        parts.minute,
-        parts.second
-      );
+      const hour = value.getHours();
+      const minute = value.getMinutes();
+      const second = value.getSeconds();
 
       const desiredWallAsUTC = Date.UTC(
         year,
@@ -314,8 +375,118 @@ function californiaDateTimeToMs(value) {
         second
       );
 
+      let guess = desiredWallAsUTC;
+
+      for (let i = 0; i < 8; i++) {
+        const parts = getCaliforniaParts(
+          new Date(guess)
+        );
+
+        const actualWallAsUTC = Date.UTC(
+          parts.year,
+          parts.month - 1,
+          parts.day,
+          parts.hour,
+          parts.minute,
+          parts.second
+        );
+
+        const difference =
+          desiredWallAsUTC -
+          actualWallAsUTC;
+
+        if (difference === 0) {
+          break;
+        }
+
+        guess += difference;
+      }
+
+      return guess;
+    }
+
+    // ========================================================
+    // CASE 2: STRING
+    // ========================================================
+
+    let text = String(value).trim();
+
+    if (!text) {
+      return null;
+    }
+
+    text = text.replace("T", " ");
+
+    // Remove milliseconds if present.
+    text = text.replace(
+      /\.(\d{1,6})$/,
+      ""
+    );
+
+    const match = text.match(
+      /^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2}):(\d{2})$/
+    );
+
+    if (!match) {
+      console.error(
+        "Invalid California DATETIME:",
+        value
+      );
+
+      return null;
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+
+    if (
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31 ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59 ||
+      second < 0 ||
+      second > 59
+    ) {
+      return null;
+    }
+
+    const desiredWallAsUTC = Date.UTC(
+      year,
+      month - 1,
+      day,
+      hour,
+      minute,
+      second
+    );
+
+    let guess = desiredWallAsUTC;
+
+    for (let i = 0; i < 8; i++) {
+      const parts = getCaliforniaParts(
+        new Date(guess)
+      );
+
+      const actualWallAsUTC = Date.UTC(
+        parts.year,
+        parts.month - 1,
+        parts.day,
+        parts.hour,
+        parts.minute,
+        parts.second
+      );
+
       const difference =
-        desiredWallAsUTC - wallAsUTC;
+        desiredWallAsUTC -
+        actualWallAsUTC;
 
       if (difference === 0) {
         break;
@@ -337,6 +508,11 @@ function californiaDateTimeToMs(value) {
 
 // ============================================================
 // BREAK TIMER
+//
+// HARD GUARANTEE:
+//
+// elapsedSeconds <= maximum
+// remainingSeconds >= 0
 // ============================================================
 
 function calculateBreakTimer(
@@ -350,60 +526,82 @@ function calculateBreakTimer(
   ) {
     return {
       isBreak: false,
+
       elapsedSeconds: 0,
       remainingSeconds: 0,
+
       durationLimitMinutes: 0,
       durationLimitSeconds: 0,
+
       expired: false,
     };
   }
 
-  const limitMinutes =
-    getBreakDurationLimitMinutes(status);
+  const durationLimitMinutes =
+    getBreakDurationLimitMinutes(
+      status
+    );
 
-  const limitSeconds =
-    limitMinutes * 60;
+  const durationLimitSeconds =
+    getBreakDurationLimitSeconds(
+      status
+    );
 
   const startedMs =
-    californiaDateTimeToMs(startedAt);
+    californiaDateTimeToMs(
+      startedAt
+    );
 
-  if (!startedMs) {
+  if (startedMs === null) {
     return {
       isBreak: true,
+
       elapsedSeconds: 0,
-      remainingSeconds: limitSeconds,
-      durationLimitMinutes: limitMinutes,
-      durationLimitSeconds: limitSeconds,
+
+      remainingSeconds:
+        durationLimitSeconds,
+
+      durationLimitMinutes,
+      durationLimitSeconds,
+
       expired: false,
     };
   }
 
-  const rawElapsedSeconds = Math.floor(
+  const rawElapsedSeconds =
+    Math.floor(
+      Math.max(
+        0,
+        serverNowMs - startedMs
+      ) / 1000
+    );
+
+  const elapsedSeconds =
+    Math.min(
+      rawElapsedSeconds,
+      durationLimitSeconds
+    );
+
+  const remainingSeconds =
     Math.max(
       0,
-      serverNowMs - startedMs
-    ) / 1000
-  );
-
-  // NEVER let timer exceed configured limit.
-  const elapsedSeconds = Math.min(
-    rawElapsedSeconds,
-    limitSeconds
-  );
-
-  const remainingSeconds = Math.max(
-    0,
-    limitSeconds - elapsedSeconds
-  );
+      durationLimitSeconds -
+        elapsedSeconds
+    );
 
   return {
     isBreak: true,
+
     elapsedSeconds,
+
     remainingSeconds,
-    durationLimitMinutes: limitMinutes,
-    durationLimitSeconds: limitSeconds,
+
+    durationLimitMinutes,
+    durationLimitSeconds,
+
     expired:
-      rawElapsedSeconds >= limitSeconds,
+      rawElapsedSeconds >=
+      durationLimitSeconds,
   };
 }
 
@@ -436,7 +634,7 @@ async function getUserById(
 }
 
 // ============================================================
-// BREAK COUNTS
+// TOTAL BREAK COUNT
 // ============================================================
 
 async function getTotalBreakCount(
@@ -470,6 +668,10 @@ async function getTotalBreakCount(
   );
 }
 
+// ============================================================
+// NAMAZ COUNT
+// ============================================================
+
 async function getNamazBreakCount(
   connection,
   userId,
@@ -499,6 +701,10 @@ async function getNamazBreakCount(
   );
 }
 
+// ============================================================
+// LUNCH COUNT
+// ============================================================
+
 async function getLunchBreakCount(
   connection,
   userId,
@@ -527,6 +733,10 @@ async function getLunchBreakCount(
     rows?.[0]?.count || 0
   );
 }
+
+// ============================================================
+// SHORT COUNT
+// ============================================================
 
 async function getShortBreakCount(
   connection,
@@ -577,16 +787,19 @@ async function buildLimitInfo(
       userId,
       nowDb
     ),
+
     getNamazBreakCount(
       connection,
       userId,
       nowDb
     ),
+
     getLunchBreakCount(
       connection,
       userId,
       nowDb
     ),
+
     getShortBreakCount(
       connection,
       userId,
@@ -597,11 +810,17 @@ async function buildLimitInfo(
   return {
     total: {
       used: total,
-      max: MAX_BREAKS_PER_24_HOURS,
-      remaining: Math.max(
-        0,
-        MAX_BREAKS_PER_24_HOURS - total
-      ),
+
+      max:
+        MAX_BREAKS_PER_24_HOURS,
+
+      remaining:
+        Math.max(
+          0,
+          MAX_BREAKS_PER_24_HOURS -
+            total
+        ),
+
       reached:
         total >=
         MAX_BREAKS_PER_24_HOURS,
@@ -609,12 +828,17 @@ async function buildLimitInfo(
 
     namaz: {
       used: namaz,
-      max: MAX_NAMAZ_BREAKS_PER_24_HOURS,
-      remaining: Math.max(
-        0,
-        MAX_NAMAZ_BREAKS_PER_24_HOURS -
-          namaz
-      ),
+
+      max:
+        MAX_NAMAZ_BREAKS_PER_24_HOURS,
+
+      remaining:
+        Math.max(
+          0,
+          MAX_NAMAZ_BREAKS_PER_24_HOURS -
+            namaz
+        ),
+
       reached:
         namaz >=
         MAX_NAMAZ_BREAKS_PER_24_HOURS,
@@ -622,12 +846,17 @@ async function buildLimitInfo(
 
     lunch: {
       used: lunch,
-      max: MAX_LUNCH_BREAKS_PER_24_HOURS,
-      remaining: Math.max(
-        0,
-        MAX_LUNCH_BREAKS_PER_24_HOURS -
-          lunch
-      ),
+
+      max:
+        MAX_LUNCH_BREAKS_PER_24_HOURS,
+
+      remaining:
+        Math.max(
+          0,
+          MAX_LUNCH_BREAKS_PER_24_HOURS -
+            lunch
+        ),
+
       reached:
         lunch >=
         MAX_LUNCH_BREAKS_PER_24_HOURS,
@@ -635,16 +864,46 @@ async function buildLimitInfo(
 
     short: {
       used: short,
-      max: MAX_SHORT_BREAKS_PER_24_HOURS,
-      remaining: Math.max(
-        0,
-        MAX_SHORT_BREAKS_PER_24_HOURS -
-          short
-      ),
+
+      max:
+        MAX_SHORT_BREAKS_PER_24_HOURS,
+
+      remaining:
+        Math.max(
+          0,
+          MAX_SHORT_BREAKS_PER_24_HOURS -
+            short
+        ),
+
       reached:
         short >=
         MAX_SHORT_BREAKS_PER_24_HOURS,
     },
+  };
+}
+
+// ============================================================
+// SIMPLE USAGE
+// ============================================================
+
+function buildBreakUsageFromLimits(
+  limits
+) {
+  return {
+    "Short Break":
+      Number(
+        limits?.short?.used || 0
+      ),
+
+    "Lunch Break":
+      Number(
+        limits?.lunch?.used || 0
+      ),
+
+    "Namaz Break":
+      Number(
+        limits?.namaz?.used || 0
+      ),
   };
 }
 
@@ -664,12 +923,16 @@ function buildCurrentBreakInfo(
   ) {
     return {
       isBreak: false,
+
       status: null,
       startedAt: null,
+
       elapsedSeconds: 0,
       remainingSeconds: 0,
+
       durationLimitMinutes: 0,
       durationLimitSeconds: 0,
+
       expired: false,
     };
   }
@@ -683,15 +946,279 @@ function buildCurrentBreakInfo(
 
   return {
     ...timer,
+
     status:
       user.availability_status,
+
     startedAt:
       user.status_started_at,
   };
 }
 
 // ============================================================
+// CLOSE CURRENT OPEN HISTORY
+//
+// THIS IS THE MAIN FIX.
+//
+// If Short Break started at 01:41:18
+// and user clicks End at 01:45:18:
+//
+// duration_seconds = 240
+// ended_at         = 01:45:18
+//
+// NOT:
+//
+// duration_seconds = 600
+// ended_at         = 01:51:18
+//
+// Maximum is ONLY a ceiling.
+// ============================================================
+
+async function closeOpenHistory(
+  connection,
+  userId,
+  serverNowMs,
+  fallbackEndedAt
+) {
+  const [openRows] =
+    await connection.query(
+      `
+        SELECT
+          id,
+          status,
+          started_at
+        FROM user_status_history
+        WHERE user_id = ?
+          AND ended_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [userId]
+    );
+
+  const openHistory =
+    openRows?.[0];
+
+  if (!openHistory) {
+    return {
+      closed: false,
+
+      durationSeconds: 0,
+
+      endedAt:
+        fallbackEndedAt,
+
+      status: null,
+    };
+  }
+
+  const startedMs =
+    californiaDateTimeToMs(
+      openHistory.started_at
+    );
+
+  if (startedMs === null) {
+    console.error(
+      "Invalid started_at:",
+      openHistory.started_at
+    );
+
+    return {
+      closed: false,
+
+      durationSeconds: 0,
+
+      endedAt:
+        fallbackEndedAt,
+
+      status:
+        openHistory.status,
+    };
+  }
+
+  // ==========================================================
+  // ACTUAL ELAPSED TIME
+  // ==========================================================
+
+  const rawElapsedSeconds =
+    Math.floor(
+      Math.max(
+        0,
+        serverNowMs -
+          startedMs
+      ) / 1000
+    );
+
+  let durationSeconds =
+    Math.max(
+      0,
+      rawElapsedSeconds
+    );
+
+  let endedAt =
+    fallbackEndedAt;
+
+  // ==========================================================
+  // CONTROLLED BREAK
+  // ==========================================================
+
+  if (
+    isBreakStatus(
+      openHistory.status
+    )
+  ) {
+    const maxSeconds =
+      getBreakDurationLimitSeconds(
+        openHistory.status
+      );
+
+    // ========================================================
+    // HARD MAXIMUM
+    // ========================================================
+
+    durationSeconds =
+      Math.min(
+        durationSeconds,
+        maxSeconds
+      );
+
+    // ========================================================
+    // MAXIMUM REACHED
+    //
+    // End exactly at:
+    // started + maximum
+    // ========================================================
+
+    if (
+      rawElapsedSeconds >=
+      maxSeconds
+    ) {
+      durationSeconds =
+        maxSeconds;
+
+      endedAt =
+        getCaliforniaDBDateTime(
+          new Date(
+            startedMs +
+              maxSeconds *
+                1000
+          )
+        );
+    }
+
+    // ========================================================
+    // EARLY MANUAL END
+    //
+    // IMPORTANT:
+    // Use actual current server time.
+    // ========================================================
+
+    else {
+      durationSeconds =
+        Math.min(
+          Math.max(
+            0,
+            rawElapsedSeconds
+          ),
+          maxSeconds
+        );
+
+      endedAt =
+        getCaliforniaDBDateTime(
+          new Date(
+            serverNowMs
+          )
+        );
+    }
+  }
+
+  // ==========================================================
+  // NON-BREAK STATUS
+  // ==========================================================
+
+  else {
+    durationSeconds =
+      Math.max(
+        0,
+        rawElapsedSeconds
+      );
+
+    endedAt =
+      getCaliforniaDBDateTime(
+        new Date(
+          serverNowMs
+        )
+      );
+  }
+
+  // ==========================================================
+  // SAVE ACTUAL RESULT
+  // ==========================================================
+
+  await connection.query(
+    `
+      UPDATE user_status_history
+      SET
+        ended_at = ?,
+        duration_seconds = ?
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [
+      endedAt,
+      durationSeconds,
+      openHistory.id,
+    ]
+  );
+
+  console.log(
+    "STATUS HISTORY CLOSED",
+    {
+      userId,
+
+      historyId:
+        openHistory.id,
+
+      status:
+        openHistory.status,
+
+      startedAt:
+        openHistory.started_at,
+
+      endedAt,
+
+      rawElapsedSeconds,
+
+      savedDurationSeconds:
+        durationSeconds,
+    }
+  );
+
+  return {
+    closed: true,
+
+    durationSeconds,
+
+    endedAt,
+
+    status:
+      openHistory.status,
+  };
+}
+
+// ============================================================
 // AUTO EXPIRE BREAK
+//
+// Example:
+//
+// Short started 01:41:18
+// Maximum = 10 minutes
+//
+// Exact expiry:
+// 01:51:18
+//
+// duration_seconds = 600
 // ============================================================
 
 async function autoExpireBreak(
@@ -738,21 +1265,23 @@ async function autoExpireBreak(
       user.status_started_at
     );
 
-  if (!startedMs) {
+  if (startedMs === null) {
     return {
       expired: false,
       user,
     };
   }
 
-  // EXACT expiry timestamp.
   const expiryMs =
     startedMs +
-    limitSeconds * 1000;
+    limitSeconds *
+      1000;
 
   const exactEndedAt =
     getCaliforniaDBDateTime(
-      new Date(expiryMs)
+      new Date(
+        expiryMs
+      )
     );
 
   const connection =
@@ -761,9 +1290,9 @@ async function autoExpireBreak(
   try {
     await connection.beginTransaction();
 
-    // --------------------------------------------------------
-    // Lock user
-    // --------------------------------------------------------
+    // ========================================================
+    // LOCK USER
+    // ========================================================
 
     const [lockedUsers] =
       await connection.query(
@@ -794,15 +1323,20 @@ async function autoExpireBreak(
       };
     }
 
-    // Status changed meanwhile.
+    // ========================================================
+    // STATUS CHANGED
+    // ========================================================
+
     if (
       lockedUser.availability_status !==
         status ||
       String(
-        lockedUser.status_started_at || ""
+        lockedUser.status_started_at ||
+          ""
       ) !==
         String(
-          user.status_started_at || ""
+          user.status_started_at ||
+            ""
         )
     ) {
       await connection.rollback();
@@ -813,9 +1347,9 @@ async function autoExpireBreak(
       };
     }
 
-    // --------------------------------------------------------
-    // Find open history
-    // --------------------------------------------------------
+    // ========================================================
+    // LOCK OPEN BREAK
+    // ========================================================
 
     const [historyRows] =
       await connection.query(
@@ -842,7 +1376,6 @@ async function autoExpireBreak(
       historyRows?.[0];
 
     if (history) {
-      // EXACT configured duration.
       await connection.query(
         `
           UPDATE user_status_history
@@ -860,9 +1393,9 @@ async function autoExpireBreak(
       );
     }
 
-    // --------------------------------------------------------
-    // Reset to Active
-    // --------------------------------------------------------
+    // ========================================================
+    // RESET USER TO ACTIVE
+    // ========================================================
 
     await connection.query(
       `
@@ -889,10 +1422,16 @@ async function autoExpireBreak(
 
     return {
       expired: true,
-      user: updatedUser,
-      expiredStatus: status,
+
+      user:
+        updatedUser,
+
+      expiredStatus:
+        status,
+
       durationSeconds:
         limitSeconds,
+
       endedAt:
         exactEndedAt,
     };
@@ -913,13 +1452,162 @@ async function autoExpireBreak(
 }
 
 // ============================================================
+// RESPONSE BUILDER
+// ============================================================
+
+function buildResponseData({
+  user,
+  limits,
+  timer,
+  time,
+
+  autoExpired = false,
+  autoExpiredStatus = null,
+  autoExpiredDurationSeconds = null,
+  autoExpiredEndedAt = null,
+}) {
+  return {
+    success: true,
+
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    },
+
+    status:
+      user.availability_status ||
+      "Active",
+
+    status_started_at:
+      user.status_started_at,
+
+    // ========================================================
+    // BREAK USAGE
+    // ========================================================
+
+    break_usage:
+      buildBreakUsageFromLimits(
+        limits
+      ),
+
+    breakUsage:
+      buildBreakUsageFromLimits(
+        limits
+      ),
+
+    usage:
+      buildBreakUsageFromLimits(
+        limits
+      ),
+
+    // ========================================================
+    // LIMITS
+    // ========================================================
+
+    limits,
+
+    // ========================================================
+    // TIMER
+    // ========================================================
+
+    timer,
+
+    elapsedSeconds:
+      timer?.elapsedSeconds || 0,
+
+    remainingSeconds:
+      timer?.remainingSeconds || 0,
+
+    durationLimitMinutes:
+      timer?.durationLimitMinutes || 0,
+
+    durationLimitSeconds:
+      timer?.durationLimitSeconds || 0,
+
+    // ========================================================
+    // BREAK CONFIG
+    // ========================================================
+
+    breakDurationLimits:
+      BREAK_DURATION_LIMITS_MINUTES,
+
+    // ========================================================
+    // BREAK TIME RULES
+    // ========================================================
+
+    breakTimeRules: {
+      allowed:
+        isBreakAllowedAtCaliforniaTime(),
+
+      blockedFrom:
+        "08:00 AM",
+
+      blockedUntil:
+        "09:00 AM",
+
+      allowedFrom:
+        "09:00 AM",
+
+      timezone:
+        CALIFORNIA_TIMEZONE,
+    },
+
+    // ========================================================
+    // AUTO EXPIRY
+    // ========================================================
+
+    autoExpired,
+
+    autoExpiredStatus,
+
+    autoExpiredDurationSeconds,
+
+    autoExpiredEndedAt,
+
+    // ========================================================
+    // SERVER CLOCK
+    // ========================================================
+
+    serverClock: {
+      nowMs:
+        Date.now(),
+
+      iso:
+        new Date().toISOString(),
+
+      californiaDate:
+        time.californiaDate,
+
+      californiaNow:
+        time.californiaNow,
+
+      californiaDisplayTime:
+        time.californiaDisplayTime,
+
+      californiaHour:
+        time.californiaHour,
+
+      californiaMinute:
+        time.californiaMinute,
+
+      californiaSecond:
+        time.californiaSecond,
+    },
+  };
+}
+
+// ============================================================
 // GET
 // ============================================================
 
 export async function GET(request) {
   try {
     const userId =
-      getUserIdFromToken(request);
+      getUserIdFromToken(
+        request
+      );
 
     if (!userId) {
       return NextResponse.json(
@@ -954,9 +1642,9 @@ export async function GET(request) {
       );
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // AUTO EXPIRE
-    // --------------------------------------------------------
+    // ========================================================
 
     const autoExpired =
       await autoExpireBreak(
@@ -964,14 +1652,16 @@ export async function GET(request) {
         time.serverNowMs
       );
 
-    if (autoExpired.expired) {
+    if (
+      autoExpired.expired
+    ) {
       user =
         autoExpired.user;
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // LIMITS
-    // --------------------------------------------------------
+    // ========================================================
 
     const connection =
       await pool.getConnection();
@@ -989,9 +1679,9 @@ export async function GET(request) {
       connection.release();
     }
 
-    // --------------------------------------------------------
+    // ========================================================
     // TIMER
-    // --------------------------------------------------------
+    // ========================================================
 
     const timer =
       buildCurrentBreakInfo(
@@ -999,81 +1689,47 @@ export async function GET(request) {
         Date.now()
       );
 
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json(
+      buildResponseData({
+        user,
 
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
+        limits,
 
-      status:
-        user.availability_status ||
-        "Active",
+        timer,
 
-      status_started_at:
-        user.status_started_at,
+        time,
 
-      limits,
+        autoExpired:
+          autoExpired.expired,
 
-      timer,
+        autoExpiredStatus:
+          autoExpired.expired
+            ? autoExpired.expiredStatus
+            : null,
 
-      breakDurationLimits:
-        BREAK_DURATION_LIMITS_MINUTES,
+        autoExpiredDurationSeconds:
+          autoExpired.expired
+            ? autoExpired.durationSeconds
+            : null,
 
-      // ONLY 8 AM - 9 AM BLOCKED
-      breakTimeRules: {
-        allowed:
-          isBreakAllowedAtCaliforniaTime(),
-        blockedFrom:
-          "08:00 AM",
-        blockedUntil:
-          "09:00 AM",
-        allowedFrom:
-          "09:00 AM",
-        timezone:
-          CALIFORNIA_TIMEZONE,
-      },
+        autoExpiredEndedAt:
+          autoExpired.expired
+            ? autoExpired.endedAt
+            : null,
+      }),
+      {
+        status: 200,
 
-      autoExpired:
-        autoExpired.expired,
+        headers: {
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate, proxy-revalidate",
 
-      autoExpiredStatus:
-        autoExpired.expired
-          ? autoExpired.expiredStatus
-          : null,
+          Pragma: "no-cache",
 
-      autoExpiredDurationSeconds:
-        autoExpired.expired
-          ? autoExpired.durationSeconds
-          : null,
-
-      autoExpiredEndedAt:
-        autoExpired.expired
-          ? autoExpired.endedAt
-          : null,
-
-      serverClock: {
-        nowMs:
-          Date.now(),
-        iso:
-          new Date().toISOString(),
-        californiaDate:
-          time.californiaDate,
-        californiaNow:
-          time.californiaNow,
-        californiaDisplayTime:
-          time.californiaDisplayTime,
-        californiaHour:
-          time.californiaHour,
-        californiaMinute:
-          time.californiaMinute,
-        californiaSecond:
-          time.californiaSecond,
-      },
-    });
+          Expires: "0",
+        },
+      }
+    );
   } catch (error) {
     console.error(
       "GET /api/users/status error:",
@@ -1083,8 +1739,10 @@ export async function GET(request) {
     return NextResponse.json(
       {
         success: false,
+
         message:
           "Failed to get user status",
+
         error:
           process.env.NODE_ENV ===
           "development"
@@ -1107,7 +1765,9 @@ export async function PUT(request) {
 
   try {
     const userId =
-      getUserIdFromToken(request);
+      getUserIdFromToken(
+        request
+      );
 
     if (!userId) {
       return NextResponse.json(
@@ -1129,9 +1789,9 @@ export async function PUT(request) {
         body?.status || ""
       ).trim();
 
-    // --------------------------------------------------------
+    // ========================================================
     // VALIDATE STATUS
-    // --------------------------------------------------------
+    // ========================================================
 
     if (
       !ALLOWED_STATUSES.includes(
@@ -1152,11 +1812,20 @@ export async function PUT(request) {
     const now =
       new Date();
 
+    const serverNowMs =
+      now.getTime();
+
     const californiaNow =
-      getCaliforniaDBDateTime(now);
+      getCaliforniaDBDateTime(
+        now
+      );
 
     // ========================================================
-    // ONLY 8:00 AM - 9:00 AM IS BLOCKED
+    // BREAK TIME RESTRICTION
+    //
+    // Only NEW break starts.
+    //
+    // Ending current break is always allowed.
     // ========================================================
 
     if (
@@ -1170,6 +1839,7 @@ export async function PUT(request) {
       return NextResponse.json(
         {
           success: false,
+
           code:
             "BREAK_TIME_RESTRICTED",
 
@@ -1178,21 +1848,26 @@ export async function PUT(request) {
               now
             ),
 
-          breakAllowed: false,
+          breakAllowed:
+            false,
 
           breakTimeRules: {
             timezone:
               CALIFORNIA_TIMEZONE,
+
             blockedFrom:
               "08:00 AM",
+
             blockedUntil:
               "09:00 AM",
+
             allowedFrom:
               "09:00 AM",
           },
 
           serverClock: {
             californiaNow,
+
             californiaDisplayTime:
               getCaliforniaDisplayTime(
                 now
@@ -1206,7 +1881,7 @@ export async function PUT(request) {
     }
 
     // ========================================================
-    // START TRANSACTION
+    // CONNECTION
     // ========================================================
 
     connection =
@@ -1235,7 +1910,7 @@ export async function PUT(request) {
         [userId]
       );
 
-    const user =
+    let user =
       userRows?.[0];
 
     if (!user) {
@@ -1244,8 +1919,7 @@ export async function PUT(request) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "User not found",
+          message: "User not found",
         },
         {
           status: 404,
@@ -1275,50 +1949,31 @@ export async function PUT(request) {
       const timer =
         buildCurrentBreakInfo(
           user,
-          Date.now()
+          serverNowMs
         );
 
       await connection.commit();
 
-      return NextResponse.json({
-        success: true,
-        unchanged: true,
+      return NextResponse.json(
+        buildResponseData({
+          user,
 
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-        },
+          limits,
 
-        status:
-          currentStatus,
+          timer,
 
-        status_started_at:
-          user.status_started_at,
+          time:
+            getTimeInfo(),
+        }),
+        {
+          status: 200,
 
-        limits,
-
-        timer,
-
-        breakDurationLimits:
-          BREAK_DURATION_LIMITS_MINUTES,
-
-        breakTimeRules: {
-          allowed:
-            isBreakAllowedAtCaliforniaTime(
-              now
-            ),
-          blockedFrom:
-            "08:00 AM",
-          blockedUntil:
-            "09:00 AM",
-          allowedFrom:
-            "09:00 AM",
-          timezone:
-            CALIFORNIA_TIMEZONE,
-        },
-      });
+          headers: {
+            "Cache-Control":
+              "no-store, no-cache, must-revalidate",
+          },
+        }
+      );
     }
 
     // ========================================================
@@ -1330,9 +1985,9 @@ export async function PUT(request) {
         requestedStatus
       )
     ) {
-      // ------------------------------------------------------
-      // TOTAL BREAK LIMIT
-      // ------------------------------------------------------
+      // ======================================================
+      // TOTAL LIMIT
+      // ======================================================
 
       const totalBreakCount =
         await getTotalBreakCount(
@@ -1350,6 +2005,7 @@ export async function PUT(request) {
         return NextResponse.json(
           {
             success: false,
+
             code:
               "TOTAL_BREAK_LIMIT_REACHED",
 
@@ -1359,6 +2015,7 @@ export async function PUT(request) {
             limits: {
               totalUsed:
                 totalBreakCount,
+
               totalMax:
                 MAX_BREAKS_PER_24_HOURS,
             },
@@ -1369,9 +2026,9 @@ export async function PUT(request) {
         );
       }
 
-      // ------------------------------------------------------
-      // SPECIFIC BREAK LIMIT
-      // ------------------------------------------------------
+      // ======================================================
+      // SPECIFIC LIMIT
+      // ======================================================
 
       let specificCount = 0;
       let specificMax = 0;
@@ -1430,6 +2087,7 @@ export async function PUT(request) {
         return NextResponse.json(
           {
             success: false,
+
             code:
               "SPECIFIC_BREAK_LIMIT_REACHED",
 
@@ -1454,106 +2112,29 @@ export async function PUT(request) {
 
     // ========================================================
     // CLOSE CURRENT OPEN HISTORY
+    //
+    // If current Short Break:
+    //
+    // Start = 01:41:18
+    // End   = 01:45:18
+    //
+    // Save:
+    // duration_seconds = 240
+    //
+    // NOT 600.
     // ========================================================
 
     if (
-      currentStatus !== "Active" &&
+      currentStatus !==
+        "Active" &&
       user.status_started_at
     ) {
-      const [openRows] =
-        await connection.query(
-          `
-            SELECT
-              id,
-              status,
-              started_at
-            FROM user_status_history
-            WHERE user_id = ?
-              AND ended_at IS NULL
-            ORDER BY id DESC
-            LIMIT 1
-            FOR UPDATE
-          `,
-          [userId]
-        );
-
-      const openHistory =
-        openRows?.[0];
-
-      if (openHistory) {
-        const startedMs =
-          californiaDateTimeToMs(
-            openHistory.started_at
-          );
-
-        let durationSeconds = 0;
-        let endedAt =
-          californiaNow;
-
-        if (startedMs) {
-          const rawDurationSeconds =
-            Math.floor(
-              Math.max(
-                0,
-                Date.now() - startedMs
-              ) / 1000
-            );
-
-          // --------------------------------------------------
-          // BREAK = HARD LIMIT
-          // --------------------------------------------------
-
-          if (
-            isBreakStatus(
-              openHistory.status
-            )
-          ) {
-            const maxSeconds =
-              getBreakDurationLimitSeconds(
-                openHistory.status
-              );
-
-            if (
-              rawDurationSeconds >=
-              maxSeconds
-            ) {
-              durationSeconds =
-                maxSeconds;
-
-              endedAt =
-                getCaliforniaDBDateTime(
-                  new Date(
-                    startedMs +
-                      maxSeconds *
-                        1000
-                  )
-                );
-            } else {
-              durationSeconds =
-                rawDurationSeconds;
-            }
-          } else {
-            durationSeconds =
-              rawDurationSeconds;
-          }
-        }
-
-        await connection.query(
-          `
-            UPDATE user_status_history
-            SET
-              ended_at = ?,
-              duration_seconds = ?
-            WHERE id = ?
-            LIMIT 1
-          `,
-          [
-            endedAt,
-            durationSeconds,
-            openHistory.id,
-          ]
-        );
-      }
+      await closeOpenHistory(
+        connection,
+        userId,
+        serverNowMs,
+        californiaNow
+      );
     }
 
     // ========================================================
@@ -1606,7 +2187,9 @@ export async function PUT(request) {
         `,
         [
           userId,
+
           requestedStatus,
+
           californiaNow,
         ]
       );
@@ -1622,14 +2205,16 @@ export async function PUT(request) {
         `,
         [
           requestedStatus,
+
           californiaNow,
+
           userId,
         ]
       );
     }
 
     // ========================================================
-    // UPDATED USER
+    // GET UPDATED USER
     // ========================================================
 
     const [updatedRows] =
@@ -1649,7 +2234,7 @@ export async function PUT(request) {
         [userId]
       );
 
-    const updatedUser =
+    user =
       updatedRows?.[0];
 
     // ========================================================
@@ -1669,8 +2254,8 @@ export async function PUT(request) {
 
     const timer =
       buildCurrentBreakInfo(
-        updatedUser,
-        Date.now()
+        user,
+        serverNowMs
       );
 
     await connection.commit();
@@ -1679,60 +2264,30 @@ export async function PUT(request) {
     // RESPONSE
     // ========================================================
 
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json(
+      buildResponseData({
+        user,
 
-      user: {
-        id:
-          updatedUser.id,
-        name:
-          updatedUser.name,
-        email:
-          updatedUser.email,
-        role:
-          updatedUser.role,
-      },
+        limits,
 
-      status:
-        updatedUser.availability_status,
+        timer,
 
-      status_started_at:
-        updatedUser.status_started_at,
+        time:
+          getTimeInfo(),
+      }),
+      {
+        status: 200,
 
-      limits,
+        headers: {
+          "Cache-Control":
+            "no-store, no-cache, must-revalidate",
 
-      timer,
+          Pragma: "no-cache",
 
-      breakDurationLimits:
-        BREAK_DURATION_LIMITS_MINUTES,
-
-      breakTimeRules: {
-        allowed:
-          isBreakAllowedAtCaliforniaTime(
-            now
-          ),
-        blockedFrom:
-          "08:00 AM",
-        blockedUntil:
-          "09:00 AM",
-        allowedFrom:
-          "09:00 AM",
-        timezone:
-          CALIFORNIA_TIMEZONE,
-      },
-
-      serverClock: {
-        nowMs:
-          Date.now(),
-        iso:
-          new Date().toISOString(),
-        californiaNow,
-        californiaDisplayTime:
-          getCaliforniaDisplayTime(
-            now
-          ),
-      },
-    });
+          Expires: "0",
+        },
+      }
+    );
   } catch (error) {
     if (connection) {
       try {
@@ -1748,8 +2303,10 @@ export async function PUT(request) {
     return NextResponse.json(
       {
         success: false,
+
         message:
           "Failed to update user status",
+
         error:
           process.env.NODE_ENV ===
           "development"

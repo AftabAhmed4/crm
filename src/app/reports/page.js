@@ -20,6 +20,10 @@ import {
   Hash,
   Check,
   AlertCircle,
+  BarChart3,
+  Filter,
+  RotateCcw,
+  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -36,7 +40,6 @@ import { useRouter } from "next/navigation";
 
 const ACCENT = "#ec3737";
 const PAGE_SIZE = 50;
-
 const DEFAULT_STATUS = "Pending";
 
 const STATUS_OPTIONS = [
@@ -61,23 +64,46 @@ const STATUS_OPTIONS = [
   "Retired",
 ];
 
+const ADMIN_ROLES = [
+  "admin",
+  "administrator",
+  "superadmin",
+  "super_admin",
+];
+
 function safeString(value) {
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) {
+    return "";
+  }
+
   return String(value);
 }
 
 function normalizeDate(value) {
   if (!value) return "";
 
+  if (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return value;
+  }
+
   const str = String(value);
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    return str;
+  const directMatch = str.match(
+    /^(\d{4}-\d{2}-\d{2})/
+  );
+
+  if (directMatch) {
+    return directMatch[1];
   }
 
   const d = new Date(value);
 
-  if (Number.isNaN(d.getTime())) return "";
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
 
   return [
     d.getFullYear(),
@@ -91,7 +117,8 @@ function formatDate(value) {
 
   if (!normalized) return "—";
 
-  const [year, month, day] = normalized.split("-");
+  const [year, month, day] =
+    normalized.split("-");
 
   return `${month}/${day}/${year}`;
 }
@@ -99,9 +126,7 @@ function formatDate(value) {
 function formatPhone(value) {
   const phone = safeString(value).trim();
 
-  if (!phone) return "—";
-
-  return phone;
+  return phone || "—";
 }
 
 function getStatus(row) {
@@ -109,7 +134,7 @@ function getStatus(row) {
     row?.status ??
     row?.assignment_status ??
     row?.current_status ??
-    "Pending"
+    DEFAULT_STATUS
   );
 }
 
@@ -207,10 +232,14 @@ function getInitials(name) {
 
   if (!value) return "—";
 
-  const parts = value.split(/\s+/).filter(Boolean);
+  const parts = value
+    .split(/\s+/)
+    .filter(Boolean);
 
   if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
+    return parts[0]
+      .slice(0, 2)
+      .toUpperCase();
   }
 
   return (
@@ -220,26 +249,23 @@ function getInitials(name) {
 }
 
 function statusClasses(status) {
-  const value = safeString(status).toLowerCase();
+  const value = safeString(status)
+    .toLowerCase()
+    .trim();
 
   if (
     value.includes("completed") ||
     value === "complete" ||
     value === "done"
   ) {
-    return "bg-green-50 text-green-700 border-green-200";
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
 
-  if (
-    value.includes("progress") ||
-    value === "in progress"
-  ) {
+  if (value.includes("progress")) {
     return "bg-blue-50 text-blue-700 border-blue-200";
   }
 
-  if (
-    value.includes("pending")
-  ) {
+  if (value.includes("pending")) {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
 
@@ -248,6 +274,14 @@ function statusClasses(status) {
     value.includes("not interested")
   ) {
     return "bg-red-50 text-red-700 border-red-200";
+  }
+
+  if (
+    value.includes("follow") ||
+    value.includes("call back") ||
+    value.includes("callback")
+  ) {
+    return "bg-purple-50 text-purple-700 border-purple-200";
   }
 
   return "bg-gray-50 text-gray-700 border-gray-200";
@@ -271,47 +305,58 @@ function downloadCSV(rows) {
 
   const escapeCSV = (value) => {
     const str = safeString(value);
-    return `"${str.replaceAll('"', '""')}"`;
+
+    return `"${str.replaceAll(
+      '"',
+      '""'
+    )}"`;
   };
 
-  const data = rows.map((row, index) => [
-    index + 1,
-    formatDate(getDate(row)),
-    getUserName(row),
-    getBusiness(row),
-    getName(row),
-    getPhone(row),
-    getStatus(row),
-    getComment(row),
-    getSheet(row),
-    getTaskId(row),
-  ]);
+  const data = rows.map(
+    (row, index) => [
+      index + 1,
+      formatDate(getDate(row)),
+      getUserName(row),
+      getBusiness(row),
+      getName(row),
+      getPhone(row),
+      getStatus(row),
+      getComment(row),
+      getSheet(row),
+      getTaskId(row),
+    ]
+  );
 
   const csv = [
     headers,
     ...data,
   ]
-    .map((row) => row.map(escapeCSV).join(","))
+    .map((row) =>
+      row.map(escapeCSV).join(",")
+    )
     .join("\n");
 
-  const blob = new Blob(
-    [csv],
-    {
-      type: "text/csv;charset=utf-8;",
-    }
-  );
+  const blob = new Blob([csv], {
+    type: "text/csv;charset=utf-8;",
+  });
 
-  const url = URL.createObjectURL(blob);
+  const url =
+    URL.createObjectURL(blob);
 
-  const link = document.createElement("a");
+  const link =
+    document.createElement("a");
 
   link.href = url;
-  link.download = `admin-history-${new Date()
-    .toISOString()
-    .slice(0, 10)}.csv`;
+
+  link.download =
+    `admin-history-${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
 
   document.body.appendChild(link);
+
   link.click();
+
   link.remove();
 
   URL.revokeObjectURL(url);
@@ -320,210 +365,425 @@ function downloadCSV(rows) {
 export default function AdminHistoryPage() {
   const router = useRouter();
 
-  const [records, setRecords] = useState([]);
-  const [staff, setStaff] = useState([]);
+  const [records, setRecords] =
+    useState([]);
 
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [staff, setStaff] =
+    useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [currentUser, setCurrentUser] =
+    useState(null);
 
-  const [error, setError] = useState("");
+  const [isAdmin, setIsAdmin] =
+    useState(false);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [employeeFilter, setEmployeeFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [loading, setLoading] =
+    useState(true);
 
-  const [page, setPage] = useState(1);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({});
+  const [error, setError] =
+    useState("");
 
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [savingNew, setSavingNew] = useState(false);
+  const [search, setSearch] =
+    useState("");
 
-  const [newRow, setNewRow] = useState({
-    assignment_date: normalizeDate(new Date()),
-    employee_id: "",
-    business_name: "",
-    name: "",
-    phone_number: "",
-    status: DEFAULT_STATUS,
-    comment: "",
-  });
+  const [statusFilter, setStatusFilter] =
+    useState("");
 
-  const [addError, setAddError] = useState("");
-  const [addSuccess, setAddSuccess] = useState("");
+  const [employeeFilter, setEmployeeFilter] =
+    useState("");
 
-  const addFormRef = useRef(null);
+  const [fromDate, setFromDate] =
+    useState("");
+
+  const [toDate, setToDate] =
+    useState("");
+
+  const [page, setPage] =
+    useState(1);
+
+  /*
+   * IMPORTANT
+   * API TOTAL
+   */
+  const [totalRecords, setTotalRecords] =
+    useState(0);
+
+  const [totalPages, setTotalPages] =
+    useState(1);
+
+  const [currentPageRecords, setCurrentPageRecords] =
+    useState(0);
+
+  const [editingId, setEditingId] =
+    useState(null);
+
+  const [editForm, setEditForm] =
+    useState({});
+
+  const [showAddForm, setShowAddForm] =
+    useState(false);
+
+  const [savingNew, setSavingNew] =
+    useState(false);
+
+  const [newRow, setNewRow] =
+    useState({
+      assignment_date:
+        normalizeDate(new Date()),
+
+      employee_id: "",
+
+      business_name: "",
+
+      name: "",
+
+      phone_number: "",
+
+      status: DEFAULT_STATUS,
+
+      comment: "",
+    });
+
+  const [addError, setAddError] =
+    useState("");
+
+  const [addSuccess, setAddSuccess] =
+    useState("");
+
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
+
+  const [showLogoutModal, setShowLogoutModal] =
+    useState(false);
+
+  const addFormRef =
+    useRef(null);
 
   // =========================================================
   // CURRENT USER
   // =========================================================
 
-  const fetchCurrentUser = useCallback(async () => {
-    try {
-      const response = await fetch("/api/auth/me", {
-        credentials: "include",
-        cache: "no-store",
-      });
+  const fetchCurrentUser =
+    useCallback(async () => {
+      try {
+        const response =
+          await fetch(
+            "/api/auth/me",
+            {
+              credentials: "include",
+              cache: "no-store",
+            }
+          );
 
-      if (!response.ok) {
+        if (!response.ok) {
+          router.push("/login");
+          return null;
+        }
+
+        const data =
+          await response.json();
+
+        const user =
+          data?.user ??
+          data?.data ??
+          data;
+
+        if (!user) {
+          router.push("/login");
+          return null;
+        }
+
+        setCurrentUser(user);
+
+        const role =
+          String(
+            user.role || ""
+          )
+            .toLowerCase()
+            .replace(
+              /\s+/g,
+              "_"
+            );
+
+        const admin =
+          ADMIN_ROLES.includes(
+            role
+          );
+
+        setIsAdmin(admin);
+
+        return user;
+      } catch (err) {
+        console.error(err);
+
         router.push("/login");
+
         return null;
       }
-
-      const data = await response.json();
-
-      const user =
-        data?.user ??
-        data?.data ??
-        data;
-
-      if (!user) {
-        router.push("/login");
-        return null;
-      }
-
-      setCurrentUser(user);
-
-      const admin =
-        String(user.role || "").toLowerCase() === "admin";
-
-      setIsAdmin(admin);
-
-      return user;
-    } catch (err) {
-      console.error(err);
-      router.push("/login");
-      return null;
-    }
-  }, [router]);
+    }, [router]);
 
   // =========================================================
   // STAFF
   // =========================================================
 
-  const fetchStaff = useCallback(async () => {
-    try {
-      const response = await fetch(
-        "/api/staffes/list",
-        {
-          credentials: "include",
-          cache: "no-store",
-        }
-      );
-
-      if (!response.ok) {
-        return;
-      }
-
-      const data = await response.json();
-
-      const list =
-        Array.isArray(data)
-          ? data
-          : data?.users ??
-            data?.staff ??
-            data?.data ??
-            [];
-
-      setStaff(Array.isArray(list) ? list : []);
-    } catch (err) {
-      console.error("Staff fetch error:", err);
-    }
-  }, []);
-
-  // =========================================================
-  // HISTORY
-  // =========================================================
-
-  const fetchReport = useCallback(
-    async (showLoader = false) => {
+  const fetchStaff =
+    useCallback(async () => {
       try {
-        if (showLoader) {
-          setLoading(true);
-        } else {
-          setRefreshing(true);
-        }
-
-        setError("");
-
-        const params = new URLSearchParams();
-
-        if (fromDate) {
-          params.set("from", fromDate);
-        }
-
-        if (toDate) {
-          params.set("to", toDate);
-        }
-
-        if (employeeFilter) {
-          params.set(
-            "employee_id",
-            employeeFilter
+        const response =
+          await fetch(
+            "/api/staffes/list",
+            {
+              credentials: "include",
+              cache: "no-store",
+            }
           );
-        }
-
-        if (statusFilter) {
-          params.set(
-            "status",
-            statusFilter
-          );
-        }
-
-        const url =
-          `/api/admin/history?${params.toString()}`;
-
-        const response = await fetch(url, {
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            data?.error ||
-              data?.message ||
-              "Failed to load history."
-          );
+          return;
         }
+
+        const data =
+          await response.json();
 
         const list =
           Array.isArray(data)
             ? data
-            : data?.records ??
-              data?.rows ??
+            : data?.users ??
+              data?.staff ??
               data?.data ??
               [];
 
-        setRecords(
-          Array.isArray(list) ? list : []
+        setStaff(
+          Array.isArray(list)
+            ? list
+            : []
         );
       } catch (err) {
-        console.error(err);
-
-        setError(
-          err?.message ||
-            "Unable to load history."
+        console.error(
+          "Staff fetch error:",
+          err
         );
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
       }
-    },
-    [
-      fromDate,
-      toDate,
-      employeeFilter,
-      statusFilter,
-    ]
-  );
+    }, []);
+
+  // =========================================================
+  // HISTORY API
+  // =========================================================
+
+  const fetchReport =
+    useCallback(
+      async (
+        showLoader = false,
+        overrideFilters = {},
+        overridePage = null
+      ) => {
+        try {
+          if (showLoader) {
+            setLoading(true);
+          } else {
+            setRefreshing(true);
+          }
+
+          setError("");
+
+          const selectedSearch =
+            overrideFilters.search ??
+            search;
+
+          const selectedEmployee =
+            overrideFilters.employee_id ??
+            employeeFilter;
+
+          const selectedStatus =
+            overrideFilters.status ??
+            statusFilter;
+
+          const selectedFrom =
+            overrideFilters.from ??
+            fromDate;
+
+          const selectedTo =
+            overrideFilters.to ??
+            toDate;
+
+          const selectedPage =
+            overridePage ??
+            page;
+
+          const params =
+            new URLSearchParams();
+
+          /*
+           * SERVER-SIDE PAGINATION
+           */
+          params.set(
+            "page",
+            String(selectedPage)
+          );
+
+          params.set(
+            "limit",
+            String(PAGE_SIZE)
+          );
+
+          if (selectedFrom) {
+            params.set(
+              "from",
+              selectedFrom
+            );
+          }
+
+          if (selectedTo) {
+            params.set(
+              "to",
+              selectedTo
+            );
+          }
+
+          if (selectedEmployee) {
+            params.set(
+              "employee_id",
+              String(
+                selectedEmployee
+              )
+            );
+          }
+
+          if (selectedStatus) {
+            params.set(
+              "status",
+              selectedStatus
+            );
+          }
+
+          if (
+            selectedSearch &&
+            selectedSearch.trim()
+          ) {
+            params.set(
+              "search",
+              selectedSearch.trim()
+            );
+          }
+
+          const url =
+            `/api/admin/history?${params.toString()}`;
+
+          const response =
+            await fetch(
+              url,
+              {
+                credentials: "include",
+                cache: "no-store",
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              data?.error ||
+                data?.message ||
+                "Failed to load history."
+            );
+          }
+
+          const list =
+            Array.isArray(data)
+              ? data
+              : data?.records ??
+                data?.rows ??
+                data?.data ??
+                [];
+
+          const safeList =
+            Array.isArray(list)
+              ? list
+              : [];
+
+          setRecords(
+            safeList
+          );
+
+          /*
+           * THIS IS THE IMPORTANT FIX
+           *
+           * Do NOT use safeList.length
+           * as total.
+           */
+          const apiTotal =
+            Number(
+              data?.totalRecords ??
+                data?.total ??
+                data?.filteredTotal ??
+                safeList.length
+            );
+
+          setTotalRecords(
+            Number.isFinite(apiTotal)
+              ? apiTotal
+              : safeList.length
+          );
+
+          const apiPages =
+            Number(
+              data?.totalPages ??
+                Math.max(
+                  1,
+                  Math.ceil(
+                    apiTotal /
+                      PAGE_SIZE
+                  )
+                )
+            );
+
+          setTotalPages(
+            Number.isFinite(
+              apiPages
+            ) && apiPages > 0
+              ? apiPages
+              : 1
+          );
+
+          setCurrentPageRecords(
+            Number(
+              data?.currentPageRecords ??
+                safeList.length
+            )
+          );
+
+          if (
+            selectedPage !== page
+          ) {
+            setPage(
+              selectedPage
+            );
+          }
+        } catch (err) {
+          console.error(err);
+
+          setError(
+            err?.message ||
+              "Unable to load history."
+          );
+        } finally {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      },
+      [
+        search,
+        employeeFilter,
+        statusFilter,
+        fromDate,
+        toDate,
+        page,
+      ]
+    );
 
   // =========================================================
   // INITIAL LOAD
@@ -533,7 +793,8 @@ export default function AdminHistoryPage() {
     let mounted = true;
 
     async function init() {
-      const user = await fetchCurrentUser();
+      const user =
+        await fetchCurrentUser();
 
       if (!mounted) return;
 
@@ -541,18 +802,45 @@ export default function AdminHistoryPage() {
 
       if (!mounted) return;
 
-      if (user && !isAdmin) {
-        setNewRow((prev) => ({
-          ...prev,
-          employee_id: String(
-            user.id ??
-              user.user_id ??
-              ""
-          ),
-        }));
+      if (user) {
+        const ownId =
+          user.id ??
+          user.user_id ??
+          "";
+
+        const role =
+          String(
+            user.role || ""
+          )
+            .toLowerCase()
+            .replace(
+              /\s+/g,
+              "_"
+            );
+
+        const admin =
+          ADMIN_ROLES.includes(
+            role
+          );
+
+        if (!admin) {
+          setNewRow(
+            (prev) => ({
+              ...prev,
+              employee_id:
+                String(
+                  ownId
+                ),
+            })
+          );
+        }
       }
 
-      await fetchReport(true);
+      await fetchReport(
+        true,
+        {},
+        1
+      );
     }
 
     init();
@@ -563,7 +851,7 @@ export default function AdminHistoryPage() {
   }, []);
 
   // =========================================================
-  // SET OWN EMPLOYEE AFTER USER LOAD
+  // OWN EMPLOYEE
   // =========================================================
 
   useEffect(() => {
@@ -577,849 +865,1048 @@ export default function AdminHistoryPage() {
       ownId !== undefined &&
       ownId !== null
     ) {
-      setNewRow((prev) => {
-        if (!prev.employee_id || !isAdmin) {
-          return {
-            ...prev,
-            employee_id: String(ownId),
-          };
-        }
+      setNewRow(
+        (prev) => {
+          if (
+            !prev.employee_id ||
+            !isAdmin
+          ) {
+            return {
+              ...prev,
+              employee_id:
+                String(
+                  ownId
+                ),
+            };
+          }
 
-        return prev;
-      });
+          return prev;
+        }
+      );
     }
-  }, [currentUser, isAdmin]);
+  }, [
+    currentUser,
+    isAdmin,
+  ]);
 
   // =========================================================
   // LIVE REFRESH
   // =========================================================
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (
-        document.visibilityState !==
-        "visible"
-      ) {
-        return;
-      }
+    const interval =
+      setInterval(() => {
+        if (
+          document.visibilityState !==
+          "visible"
+        ) {
+          return;
+        }
 
-      if (editingId) return;
-      if (showAddForm) return;
-      if (savingNew) return;
+        if (editingId) return;
 
-      fetchReport(false);
-    }, 5000);
+        if (showAddForm) return;
 
-    return () => clearInterval(interval);
+        if (savingNew) return;
+
+        fetchReport(
+          false,
+          {},
+          page
+        );
+      }, 5000);
+
+    return () =>
+      clearInterval(interval);
   }, [
     editingId,
     showAddForm,
     savingNew,
     fetchReport,
-  ]);
-
-  // =========================================================
-  // FILTER
-  // =========================================================
-
-  const filteredRecords = useMemo(() => {
-    const query =
-      safeString(search)
-        .trim()
-        .toLowerCase();
-
-    if (!query) {
-      return records;
-    }
-
-    return records.filter((row) => {
-      const searchable = [
-        getBusiness(row),
-        getName(row),
-        getPhone(row),
-        getStatus(row),
-        getComment(row),
-        getUserName(row),
-        getSheet(row),
-        getTaskId(row),
-        getEmployeeId(row),
-      ]
-        .map(safeString)
-        .join(" ")
-        .toLowerCase();
-
-      return searchable.includes(query);
-    });
-  }, [records, search]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(
-      filteredRecords.length / PAGE_SIZE
-    )
-  );
-
-  const paginatedRecords = useMemo(() => {
-    const start =
-      (page - 1) * PAGE_SIZE;
-
-    return filteredRecords.slice(
-      start,
-      start + PAGE_SIZE
-    );
-  }, [
-    filteredRecords,
     page,
   ]);
 
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
+  // =========================================================
+  // SUMMARY
+  // =========================================================
+
+  /*
+   * NOTE:
+   *
+   * These status cards are based on the records
+   * returned by the current API page.
+   *
+   * TOTAL however is the REAL API TOTAL.
+   */
+  const summary =
+    useMemo(() => {
+      const count =
+        (status) =>
+          records.filter(
+            (row) =>
+              safeString(
+                getStatus(row)
+              )
+                .toLowerCase()
+                .trim() ===
+              status
+          ).length;
+
+      return {
+        total: totalRecords,
+
+        followUp:
+          count(
+            "follow up"
+          ),
+
+        callBack:
+          count(
+            "call back"
+          ),
+
+        wrongNum:
+          count(
+            "wrong num"
+          ),
+
+        notInterested:
+          count(
+            "not interested"
+          ),
+
+        dnc:
+          count("dnc"),
+
+        noBusiness:
+          count(
+            "no business"
+          ),
+
+        pending:
+          count("pending"),
+      };
+    }, [
+      records,
+      totalRecords,
+    ]);
+
+  // =========================================================
+  // FILTER HANDLERS
+  // =========================================================
+
+  const handleEmployeeFilter =
+    (value) => {
+      setEmployeeFilter(
+        value
+      );
+
+      setPage(1);
+
+      fetchReport(
+        false,
+        {
+          employee_id:
+            value,
+        },
+        1
+      );
+    };
+
+  const handleStatusFilter =
+    (value) => {
+      setStatusFilter(
+        value
+      );
+
+      setPage(1);
+
+      fetchReport(
+        false,
+        {
+          status: value,
+        },
+        1
+      );
+    };
+
+  const handleFromDate =
+    (value) => {
+      setFromDate(value);
+
+      setPage(1);
+
+      fetchReport(
+        false,
+        {
+          from: value,
+        },
+        1
+      );
+    };
+
+  const handleToDate =
+    (value) => {
+      setToDate(value);
+
+      setPage(1);
+
+      fetchReport(
+        false,
+        {
+          to: value,
+        },
+        1
+      );
+    };
+
+  const handleSearch =
+    (value) => {
+      setSearch(value);
+
+      setPage(1);
+    };
+
+  // =========================================================
+  // SEARCH ENTER
+  // =========================================================
+
+  const runSearch = () => {
+    setPage(1);
+
+    fetchReport(
+      false,
+      {},
+      1
+    );
+  };
+
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const goToPage =
+    (nextPage) => {
+      const safePage =
+        Math.max(
+          1,
+          Math.min(
+            nextPage,
+            totalPages
+          )
+        );
+
+      setPage(
+        safePage
+      );
+
+      fetchReport(
+        false,
+        {},
+        safePage
+      );
+    };
 
   // =========================================================
   // ADD FORM
   // =========================================================
 
-  const openAddForm = () => {
-    setAddError("");
-    setAddSuccess("");
+  const openAddForm =
+    () => {
+      setAddError("");
+      setAddSuccess("");
 
-    const ownId =
-      currentUser?.id ??
-      currentUser?.user_id ??
-      "";
-
-    setNewRow({
-      assignment_date:
-        normalizeDate(new Date()),
-      employee_id: isAdmin
-        ? ""
-        : String(ownId),
-      business_name: "",
-      name: "",
-      phone_number: "",
-      status: DEFAULT_STATUS,
-      comment: "",
-    });
-
-    setShowAddForm(true);
-
-    setTimeout(() => {
-      addFormRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
-  };
-
-  const closeAddForm = () => {
-    if (savingNew) return;
-
-    setShowAddForm(false);
-    setAddError("");
-    setAddSuccess("");
-  };
-
-  const handleNewChange = (
-    field,
-    value
-  ) => {
-    setNewRow((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  // =========================================================
-  // SAVE NEW ROW
-  // =========================================================
-
-  const handleCreateRow = async (event) => {
-    event.preventDefault();
-
-    setAddError("");
-    setAddSuccess("");
-
-    const ownId =
-      currentUser?.id ??
-      currentUser?.user_id;
-
-    const employeeId = isAdmin
-      ? newRow.employee_id
-      : String(ownId ?? "");
-
-    if (!employeeId) {
-      setAddError(
-        "Employee select karein."
-      );
-      return;
-    }
-
-    if (!newRow.assignment_date) {
-      setAddError(
-        "Date select karein."
-      );
-      return;
-    }
-
-    if (!newRow.status?.trim()) {
-      setAddError(
-        "Status select karein."
-      );
-      return;
-    }
-
-    setSavingNew(true);
-
-    try {
-      const response = await fetch(
-        "/api/admin/history",
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            assignment_date:
-              newRow.assignment_date,
-
-            employee_id:
-              employeeId,
-
-            business_name:
-              newRow.business_name.trim(),
-
-            name:
-              newRow.name.trim(),
-
-            phone_number:
-              newRow.phone_number.trim(),
-
-            status:
-              newRow.status.trim(),
-
-            comment:
-              newRow.comment.trim(),
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            data?.message ||
-            "Unable to create row."
-        );
-      }
-
-      const created =
-        data?.record ??
-        data?.row ??
-        data?.data ??
-        data;
-
-      if (
-        created &&
-        typeof created === "object" &&
-        !Array.isArray(created)
-      ) {
-        setRecords((prev) => [
-          created,
-          ...prev,
-        ]);
-      } else {
-        await fetchReport(false);
-      }
-
-      setAddSuccess(
-        "New row successfully add ho gayi."
-      );
+      const ownId =
+        currentUser?.id ??
+        currentUser?.user_id ??
+        "";
 
       setNewRow({
         assignment_date:
-          normalizeDate(new Date()),
-        employee_id: isAdmin
-          ? ""
-          : String(ownId ?? ""),
-        business_name: "",
+          normalizeDate(
+            new Date()
+          ),
+
+        employee_id:
+          isAdmin
+            ? ""
+            : String(
+                ownId
+              ),
+
+        business_name:
+          "",
+
         name: "",
-        phone_number: "",
-        status: DEFAULT_STATUS,
+
+        phone_number:
+          "",
+
+        status:
+          DEFAULT_STATUS,
+
         comment: "",
       });
 
-      setPage(1);
+      setShowAddForm(
+        true
+      );
 
       setTimeout(() => {
-        setShowAddForm(false);
-        setAddSuccess("");
-      }, 800);
-    } catch (err) {
-      console.error(
-        "Create row error:",
-        err
+        addFormRef.current?.scrollIntoView(
+          {
+            behavior:
+              "smooth",
+            block:
+              "start",
+          }
+        );
+      }, 100);
+    };
+
+  const closeAddForm =
+    () => {
+      if (savingNew) return;
+
+      setShowAddForm(
+        false
       );
 
-      setAddError(
-        err?.message ||
-          "Unable to create row."
+      setAddError("");
+      setAddSuccess("");
+    };
+
+  const handleNewChange =
+    (
+      field,
+      value
+    ) => {
+      setNewRow(
+        (prev) => ({
+          ...prev,
+          [field]:
+            value,
+        })
       );
-    } finally {
-      setSavingNew(false);
-    }
-  };
+    };
+
+  // =========================================================
+  // CREATE
+  // =========================================================
+
+  const handleCreateRow =
+    async (event) => {
+      event.preventDefault();
+
+      setAddError("");
+      setAddSuccess("");
+
+      const ownId =
+        currentUser?.id ??
+        currentUser?.user_id;
+
+      const employeeId =
+        isAdmin
+          ? newRow.employee_id
+          : String(
+              ownId ?? ""
+            );
+
+      if (!employeeId) {
+        setAddError(
+          "Employee select karein."
+        );
+        return;
+      }
+
+      if (
+        !newRow.assignment_date
+      ) {
+        setAddError(
+          "Date select karein."
+        );
+        return;
+      }
+
+      if (
+        !newRow.status?.trim()
+      ) {
+        setAddError(
+          "Status select karein."
+        );
+        return;
+      }
+
+      if (
+        !newRow.phone_number?.trim()
+      ) {
+        setAddError(
+          "Phone number enter karein."
+        );
+        return;
+      }
+
+      setSavingNew(true);
+
+      try {
+        const response =
+          await fetch(
+            "/api/admin/history",
+            {
+              method:
+                "POST",
+
+              credentials:
+                "include",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify({
+                  assignment_date:
+                    newRow.assignment_date,
+
+                  employee_id:
+                    employeeId,
+
+                  business_name:
+                    newRow.business_name.trim(),
+
+                  name:
+                    newRow.name.trim(),
+
+                  phone_number:
+                    newRow.phone_number.trim(),
+
+                  status:
+                    newRow.status.trim(),
+
+                  comment:
+                    newRow.comment.trim(),
+                }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ||
+              data?.message ||
+              "Unable to create row."
+          );
+        }
+
+        setAddSuccess(
+          "New row successfully add ho gayi."
+        );
+
+        setNewRow({
+          assignment_date:
+            normalizeDate(
+              new Date()
+            ),
+
+          employee_id:
+            isAdmin
+              ? ""
+              : String(
+                  ownId ?? ""
+                ),
+
+          business_name:
+            "",
+
+          name: "",
+
+          phone_number:
+            "",
+
+          status:
+            DEFAULT_STATUS,
+
+          comment: "",
+        });
+
+        /*
+         * Reload page 1 because new record
+         * can change total and ordering.
+         */
+        setPage(1);
+
+        await fetchReport(
+          false,
+          {},
+          1
+        );
+
+        setTimeout(() => {
+          setShowAddForm(
+            false
+          );
+
+          setAddSuccess("");
+        }, 800);
+      } catch (err) {
+        console.error(
+          "Create row error:",
+          err
+        );
+
+        setAddError(
+          err?.message ||
+            "Unable to create row."
+        );
+      } finally {
+        setSavingNew(false);
+      }
+    };
 
   // =========================================================
   // EDIT
   // =========================================================
 
-  const startEdit = (row) => {
-    const id =
-      getAssignmentId(row);
+  const startEdit =
+    (row) => {
+      const id =
+        getAssignmentId(
+          row
+        );
 
-    setEditingId(id);
+      if (!id) return;
 
-    setEditForm({
-      assignment_date:
-        normalizeDate(getDate(row)),
+      /*
+       * IMPORTANT:
+       * Both admin and normal user can reach
+       * this function.
+       *
+       * API decides whether the record belongs
+       * to the logged-in user.
+       */
+      setEditingId(id);
 
-      employee_id:
-        String(getEmployeeId(row) || ""),
+      setEditForm({
+        assignment_date:
+          normalizeDate(
+            getDate(row)
+          ),
 
-      business_name:
-        getBusiness(row),
+        employee_id:
+          String(
+            getEmployeeId(
+              row
+            ) || ""
+          ),
 
-      name:
-        getName(row),
+        business_name:
+          getBusiness(row),
 
-      phone_number:
-        getPhone(row),
+        name:
+          getName(row),
 
-      status:
-        getStatus(row),
+        phone_number:
+          getPhone(row),
 
-      comment:
-        getComment(row),
-    });
-  };
+        status:
+          getStatus(row),
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm({});
-  };
+        comment:
+          getComment(row),
+      });
+    };
 
-  const handleEditChange = (
-    field,
-    value
-  ) => {
-    setEditForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
+  const cancelEdit =
+    () => {
+      setEditingId(null);
 
-  const saveEdit = async (row) => {
-    const assignmentId =
-      getAssignmentId(row);
+      setEditForm({});
+    };
 
-    if (!assignmentId) {
-      return;
-    }
-
-    try {
-      setError("");
-
-      const response = await fetch(
-        "/api/admin/history",
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            id: assignmentId,
-
-            assignment_date:
-              editForm.assignment_date,
-
-            employee_id:
-              editForm.employee_id,
-
-            business_name:
-              editForm.business_name,
-
-            name:
-              editForm.name,
-
-            phone_number:
-              editForm.phone_number,
-
-            status:
-              editForm.status,
-
-            comment:
-              editForm.comment,
-          }),
-        }
+  const handleEditChange =
+    (
+      field,
+      value
+    ) => {
+      setEditForm(
+        (prev) => ({
+          ...prev,
+          [field]:
+            value,
+        })
       );
+    };
 
-      const data =
-        await response.json();
+  const saveEdit =
+    async (row) => {
+      const assignmentId =
+        getAssignmentId(
+          row
+        );
 
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            data?.message ||
+      if (!assignmentId)
+        return;
+
+      try {
+        setError("");
+
+        const response =
+          await fetch(
+            "/api/admin/history",
+            {
+              method:
+                "PUT",
+
+              credentials:
+                "include",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify({
+                  id:
+                    assignmentId,
+
+                  assignment_date:
+                    editForm.assignment_date,
+
+                  /*
+                   * Admin can change employee.
+                   * Normal user API will reject
+                   * another employee.
+                   */
+                  employee_id:
+                    editForm.employee_id,
+
+                  business_name:
+                    editForm.business_name,
+
+                  name:
+                    editForm.name,
+
+                  phone_number:
+                    editForm.phone_number,
+
+                  status:
+                    editForm.status,
+
+                  comment:
+                    editForm.comment,
+                }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ||
+              data?.message ||
+              "Unable to update row."
+          );
+        }
+
+        cancelEdit();
+
+        /*
+         * Reload current page.
+         */
+        await fetchReport(
+          false,
+          {},
+          page
+        );
+      } catch (err) {
+        console.error(
+          "Update error:",
+          err
+        );
+
+        setError(
+          err?.message ||
             "Unable to update row."
         );
       }
+    };
 
-      const updated =
-        data?.record ??
-        data?.row ??
-        data?.data ??
-        data;
+  // =========================================================
+  // RESET
+  // =========================================================
 
-      if (
-        updated &&
-        typeof updated ===
-          "object" &&
-        !Array.isArray(updated)
-      ) {
-        setRecords((prev) =>
-          prev.map((item) =>
-            String(
-              getAssignmentId(item)
-            ) ===
-            String(assignmentId)
-              ? updated
-              : item
-          )
+  const resetFilters =
+    () => {
+      setSearch("");
+
+      setStatusFilter("");
+
+      setEmployeeFilter("");
+
+      setFromDate("");
+
+      setToDate("");
+
+      setPage(1);
+
+      fetchReport(
+        false,
+        {
+          search: "",
+          status: "",
+          employee_id: "",
+          from: "",
+          to: "",
+        },
+        1
+      );
+    };
+
+  // =========================================================
+  // EXPORT CURRENT LOADED RECORDS
+  // =========================================================
+
+  const exportCurrentPage =
+    () => {
+      downloadCSV(
+        records
+      );
+    };
+
+  // =========================================================
+  // RANGE
+  // =========================================================
+
+  const showingFrom =
+    totalRecords === 0
+      ? 0
+      : (page - 1) *
+          PAGE_SIZE +
+        1;
+
+  const showingTo =
+    totalRecords === 0
+      ? 0
+      : Math.min(
+          (page - 1) *
+            PAGE_SIZE +
+            currentPageRecords,
+          totalRecords
         );
-      } else {
-        await fetchReport(false);
-      }
-
-      cancelEdit();
-    } catch (err) {
-      console.error(
-        "Update error:",
-        err
-      );
-
-      setError(
-        err?.message ||
-          "Unable to update row."
-      );
-    }
-  };
 
   // =========================================================
-  // RESET FILTERS
-  // =========================================================
-
-  const resetFilters = () => {
-    setSearch("");
-    setStatusFilter("");
-    setEmployeeFilter("");
-    setFromDate("");
-    setToDate("");
-    setPage(1);
-  };
-
-  // =========================================================
-  // SIDEBAR
-  // =========================================================
-
-  const [sidebarOpen, setSidebarOpen] =
-    useState(false);
-
-  const [showLogoutModal, setShowLogoutModal] =
-    useState(false);
-
-  // =========================================================
-  // UI
+  // RENDER
   // =========================================================
 
   return (
-    <div className="min-h-screen bg-[#f7f7f8] text-gray-900">
+    <div className="min-h-screen bg-[#f6f7f9] text-gray-900">
       <Sidebar
-        open={sidebarOpen}
-        setOpen={setSidebarOpen}
+        open={
+          sidebarOpen
+        }
+        setOpen={
+          setSidebarOpen
+        }
         onLogout={() =>
-          setShowLogoutModal(true)
+          setShowLogoutModal(
+            true
+          )
         }
       />
 
-
       <div className="lg:pl-[260px]">
-        {/* =========================================================
-    STATUS SUMMARY
-========================================================= */}
+        {/* HEADER */}
 
-<div className="mb-5 py-10 px-10 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+        <header className="sticky top-0 z-40 border-b border-gray-200/80 bg-white/95 backdrop-blur-xl">
+          <div className="px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSidebarOpen(
+                      true
+                    )
+                  }
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-sm lg:hidden"
+                >
+                  ☰
+                </button>
 
-  {/* TOTAL */}
+                <div
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm"
+                  style={{
+                    background:
+                      `linear-gradient(135deg, ${ACCENT}, #b91c1c)`,
+                  }}
+                >
+                  <BarChart3
+                    size={21}
+                  />
+                </div>
 
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Total
-    </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="truncate text-lg font-extrabold tracking-tight text-gray-950 sm:text-xl">
+                      Admin Reports
+                    </h1>
 
-    <div className="mt-2 text-2xl font-extrabold text-gray-900">
-      {records.length.toLocaleString()}
-    </div>
+                    {isAdmin && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white"
+                        style={{
+                          backgroundColor:
+                            ACCENT,
+                        }}
+                      >
+                        <ShieldCheck
+                          size={12}
+                        />
+                        Admin
+                      </span>
+                    )}
+                  </div>
 
-    <div className="mt-1 text-[11px] text-gray-500">
-      All Records
-    </div>
-  </div>
+                  <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">
+                    Call activity and task history
+                  </p>
+                </div>
+              </div>
 
-  {/* FOLLOW UP */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="hidden rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600 sm:block">
+                  <span className="text-gray-400">
+                    Total:
+                  </span>{" "}
+                  <span className="font-extrabold text-gray-900">
+                    {totalRecords.toLocaleString()}
+                  </span>
+                </div>
 
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Follow UP
-    </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    fetchReport(
+                      false,
+                      {},
+                      page
+                    )
+                  }
+                  disabled={
+                    refreshing
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-bold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-60"
+                >
+                  <RefreshCw
+                    size={16}
+                    className={
+                      refreshing
+                        ? "animate-spin"
+                        : ""
+                    }
+                  />
 
-    <div className="mt-2 text-2xl font-extrabold text-blue-600">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "follow up"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
+                  <span className="hidden sm:inline">
+                    Refresh
+                  </span>
+                </button>
 
-  {/* CALL BACK */}
+                <button
+                  type="button"
+                  onClick={
+                    exportCurrentPage
+                  }
+                  disabled={
+                    !records.length
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-bold text-gray-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download
+                    size={16}
+                  />
 
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Call Back
-    </div>
+                  <span className="hidden sm:inline">
+                    Export
+                  </span>
+                </button>
 
-    <div className="mt-2 text-2xl font-extrabold text-purple-600">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "call back"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-  {/* WRONG NUM */}
-
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Wrong Num
-    </div>
-
-    <div className="mt-2 text-2xl font-extrabold text-red-600">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "wrong num"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-  {/* NOT INTERESTED */}
-
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Not Interested
-    </div>
-
-    <div className="mt-2 text-2xl font-extrabold text-orange-600">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "not interested"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-  {/* DNC */}
-
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      DNC
-    </div>
-
-    <div className="mt-2 text-2xl font-extrabold text-red-700">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "dnc"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-  {/* NO BUSINESS */}
-
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      No Business
-    </div>
-
-    <div className="mt-2 text-2xl font-extrabold text-gray-700">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "no business"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-  {/* PENDING */}
-
-  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-      Pending
-    </div>
-
-    <div className="mt-2 text-2xl font-extrabold text-amber-600">
-      {
-        records.filter(
-          (row) =>
-            String(getStatus(row))
-              .toLowerCase()
-              .trim() === "pending"
-        ).length.toLocaleString()
-      }
-    </div>
-  </div>
-
-</div>
-        {/* =====================================================
-            MOBILE TOP BAR
-        ===================================================== */}
-
-        <div className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:hidden">
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() =>
-                setSidebarOpen(true)
-              }
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold shadow-sm"
-            >
-              Menu
-            </button>
-
-            <div className="text-sm font-bold">
-              Admin History
+                <button
+                  type="button"
+                  onClick={
+                    openAddForm
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-extrabold text-white shadow-sm"
+                  style={{
+                    backgroundColor:
+                      ACCENT,
+                  }}
+                >
+                  <Plus
+                    size={17}
+                  />
+                  Add New
+                </button>
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                fetchReport(false)
-              }
-              className="rounded-xl border border-gray-200 p-2"
-              title="Refresh"
-            >
-              <RefreshCw
-                size={17}
-                className={
-                  refreshing
-                    ? "animate-spin"
-                    : ""
-                }
-              />
-            </button>
           </div>
-        </div>
+        </header>
 
-        {/* =====================================================
-            MAIN
-        ===================================================== */}
+        <main className="px-3 py-5 sm:px-5 md:px-7 lg:px-8 lg:py-7">
+          {/* SUMMARY */}
 
-        <main className="px-3 py-4 sm:px-5 md:px-7 lg:px-8 lg:py-7">
-          {/* HEADER */}
+          <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+            <SummaryCard
+              label="Total"
+              value={
+                summary.total
+              }
+              icon={
+                <BarChart3
+                  size={17}
+                />
+              }
+              accent="gray"
+            />
 
-          <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-                  Admin Reports
-                </h1>
+            <SummaryCard
+              label="Follow UP"
+              value={
+                summary.followUp
+              }
+              accent="blue"
+            />
 
-                {isAdmin && (
-                  <span
-                    className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white"
+            <SummaryCard
+              label="Call Back"
+              value={
+                summary.callBack
+              }
+              accent="purple"
+            />
+
+            <SummaryCard
+              label="Wrong Num"
+              value={
+                summary.wrongNum
+              }
+              accent="red"
+            />
+
+            <SummaryCard
+              label="Not Interested"
+              value={
+                summary.notInterested
+              }
+              accent="orange"
+            />
+
+            <SummaryCard
+              label="DNC"
+              value={
+                summary.dnc
+              }
+              accent="redDark"
+            />
+
+            <SummaryCard
+              label="No Business"
+              value={
+                summary.noBusiness
+              }
+              accent="gray"
+            />
+
+            <SummaryCard
+              label="Pending"
+              value={
+                summary.pending
+              }
+              accent="amber"
+            />
+          </section>
+
+          {/* ADD FORM */}
+
+          {showAddForm && (
+            <section
+              ref={
+                addFormRef
+              }
+              className="mb-6 overflow-hidden rounded-2xl border border-red-100 bg-white shadow-sm"
+            >
+              <div className="flex items-center justify-between border-b border-red-100 bg-[#fff5f5] px-4 py-4 sm:px-5">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-xl text-white"
                     style={{
                       backgroundColor:
                         ACCENT,
                     }}
                   >
-                    ADMIN
-                  </span>
-                )}
-              </div>
+                    <Plus
+                      size={19}
+                    />
+                  </div>
 
-              <p className="mt-1 text-sm text-gray-500">
-                Call activity and task history
-              </p>
-            </div>
+                  <div>
+                    <h2 className="font-extrabold text-gray-900">
+                      Add New Row
+                    </h2>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  fetchReport(false)
-                }
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
-              >
-                <RefreshCw
-                  size={16}
-                  className={
-                    refreshing
-                      ? "animate-spin"
-                      : ""
-                  }
-                />
-
-                Refresh
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  downloadCSV(
-                    filteredRecords
-                  )
-                }
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
-              >
-                <Download size={16} />
-                Export CSV
-              </button>
-
-              <button
-                type="button"
-                onClick={openAddForm}
-                className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]"
-                style={{
-                  backgroundColor:
-                    ACCENT,
-                }}
-              >
-                <Plus size={18} />
-                Add New Row
-              </button>
-            </div>
-          </div>
-
-          {/* ===================================================
-              ADD NEW ROW FORM
-          =================================================== */}
-
-          {showAddForm && (
-            <section
-              ref={addFormRef}
-              className="mb-5 overflow-hidden rounded-2xl border border-red-100 bg-white shadow-sm"
-            >
-              <div
-                className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
-                style={{
-                  background:
-                    "linear-gradient(to right, #fff5f5, #ffffff)",
-                }}
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
-                      style={{
-                        backgroundColor:
-                          ACCENT,
-                      }}
-                    >
-                      <Plus size={18} />
-                    </div>
-
-                    <div>
-                      <h2 className="font-bold text-gray-900">
-                        Add New Row
-                      </h2>
-
-                      <p className="text-xs text-gray-500">
-                        Manually create a brand-new task record
-                      </p>
-                    </div>
+                    <p className="text-xs text-gray-500">
+                      Manually create a new task history record
+                    </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  disabled={savingNew}
-                  onClick={closeAddForm}
-                  className="inline-flex items-center justify-center gap-2 self-end rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 sm:self-auto"
+                  disabled={
+                    savingNew
+                  }
+                  onClick={
+                    closeAddForm
+                  }
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600"
                 >
-                  <X size={16} />
-                  Cancel
+                  <X
+                    size={15}
+                  />
+                  Close
                 </button>
               </div>
 
               <form
-                onSubmit={handleCreateRow}
+                onSubmit={
+                  handleCreateRow
+                }
                 className="p-4 sm:p-5"
               >
                 {addError && (
                   <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                     <AlertCircle
                       size={17}
-                      className="mt-0.5 shrink-0"
                     />
-                    <span>
-                      {addError}
-                    </span>
+                    {addError}
                   </div>
                 )}
 
                 {addSuccess && (
                   <div className="mb-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-                    <Check size={17} />
+                    <Check
+                      size={17}
+                    />
                     {addSuccess}
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {/* DATE */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Date
-                    </label>
-
+                  <FormField label="Date">
                     <div className="relative">
                       <CalendarDays
                         size={16}
@@ -1437,19 +1924,13 @@ export default function AdminHistoryPage() {
                             e.target.value
                           )
                         }
-                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        className="input pl-10"
                         required
                       />
                     </div>
-                  </div>
+                  </FormField>
 
-                  {/* EMPLOYEE */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Employee
-                    </label>
-
+                  <FormField label="Employee">
                     {isAdmin ? (
                       <div className="relative">
                         <UserRound
@@ -1467,7 +1948,7 @@ export default function AdminHistoryPage() {
                               e.target.value
                             )
                           }
-                          className="h-11 w-full appearance-none rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                          className="input pl-10"
                           required
                         >
                           <option value="">
@@ -1475,7 +1956,9 @@ export default function AdminHistoryPage() {
                           </option>
 
                           {staff.map(
-                            (person) => {
+                            (
+                              person
+                            ) => {
                               const id =
                                 person.id ??
                                 person.user_id;
@@ -1488,10 +1971,16 @@ export default function AdminHistoryPage() {
 
                               return (
                                 <option
-                                  key={id}
-                                  value={String(
-                                    id
-                                  )}
+                                  key={
+                                    String(
+                                      id
+                                    )
+                                  }
+                                  value={
+                                    String(
+                                      id
+                                    )
+                                  }
                                 >
                                   {name}
                                 </option>
@@ -1515,15 +2004,9 @@ export default function AdminHistoryPage() {
                         </span>
                       </div>
                     )}
-                  </div>
+                  </FormField>
 
-                  {/* BUSINESS */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Business
-                    </label>
-
+                  <FormField label="Business">
                     <div className="relative">
                       <Building2
                         size={16}
@@ -1542,18 +2025,12 @@ export default function AdminHistoryPage() {
                           )
                         }
                         placeholder="Business name"
-                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        className="input pl-10"
                       />
                     </div>
-                  </div>
+                  </FormField>
 
-                  {/* CONTACT */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Contact
-                    </label>
-
+                  <FormField label="Contact">
                     <div className="relative">
                       <UserRound
                         size={16}
@@ -1562,7 +2039,9 @@ export default function AdminHistoryPage() {
 
                       <input
                         type="text"
-                        value={newRow.name}
+                        value={
+                          newRow.name
+                        }
                         onChange={(e) =>
                           handleNewChange(
                             "name",
@@ -1570,18 +2049,12 @@ export default function AdminHistoryPage() {
                           )
                         }
                         placeholder="Contact name"
-                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        className="input pl-10"
                       />
                     </div>
-                  </div>
+                  </FormField>
 
-                  {/* PHONE */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Phone
-                    </label>
-
+                  <FormField label="Phone">
                     <div className="relative">
                       <Phone
                         size={16}
@@ -1600,55 +2073,45 @@ export default function AdminHistoryPage() {
                           )
                         }
                         placeholder="Phone number"
-                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        className="input pl-10"
+                        required
                       />
                     </div>
-                  </div>
+                  </FormField>
 
-                  {/* STATUS */}
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Status
-                    </label>
-
+                  <FormField label="Status">
                     <select
-                      value={newRow.status}
+                      value={
+                        newRow.status
+                      }
                       onChange={(e) =>
                         handleNewChange(
                           "status",
                           e.target.value
                         )
                       }
-                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      className="input"
                       required
                     >
                       {STATUS_OPTIONS.map(
                         (status) => (
                           <option
-                            key={status}
-                            value={status}
+                            key={
+                              status
+                            }
+                            value={
+                              status
+                            }
                           >
                             {status}
                           </option>
                         )
                       )}
                     </select>
-                  </div>
-
-                  {/* COMMENT */}
+                  </FormField>
 
                   <div className="sm:col-span-2 lg:col-span-3 xl:col-span-2">
-                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
-                      Comments
-                    </label>
-
-                    <div className="relative">
-                      <MessageSquare
-                        size={16}
-                        className="pointer-events-none absolute left-3 top-3.5 text-gray-400"
-                      />
-
+                    <FormField label="Comments">
                       <textarea
                         value={
                           newRow.comment
@@ -1661,27 +2124,35 @@ export default function AdminHistoryPage() {
                         }
                         placeholder="Comments..."
                         rows={1}
-                        className="min-h-[44px] w-full resize-y rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        className="min-h-[44px] w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                       />
-                    </div>
+                    </FormField>
                   </div>
                 </div>
 
                 <div className="mt-5 flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
                   <button
                     type="button"
-                    disabled={savingNew}
-                    onClick={closeAddForm}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    disabled={
+                      savingNew
+                    }
+                    onClick={
+                      closeAddForm
+                    }
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 text-sm font-bold text-gray-700"
                   >
-                    <X size={16} />
+                    <X
+                      size={16}
+                    />
                     Cancel
                   </button>
 
                   <button
                     type="submit"
-                    disabled={savingNew}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={
+                      savingNew
+                    }
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-extrabold text-white disabled:opacity-60"
                     style={{
                       backgroundColor:
                         ACCENT,
@@ -1697,7 +2168,9 @@ export default function AdminHistoryPage() {
                       </>
                     ) : (
                       <>
-                        <Save size={17} />
+                        <Save
+                          size={17}
+                        />
                         Save New Row
                       </>
                     )}
@@ -1707,231 +2180,361 @@ export default function AdminHistoryPage() {
             </section>
           )}
 
-          {/* ===================================================
-              FILTER CARD
-          =================================================== */}
+          {/* FILTERS */}
 
-          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-sm font-bold text-gray-900">
-                  Filters
-                </h2>
+          <section className="mb-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
+                  <Filter
+                    size={17}
+                  />
+                </div>
 
-                <p className="text-xs text-gray-500">
-                  Search and filter history records
-                </p>
+                <div>
+                  <h2 className="text-sm font-extrabold text-gray-900">
+                    Filters
+                  </h2>
+
+                  <p className="text-xs text-gray-500">
+                    Search and filter history records
+                  </p>
+                </div>
               </div>
 
               <button
                 type="button"
-                onClick={resetFilters}
-                className="self-start text-xs font-semibold text-gray-500 hover:text-gray-900 sm:self-auto"
+                onClick={
+                  resetFilters
+                }
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500"
               >
+                <RotateCcw
+                  size={13}
+                />
                 Reset filters
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              {/* SEARCH */}
+            <div className="p-4 sm:p-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <div className="relative sm:col-span-2 lg:col-span-3 xl:col-span-2">
+                  <Search
+                    size={17}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  />
 
-              <div className="relative sm:col-span-2 lg:col-span-3 xl:col-span-2">
-                <Search
-                  size={17}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
+                  <input
+                    type="text"
+                    value={
+                      search
+                    }
+                    onChange={(e) =>
+                      handleSearch(
+                        e.target.value
+                      )
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        e.key ===
+                        "Enter"
+                      ) {
+                        runSearch();
+                      }
+                    }}
+                    placeholder="Search business, phone, employee..."
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+                  />
+                </div>
 
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(
-                      e.target.value
-                    );
-                    setPage(1);
-                  }}
-                  placeholder="Search business, phone, employee..."
-                  className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
-                />
-              </div>
-
-              {/* STATUS */}
-
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(
-                    e.target.value
-                  );
-                  setPage(1);
-                }}
-                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
-              >
-                <option value="">
-                  All Status
-                </option>
-
-                {STATUS_OPTIONS.map(
-                  (status) => (
-                    <option
-                      key={status}
-                      value={status}
-                    >
-                      {status}
-                    </option>
-                  )
-                )}
-              </select>
-
-              {/* EMPLOYEE */}
-
-              {isAdmin ? (
                 <select
-                  value={employeeFilter}
-                  onChange={(e) => {
-                    setEmployeeFilter(
+                  value={
+                    statusFilter
+                  }
+                  onChange={(e) =>
+                    handleStatusFilter(
                       e.target.value
-                    );
-                    setPage(1);
-                  }}
-                  className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+                    )
+                  }
+                  className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium outline-none"
                 >
                   <option value="">
-                    All Employees
+                    All Status
                   </option>
 
-                  {staff.map((person) => {
-                    const id =
-                      person.id ??
-                      person.user_id;
-
-                    const name =
-                      person.name ??
-                      person.full_name ??
-                      person.email ??
-                      `Employee ${id}`;
-
-                    return (
+                  {STATUS_OPTIONS.map(
+                    (status) => (
                       <option
-                        key={id}
-                        value={String(id)}
+                        key={
+                          status
+                        }
+                        value={
+                          status
+                        }
                       >
-                        {name}
+                        {status}
                       </option>
-                    );
-                  })}
+                    )
+                  )}
                 </select>
-              ) : (
-                <div className="flex h-11 items-center rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-600">
-                  My Records
+
+                {isAdmin ? (
+                  <div className="relative">
+                    <UserRound
+                      size={16}
+                      className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-gray-400"
+                    />
+
+                    <select
+                      value={
+                        employeeFilter
+                      }
+                      onChange={(e) =>
+                        handleEmployeeFilter(
+                          e.target.value
+                        )
+                      }
+                      className="h-11 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm font-semibold outline-none"
+                    >
+                      <option value="">
+                        All Employees
+                      </option>
+
+                      {staff.map(
+                        (
+                          person
+                        ) => {
+                          const id =
+                            person.id ??
+                            person.user_id;
+
+                          const name =
+                            person.name ??
+                            person.full_name ??
+                            person.email ??
+                            `Employee ${id}`;
+
+                          return (
+                            <option
+                              key={
+                                String(
+                                  id
+                                )
+                              }
+                              value={
+                                String(
+                                  id
+                                )
+                              }
+                            >
+                              {name}
+                            </option>
+                          );
+                        }
+                      )}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-600">
+                    <UserRound
+                      size={16}
+                      className="text-gray-400"
+                    />
+                    My Records
+                  </div>
+                )}
+
+                <div className="relative">
+                  <CalendarDays
+                    size={16}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  />
+
+                  <input
+                    type="date"
+                    value={
+                      fromDate
+                    }
+                    onChange={(e) =>
+                      handleFromDate(
+                        e.target.value
+                      )
+                    }
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm"
+                  />
+                </div>
+
+                <div className="relative">
+                  <CalendarDays
+                    size={16}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  />
+
+                  <input
+                    type="date"
+                    value={
+                      toDate
+                    }
+                    onChange={(e) =>
+                      handleToDate(
+                        e.target.value
+                      )
+                    }
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm"
+                  />
+                </div>
+              </div>
+
+              {(employeeFilter ||
+                statusFilter ||
+                fromDate ||
+                toDate ||
+                search) && (
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                    Active:
+                  </span>
+
+                  {employeeFilter && (
+                    <FilterBadge
+                      label="Employee"
+                      value={
+                        staff.find(
+                          (
+                            person
+                          ) =>
+                            String(
+                              person.id ??
+                                person.user_id
+                            ) ===
+                            String(
+                              employeeFilter
+                            )
+                        )?.name ||
+                        `ID ${employeeFilter}`
+                      }
+                    />
+                  )}
+
+                  {statusFilter && (
+                    <FilterBadge
+                      label="Status"
+                      value={
+                        statusFilter
+                      }
+                    />
+                  )}
+
+                  {fromDate && (
+                    <FilterBadge
+                      label="From"
+                      value={formatDate(
+                        fromDate
+                      )}
+                    />
+                  )}
+
+                  {toDate && (
+                    <FilterBadge
+                      label="To"
+                      value={formatDate(
+                        toDate
+                      )}
+                    />
+                  )}
+
+                  {search && (
+                    <FilterBadge
+                      label="Search"
+                      value={
+                        search
+                      }
+                    />
+                  )}
                 </div>
               )}
-
-              {/* FROM */}
-
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => {
-                  setFromDate(
-                    e.target.value
-                  );
-                  setPage(1);
-                }}
-                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
-              />
-
-              {/* TO */}
-
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => {
-                  setToDate(
-                    e.target.value
-                  );
-                  setPage(1);
-                }}
-                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
-              />
             </div>
           </section>
 
-          {/* ===================================================
-              ERROR
-          =================================================== */}
+          {/* ERROR */}
 
           {error && (
             <div className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               <AlertCircle
                 size={17}
-                className="mt-0.5 shrink-0"
               />
 
-              <span>{error}</span>
+              <span>
+                {error}
+              </span>
             </div>
           )}
 
-          {/* ===================================================
-              TABLE CARD
-          =================================================== */}
+          {/* TABLE */}
 
           <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-            {/* TABLE HEADER */}
-
             <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="font-bold text-gray-900">
+                  <h2 className="font-extrabold text-gray-900">
                     History Records
                   </h2>
 
-                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
-                    {filteredRecords.length}
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-600">
+                    {totalRecords.toLocaleString()}
                   </span>
                 </div>
 
                 <p className="mt-1 text-xs text-gray-500">
-                  All matching records
+                  {totalRecords.toLocaleString()} matching records
                 </p>
               </div>
 
-              <div className="text-xs text-gray-500">
+              <div className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      refreshing
+                        ? "#f59e0b"
+                        : "#22c55e",
+                  }}
+                />
+
                 {refreshing
                   ? "Updating..."
                   : "Live"}
               </div>
             </div>
 
-            {/* LOADING */}
-
             {loading ? (
-              <div className="flex min-h-[300px] items-center justify-center">
+              <div className="flex min-h-[320px] items-center justify-center">
                 <div className="flex flex-col items-center gap-3 text-gray-500">
                   <Loader2
                     size={30}
                     className="animate-spin"
                     style={{
-                      color: ACCENT,
+                      color:
+                        ACCENT,
                     }}
                   />
 
-                  <span className="text-sm font-medium">
+                  <span className="text-sm font-semibold">
                     Loading records...
                   </span>
                 </div>
               </div>
-            ) : filteredRecords.length ===
+            ) : records.length ===
               0 ? (
-              <div className="flex min-h-[300px] flex-col items-center justify-center px-5 text-center">
-                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100">
+              <div className="flex min-h-[320px] flex-col items-center justify-center px-5 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100">
                   <FileSpreadsheet
-                    size={25}
+                    size={27}
                     className="text-gray-400"
                   />
                 </div>
 
-                <h3 className="font-bold text-gray-900">
+                <h3 className="font-extrabold text-gray-900">
                   No records found
                 </h3>
 
@@ -1941,76 +2544,62 @@ export default function AdminHistoryPage() {
 
                 <button
                   type="button"
-                  onClick={openAddForm}
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white"
-                  style={{
-                    backgroundColor:
-                      ACCENT,
-                  }}
+                  onClick={
+                    resetFilters
+                  }
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700"
                 >
-                  <Plus size={17} />
-                  Add New Row
+                  <RotateCcw
+                    size={16}
+                  />
+                  Reset Filters
                 </button>
               </div>
             ) : (
               <>
-                {/* =================================================
-                    DESKTOP TABLE
-                ================================================= */}
+                {/* DESKTOP */}
 
                 <div className="hidden overflow-x-auto md:block">
                   <table className="w-full min-w-[1250px] border-collapse">
                     <thead>
                       <tr className="border-b border-gray-200 bg-gray-50 text-left">
-                        <th className="w-[55px] px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          #
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Date
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Employee
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Business
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Contact
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Phone
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Status
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Comments
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Sheet
-                        </th>
-
-                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Task ID
-                        </th>
-
-                        <th className="sticky right-0 z-10 bg-gray-50 px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                          Action
-                        </th>
+                        {[
+                          "#",
+                          "Date",
+                          "Employee",
+                          "Business",
+                          "Contact",
+                          "Phone",
+                          "Status",
+                          "Comments",
+                          "Sheet",
+                          "Task ID",
+                          "Action",
+                        ].map(
+                          (
+                            heading
+                          ) => (
+                            <th
+                              key={
+                                heading
+                              }
+                              className="px-3 py-3 text-[11px] font-extrabold uppercase tracking-wide text-gray-500"
+                            >
+                              {
+                                heading
+                              }
+                            </th>
+                          )
+                        )}
                       </tr>
                     </thead>
 
                     <tbody>
-                      {paginatedRecords.map(
-                        (row, index) => {
+                      {records.map(
+                        (
+                          row,
+                          index
+                        ) => {
                           const assignmentId =
                             getAssignmentId(
                               row
@@ -2027,18 +2616,15 @@ export default function AdminHistoryPage() {
                           return (
                             <tr
                               key={`${assignmentId}-${index}`}
-                              className="border-b border-gray-100 transition hover:bg-gray-50"
+                              className="border-b border-gray-100 hover:bg-gray-50"
                             >
-                              {/* # */}
-
-                              <td className="px-3 py-3 align-top text-sm font-semibold text-gray-500">
-                                {(page - 1) *
+                              <td className="px-3 py-3 align-top text-sm font-bold text-gray-400">
+                                {(page -
+                                  1) *
                                   PAGE_SIZE +
                                   index +
                                   1}
                               </td>
-
-                              {/* DATE */}
 
                               <td className="px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2056,10 +2642,10 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-9 rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="h-9 rounded-lg border border-gray-200 px-2 text-xs"
                                   />
                                 ) : (
-                                  <span className="whitespace-nowrap text-sm font-medium text-gray-700">
+                                  <span className="whitespace-nowrap text-sm font-semibold text-gray-700">
                                     {formatDate(
                                       getDate(
                                         row
@@ -2069,72 +2655,65 @@ export default function AdminHistoryPage() {
                                 )}
                               </td>
 
-                              {/* EMPLOYEE */}
-
                               <td className="px-3 py-3 align-top">
-                                {isEditing ? (
-                                  isAdmin ? (
-                                    <select
-                                      value={
-                                        editForm.employee_id ||
-                                        ""
-                                      }
-                                      onChange={(
-                                        e
-                                      ) =>
-                                        handleEditChange(
-                                          "employee_id",
-                                          e.target.value
-                                        )
-                                      }
-                                      className="h-9 min-w-[150px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                    >
-                                      <option value="">
-                                        Select
-                                      </option>
+                                {isEditing &&
+                                isAdmin ? (
+                                  <select
+                                    value={
+                                      editForm.employee_id ||
+                                      ""
+                                    }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      handleEditChange(
+                                        "employee_id",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="h-9 min-w-[150px] rounded-lg border border-gray-200 px-2 text-xs"
+                                  >
+                                    <option value="">
+                                      Select
+                                    </option>
 
-                                      {staff.map(
-                                        (
-                                          person
-                                        ) => {
-                                          const id =
-                                            person.id ??
-                                            person.user_id;
+                                    {staff.map(
+                                      (
+                                        person
+                                      ) => {
+                                        const id =
+                                          person.id ??
+                                          person.user_id;
 
-                                          const name =
-                                            person.name ??
-                                            person.full_name ??
-                                            person.email ??
-                                            `Employee ${id}`;
+                                        const name =
+                                          person.name ??
+                                          person.full_name ??
+                                          person.email ??
+                                          `Employee ${id}`;
 
-                                          return (
-                                            <option
-                                              key={
+                                        return (
+                                          <option
+                                            key={
+                                              id
+                                            }
+                                            value={
+                                              String(
                                                 id
-                                              }
-                                              value={String(
-                                                id
-                                              )}
-                                            >
-                                              {
-                                                name
-                                              }
-                                            </option>
-                                          );
-                                        }
-                                      )}
-                                    </select>
-                                  ) : (
-                                    <span className="text-xs font-semibold text-gray-600">
-                                      {getUserName(
-                                        row
-                                      )}
-                                    </span>
-                                  )
+                                              )
+                                            }
+                                          >
+                                            {
+                                              name
+                                            }
+                                          </option>
+                                        );
+                                      }
+                                    )}
+                                  </select>
                                 ) : (
                                   <div className="flex items-center gap-2">
                                     <div
-                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
                                       style={{
                                         backgroundColor:
                                           ACCENT,
@@ -2147,7 +2726,7 @@ export default function AdminHistoryPage() {
                                       )}
                                     </div>
 
-                                    <span className="max-w-[140px] truncate text-sm font-semibold text-gray-700">
+                                    <span className="max-w-[140px] truncate text-sm font-bold text-gray-700">
                                       {getUserName(
                                         row
                                       )}
@@ -2155,8 +2734,6 @@ export default function AdminHistoryPage() {
                                   </div>
                                 )}
                               </td>
-
-                              {/* BUSINESS */}
 
                               <td className="max-w-[190px] px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2174,23 +2751,22 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-9 w-[180px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="h-9 w-[180px] rounded-lg border border-gray-200 px-2 text-xs"
                                   />
                                 ) : (
                                   <span
-                                    className="block max-w-[180px] truncate text-sm font-semibold text-gray-800"
+                                    className="block max-w-[180px] truncate text-sm font-bold text-gray-800"
                                     title={getBusiness(
                                       row
                                     )}
                                   >
                                     {getBusiness(
                                       row
-                                    ) || "—"}
+                                    ) ||
+                                      "—"}
                                   </span>
                                 )}
                               </td>
-
-                              {/* CONTACT */}
 
                               <td className="max-w-[150px] px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2208,23 +2784,17 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-9 w-[145px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="h-9 w-[145px] rounded-lg border border-gray-200 px-2 text-xs"
                                   />
                                 ) : (
-                                  <span
-                                    className="block max-w-[145px] truncate text-sm text-gray-700"
-                                    title={getName(
-                                      row
-                                    )}
-                                  >
+                                  <span className="block max-w-[145px] truncate text-sm text-gray-700">
                                     {getName(
                                       row
-                                    ) || "—"}
+                                    ) ||
+                                      "—"}
                                   </span>
                                 )}
                               </td>
-
-                              {/* PHONE */}
 
                               <td className="px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2242,10 +2812,10 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-9 w-[130px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="h-9 w-[130px] rounded-lg border border-gray-200 px-2 text-xs"
                                   />
                                 ) : (
-                                  <span className="whitespace-nowrap text-sm font-medium text-gray-700">
+                                  <span className="whitespace-nowrap text-sm font-semibold text-gray-700">
                                     {formatPhone(
                                       getPhone(
                                         row
@@ -2254,8 +2824,6 @@ export default function AdminHistoryPage() {
                                   </span>
                                 )}
                               </td>
-
-                              {/* STATUS */}
 
                               <td className="px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2272,7 +2840,7 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-9 min-w-[135px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="h-9 min-w-[135px] rounded-lg border border-gray-200 px-2 text-xs"
                                   >
                                     {STATUS_OPTIONS.map(
                                       (
@@ -2295,7 +2863,7 @@ export default function AdminHistoryPage() {
                                   </select>
                                 ) : (
                                   <span
-                                    className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusClasses(
+                                    className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statusClasses(
                                       getStatus(
                                         row
                                       )
@@ -2307,8 +2875,6 @@ export default function AdminHistoryPage() {
                                   </span>
                                 )}
                               </td>
-
-                              {/* COMMENTS */}
 
                               <td className="max-w-[220px] px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2326,7 +2892,7 @@ export default function AdminHistoryPage() {
                                       )
                                     }
                                     rows={2}
-                                    className="w-[210px] resize-y rounded-lg border border-gray-200 px-2 py-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="w-[210px] rounded-lg border border-gray-200 px-2 py-2 text-xs"
                                   />
                                 ) : (
                                   <span
@@ -2337,38 +2903,35 @@ export default function AdminHistoryPage() {
                                   >
                                     {getComment(
                                       row
-                                    ) || "—"}
+                                    ) ||
+                                      "—"}
                                   </span>
                                 )}
                               </td>
 
-                              {/* SHEET */}
-
                               <td className="px-3 py-3 align-top">
-                                <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500">
                                   <FileSpreadsheet
                                     size={14}
                                   />
                                   {getSheet(
                                     row
-                                  ) || "—"}
+                                  ) ||
+                                    "—"}
                                 </span>
                               </td>
 
-                              {/* TASK ID */}
-
                               <td className="px-3 py-3 align-top">
-                                <span className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 font-mono text-[11px] font-semibold text-gray-600">
+                                <span className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 font-mono text-[11px] font-bold text-gray-600">
                                   <Hash
                                     size={12}
                                   />
                                   {getTaskId(
                                     row
-                                  ) || "—"}
+                                  ) ||
+                                    "—"}
                                 </span>
                               </td>
-
-                              {/* ACTION */}
 
                               <td className="sticky right-0 z-10 bg-white px-3 py-3 align-top">
                                 {isEditing ? (
@@ -2399,7 +2962,7 @@ export default function AdminHistoryPage() {
                                       onClick={
                                         cancelEdit
                                       }
-                                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-bold text-gray-600"
                                     >
                                       <X
                                         size={
@@ -2410,6 +2973,15 @@ export default function AdminHistoryPage() {
                                     </button>
                                   </div>
                                 ) : (
+                                  /*
+                                   * IMPORTANT:
+                                   * NO isAdmin here.
+                                   *
+                                   * Admin + normal user
+                                   * both get Edit button.
+                                   *
+                                   * API enforces ownership.
+                                   */
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -2436,13 +3008,14 @@ export default function AdminHistoryPage() {
                   </table>
                 </div>
 
-                {/* =================================================
-                    MOBILE CARDS
-                ================================================= */}
+                {/* MOBILE */}
 
                 <div className="divide-y divide-gray-100 md:hidden">
-                  {paginatedRecords.map(
-                    (row, index) => {
+                  {records.map(
+                    (
+                      row,
+                      index
+                    ) => {
                       const assignmentId =
                         getAssignmentId(
                           row
@@ -2461,12 +3034,10 @@ export default function AdminHistoryPage() {
                           key={`${assignmentId}-${index}`}
                           className="p-4"
                         >
-                          {/* CARD TOP */}
-
-                          <div className="mb-3 flex items-start justify-between gap-3">
+                          <div className="mb-4 flex items-start justify-between gap-3">
                             <div className="flex min-w-0 items-center gap-3">
                               <div
-                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold text-white"
                                 style={{
                                   backgroundColor:
                                     ACCENT,
@@ -2480,14 +3051,14 @@ export default function AdminHistoryPage() {
                               </div>
 
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-bold text-gray-900">
+                                <div className="truncate text-sm font-extrabold text-gray-900">
                                   {getBusiness(
                                     row
                                   ) ||
                                     "No Business"}
                                 </div>
 
-                                <div className="mt-0.5 truncate text-xs text-gray-500">
+                                <div className="mt-0.5 truncate text-xs font-medium text-gray-500">
                                   {getUserName(
                                     row
                                   )}
@@ -2495,9 +3066,10 @@ export default function AdminHistoryPage() {
                               </div>
                             </div>
 
-                            <span className="shrink-0 text-[11px] font-semibold text-gray-400">
+                            <span className="shrink-0 text-[11px] font-bold text-gray-400">
                               #
-                              {(page - 1) *
+                              {(page -
+                                1) *
                                 PAGE_SIZE +
                                 index +
                                 1}
@@ -2506,33 +3078,6 @@ export default function AdminHistoryPage() {
 
                           {isEditing ? (
                             <div className="space-y-3">
-                              {/* EDIT DATE */}
-
-                              <div>
-                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
-                                  Date
-                                </label>
-
-                                <input
-                                  type="date"
-                                  value={
-                                    editForm.assignment_date ||
-                                    ""
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    handleEditChange(
-                                      "assignment_date",
-                                      e.target.value
-                                    )
-                                  }
-                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                />
-                              </div>
-
-                              {/* EDIT EMPLOYEE */}
-
                               {isAdmin && (
                                 <div>
                                   <label className="mb-1 block text-[11px] font-bold text-gray-500">
@@ -2552,7 +3097,7 @@ export default function AdminHistoryPage() {
                                         e.target.value
                                       )
                                     }
-                                    className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                    className="input"
                                   >
                                     <option value="">
                                       Select employee
@@ -2577,9 +3122,11 @@ export default function AdminHistoryPage() {
                                             key={
                                               id
                                             }
-                                            value={String(
-                                              id
-                                            )}
+                                            value={
+                                              String(
+                                                id
+                                              )
+                                            }
                                           >
                                             {
                                               name
@@ -2592,82 +3139,70 @@ export default function AdminHistoryPage() {
                                 </div>
                               )}
 
-                              {/* EDIT BUSINESS */}
+                              <EditInput
+                                label="Date"
+                                type="date"
+                                value={
+                                  editForm.assignment_date ||
+                                  ""
+                                }
+                                onChange={(
+                                  e
+                                ) =>
+                                  handleEditChange(
+                                    "assignment_date",
+                                    e.target.value
+                                  )
+                                }
+                              />
 
-                              <div>
-                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
-                                  Business
-                                </label>
+                              <EditInput
+                                label="Business"
+                                value={
+                                  editForm.business_name ||
+                                  ""
+                                }
+                                onChange={(
+                                  e
+                                ) =>
+                                  handleEditChange(
+                                    "business_name",
+                                    e.target.value
+                                  )
+                                }
+                              />
 
-                                <input
-                                  type="text"
-                                  value={
-                                    editForm.business_name ||
-                                    ""
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    handleEditChange(
-                                      "business_name",
-                                      e.target.value
-                                    )
-                                  }
-                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                />
-                              </div>
+                              <EditInput
+                                label="Contact"
+                                value={
+                                  editForm.name ||
+                                  ""
+                                }
+                                onChange={(
+                                  e
+                                ) =>
+                                  handleEditChange(
+                                    "name",
+                                    e.target.value
+                                  )
+                                }
+                              />
 
-                              {/* EDIT CONTACT */}
-
-                              <div>
-                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
-                                  Contact
-                                </label>
-
-                                <input
-                                  type="text"
-                                  value={
-                                    editForm.name ||
-                                    ""
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    handleEditChange(
-                                      "name",
-                                      e.target.value
-                                    )
-                                  }
-                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                />
-                              </div>
-
-                              {/* EDIT PHONE */}
-
-                              <div>
-                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
-                                  Phone
-                                </label>
-
-                                <input
-                                  type="text"
-                                  value={
-                                    editForm.phone_number ||
-                                    ""
-                                  }
-                                  onChange={(
-                                    e
-                                  ) =>
-                                    handleEditChange(
-                                      "phone_number",
-                                      e.target.value
-                                    )
-                                  }
-                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                                />
-                              </div>
-
-                              {/* EDIT STATUS */}
+                              <EditInput
+                                label="Phone"
+                                value={
+                                  editForm.phone_number ||
+                                  ""
+                                }
+                                onChange={(
+                                  e
+                                ) =>
+                                  handleEditChange(
+                                    "phone_number",
+                                    e.target.value
+                                  )
+                                }
+                              />
 
                               <div>
                                 <label className="mb-1 block text-[11px] font-bold text-gray-500">
@@ -2687,7 +3222,7 @@ export default function AdminHistoryPage() {
                                       e.target.value
                                     )
                                   }
-                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  className="input"
                                 >
                                   {STATUS_OPTIONS.map(
                                     (
@@ -2710,8 +3245,6 @@ export default function AdminHistoryPage() {
                                 </select>
                               </div>
 
-                              {/* EDIT COMMENT */}
-
                               <div>
                                 <label className="mb-1 block text-[11px] font-bold text-gray-500">
                                   Comments
@@ -2731,7 +3264,7 @@ export default function AdminHistoryPage() {
                                     )
                                   }
                                   rows={3}
-                                  className="w-full resize-y rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
                                 />
                               </div>
 
@@ -2775,31 +3308,21 @@ export default function AdminHistoryPage() {
                             </div>
                           ) : (
                             <>
-                              {/* CARD INFO */}
-
                               <div className="grid grid-cols-2 gap-2">
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Date
-                                  </div>
+                                <InfoBox
+                                  label="Date"
+                                  value={formatDate(
+                                    getDate(
+                                      row
+                                    )
+                                  )}
+                                />
 
-                                  <div className="mt-1 text-sm font-semibold text-gray-700">
-                                    {formatDate(
-                                      getDate(
-                                        row
-                                      )
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Status
-                                  </div>
-
-                                  <div className="mt-1">
+                                <InfoBox
+                                  label="Status"
+                                  value={
                                     <span
-                                      className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${statusClasses(
+                                      className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-extrabold ${statusClasses(
                                         getStatus(
                                           row
                                         )
@@ -2809,38 +3332,30 @@ export default function AdminHistoryPage() {
                                         row
                                       )}
                                     </span>
-                                  </div>
-                                </div>
+                                  }
+                                />
 
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Contact
-                                  </div>
-
-                                  <div className="mt-1 truncate text-sm font-semibold text-gray-700">
-                                    {getName(
+                                <InfoBox
+                                  label="Contact"
+                                  value={
+                                    getName(
                                       row
                                     ) ||
-                                      "—"}
-                                  </div>
-                                </div>
+                                    "—"
+                                  }
+                                />
 
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Phone
-                                  </div>
-
-                                  <div className="mt-1 truncate text-sm font-semibold text-gray-700">
-                                    {formatPhone(
-                                      getPhone(
-                                        row
-                                      )
-                                    )}
-                                  </div>
-                                </div>
+                                <InfoBox
+                                  label="Phone"
+                                  value={formatPhone(
+                                    getPhone(
+                                      row
+                                    )
+                                  )}
+                                />
 
                                 <div className="col-span-2 rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                  <div className="text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
                                     Comments
                                   </div>
 
@@ -2852,32 +3367,31 @@ export default function AdminHistoryPage() {
                                   </div>
                                 </div>
 
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Sheet
-                                  </div>
-
-                                  <div className="mt-1 truncate text-xs font-semibold text-gray-600">
-                                    {getSheet(
+                                <InfoBox
+                                  label="Sheet"
+                                  value={
+                                    getSheet(
                                       row
                                     ) ||
-                                      "—"}
-                                  </div>
-                                </div>
+                                    "—"
+                                  }
+                                />
 
-                                <div className="rounded-xl bg-gray-50 p-3">
-                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                                    Task ID
-                                  </div>
-
-                                  <div className="mt-1 font-mono text-xs font-bold text-gray-600">
-                                    {getTaskId(
+                                <InfoBox
+                                  label="Task ID"
+                                  value={
+                                    getTaskId(
                                       row
                                     ) ||
-                                      "—"}
-                                  </div>
-                                </div>
+                                    "—"
+                                  }
+                                />
                               </div>
+
+                              {/*
+                               * BOTH ADMIN AND NORMAL USER
+                               */
+                              }
 
                               <button
                                 type="button"
@@ -2886,10 +3400,12 @@ export default function AdminHistoryPage() {
                                     row
                                   )
                                 }
-                                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50"
+                                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-700 shadow-sm"
                               >
                                 <Pencil
-                                  size={16}
+                                  size={
+                                    16
+                                  }
                                 />
                                 Edit Row
                               </button>
@@ -2901,47 +3417,34 @@ export default function AdminHistoryPage() {
                   )}
                 </div>
 
-                {/* =================================================
-                    PAGINATION
-                ================================================= */}
+                {/* PAGINATION */}
 
                 <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-xs text-gray-500">
                     Showing{" "}
-                    <span className="font-bold text-gray-700">
-                      {filteredRecords.length ===
-                      0
-                        ? 0
-                        : (page - 1) *
-                            PAGE_SIZE +
-                          1}
+                    <span className="font-extrabold text-gray-700">
+                      {showingFrom.toLocaleString()}
                     </span>{" "}
                     to{" "}
-                    <span className="font-bold text-gray-700">
-                      {Math.min(
-                        page * PAGE_SIZE,
-                        filteredRecords.length
-                      )}
+                    <span className="font-extrabold text-gray-700">
+                      {showingTo.toLocaleString()}
                     </span>{" "}
                     of{" "}
-                    <span className="font-bold text-gray-700">
-                      {
-                        filteredRecords.length
-                      }
+                    <span className="font-extrabold text-gray-700">
+                      {totalRecords.toLocaleString()}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-center gap-1.5">
                     <button
                       type="button"
-                      disabled={page <= 1}
+                      disabled={
+                        page <= 1 ||
+                        refreshing
+                      }
                       onClick={() =>
-                        setPage(
-                          (p) =>
-                            Math.max(
-                              1,
-                              p - 1
-                            )
+                        goToPage(
+                          page - 1
                         )
                       }
                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2951,7 +3454,7 @@ export default function AdminHistoryPage() {
                       />
                     </button>
 
-                    <div className="flex h-9 min-w-[42px] items-center justify-center rounded-lg bg-gray-100 px-2 text-xs font-bold text-gray-700">
+                    <div className="flex h-9 min-w-[75px] items-center justify-center rounded-lg bg-gray-100 px-2 text-xs font-extrabold text-gray-700">
                       {page} /{" "}
                       {totalPages}
                     </div>
@@ -2959,15 +3462,13 @@ export default function AdminHistoryPage() {
                     <button
                       type="button"
                       disabled={
-                        page >= totalPages
+                        page >=
+                          totalPages ||
+                        refreshing
                       }
                       onClick={() =>
-                        setPage(
-                          (p) =>
-                            Math.min(
-                              totalPages,
-                              p + 1
-                            )
+                        goToPage(
+                          page + 1
                         )
                       }
                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2984,18 +3485,139 @@ export default function AdminHistoryPage() {
         </main>
       </div>
 
-      {/* =========================================================
-          LOGOUT MODAL
-      ========================================================= */}
-
       {showLogoutModal && (
         <LogoutModal
-          open={showLogoutModal}
+          open={
+            showLogoutModal
+          }
           onClose={() =>
-            setShowLogoutModal(false)
+            setShowLogoutModal(
+              false
+            )
           }
         />
       )}
     </div>
+  );
+}
+
+/* =========================================================
+   SMALL UI COMPONENTS
+========================================================= */
+
+function SummaryCard({
+  label,
+  value,
+  icon,
+  accent,
+}) {
+  const accentClass = {
+    gray: "text-gray-900",
+    blue: "text-blue-600",
+    purple: "text-purple-600",
+    red: "text-red-600",
+    redDark: "text-red-700",
+    orange: "text-orange-600",
+    amber: "text-amber-600",
+  };
+
+  return (
+    <div className="group rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-extrabold uppercase tracking-wider text-gray-400">
+          {label}
+        </div>
+
+        {icon && (
+          <div className="text-gray-300">
+            {icon}
+          </div>
+        )}
+      </div>
+
+      <div
+        className={`mt-2 text-2xl font-extrabold ${
+          accentClass[
+            accent
+          ] ||
+          "text-gray-900"
+        }`}
+      >
+        {Number(
+          value || 0
+        ).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  children,
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-extrabold text-gray-600">
+        {label}
+      </label>
+
+      {children}
+    </div>
+  );
+}
+
+function EditInput({
+  label,
+  type = "text",
+  value,
+  onChange,
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] font-extrabold text-gray-500">
+        {label}
+      </label>
+
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        className="input"
+      />
+    </div>
+  );
+}
+
+function InfoBox({
+  label,
+  value,
+}) {
+  return (
+    <div className="rounded-xl bg-gray-50 p-3">
+      <div className="text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
+        {label}
+      </div>
+
+      <div className="mt-1 truncate text-sm font-bold text-gray-700">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function FilterBadge({
+  label,
+  value,
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[11px] font-semibold text-gray-600">
+      <span className="text-gray-400">
+        {label}:
+      </span>
+
+      <span className="max-w-[180px] truncate text-gray-800">
+        {value}
+      </span>
+    </span>
   );
 }

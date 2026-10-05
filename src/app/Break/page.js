@@ -502,32 +502,45 @@ function isActiveBreak(item) {
 // =============================================================
 
 function getLiveDuration(item) {
+  const maxLimits = {
+    Namaz: 15 * 60,
+    Lunch: 30 * 60,
+    "Short Break": 10 * 60,
+    Washroom: 10 * 60,
+    Other: 60 * 60,
+  };
+
+  const breakType = normalizeBreakType(item);
+
+  const maxSeconds =
+    maxLimits[breakType] || maxLimits.Other;
+
   if (!isActiveBreak(item)) {
-    return Number(
+    const stored = Number(
       item?.duration_seconds || 0
+    );
+
+    return Math.min(
+      Math.max(0, Math.floor(stored)),
+      maxSeconds
     );
   }
 
-  const started =
-    parseDateTime(
-      item?.started_at
-    );
+  const started = parseDateTime(
+    item?.started_at
+  );
 
   if (!started) {
     return 0;
   }
 
-  const seconds =
-    Math.floor(
-      (
-        Date.now() -
-        started.getTime()
-      ) / 1000
-    );
+  const elapsed = Math.floor(
+    (Date.now() - started.getTime()) / 1000
+  );
 
-  return Math.max(
-    0,
-    seconds
+  return Math.min(
+    Math.max(0, elapsed),
+    maxSeconds
   );
 }
 

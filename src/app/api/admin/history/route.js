@@ -6,7 +6,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const COOKIE_NAME = "token";
-const COMPLETED_STATUSES = new Set(["completed", "complete", "done"]);
+
+const COMPLETED_STATUSES = new Set([
+  "completed",
+  "complete",
+  "done",
+]);
 
 const ADMIN_ROLES = new Set([
   "admin",
@@ -15,50 +20,357 @@ const ADMIN_ROLES = new Set([
   "super_admin",
 ]);
 
+const STATUS_LIST = [
+  "Follow UP",
+  "Call Back",
+  "Wrong Num",
+  "Not Interested",
+  "DNC",
+  "No Business",
+  "Pending",
+  "Busy",
+  "Voice Mail",
+  "Straight To VM",
+  "No Answer/VM",
+  "Hang Up",
+  "Unable To Complete",
+  "Not In Service",
+  "Lang Barrier",
+  "Transfer M/R",
+  "Retired",
+  "Completed",
+];
+
+/* =========================================================
+   BASIC HELPERS
+========================================================= */
+
 function safeString(value, fallback = "") {
-  if (value === null || value === undefined) return fallback;
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
   return String(value).trim();
 }
 
 function normalizeRole(value) {
-  return safeString(value).toLowerCase().replace(/\s+/g, "_");
+  return safeString(value)
+    .toLowerCase()
+    .replace(/\s+/g, "_");
 }
 
 function isAdminRole(role) {
   return ADMIN_ROLES.has(normalizeRole(role));
 }
 
-function validDate(value) {
-  if (!value) return false;
+/* =========================================================
+   DATE HELPERS
+========================================================= */
 
+function validDate(value) {
   const str = safeString(value);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     return false;
   }
 
-  const date = new Date(`${str}T00:00:00`);
+  const [year, month, day] = str
+    .split("-")
+    .map(Number);
 
-  if (Number.isNaN(date.getTime())) {
-    return false;
-  }
+  const date = new Date(
+    Date.UTC(year, month - 1, day)
+  );
 
-  return date.toISOString().slice(0, 10) === str;
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
+function getCaliforniaDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+/*
+  Calendar next day without timezone conversion.
+*/
+function nextDate(dateString) {
+  if (!validDate(dateString)) {
+    return null;
+  }
+
+  const [year, month, day] = dateString
+    .split("-")
+    .map(Number);
+
+  const date = new Date(
+    Date.UTC(year, month - 1, day + 1)
+  );
+
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/* =========================================================
+   MYSQL DATE SERIALIZATION
+   IMPORTANT:
+   Prevents date shifting in UI.
+========================================================= */
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDbDateOnly(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  /*
+    mysql2 may return DATE as string.
+  */
+  if (typeof value === "string") {
+    const str = value.trim();
+
+    if (!str) {
+      return null;
+    }
+
+    const match = str.match(
+      /^(\d{4})-(\d{2})-(\d{2})/
+    );
+
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
+    }
+
+    return str;
+  }
+
+  /*
+    mysql2 may also return a JavaScript Date.
+    Use local calendar getters so the stored calendar
+    date does not get shifted by toISOString().
+  */
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    return [
+      value.getFullYear(),
+      pad2(value.getMonth() + 1),
+      pad2(value.getDate()),
+    ].join("-");
+  }
+
+  return safeString(value) || null;
+}
+
+function formatDbDateTime(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const str = value.trim();
+
+    if (!str) {
+      return null;
+    }
+
+    return str.replace("T", " ").slice(0, 19);
+  }
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    return [
+      value.getFullYear(),
+      pad2(value.getMonth() + 1),
+      pad2(value.getDate()),
+    ].join("-") +
+      " " +
+      [
+        pad2(value.getHours()),
+        pad2(value.getMinutes()),
+        pad2(value.getSeconds()),
+      ].join(":");
+  }
+
+  return safeString(value) || null;
+}
+
+/* =========================================================
+   STATUS HELPERS
+========================================================= */
+
 function normalizeStatus(value) {
-  return safeString(value || "Pending", "Pending");
+  const raw = safeString(
+    value || "Pending",
+    "Pending"
+  );
+
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function statusKey(value) {
+  return normalizeStatus(value).toLowerCase();
+}
+
+function canonicalStatus(value) {
+  const normalized = normalizeStatus(value);
+  const key = normalized.toLowerCase();
+
+  const aliases = {
+    "follow up": "Follow UP",
+    "followup": "Follow UP",
+
+    "call back": "Call Back",
+    callback: "Call Back",
+
+    "wrong num": "Wrong Num",
+    wrongnumber: "Wrong Num",
+    "wrong number": "Wrong Num",
+
+    "not interested": "Not Interested",
+
+    dnc: "DNC",
+
+    "no business": "No Business",
+
+    pending: "Pending",
+
+    busy: "Busy",
+
+    "voice mail": "Voice Mail",
+    voicemail: "Voice Mail",
+
+    "straight to vm": "Straight To VM",
+    "straight to voicemail": "Straight To VM",
+
+    "no answer/vm": "No Answer/VM",
+    "no answer vm": "No Answer/VM",
+
+    "hang up": "Hang Up",
+
+    "unable to complete": "Unable To Complete",
+
+    "not in service": "Not In Service",
+
+    "lang barrier": "Lang Barrier",
+    "language barrier": "Lang Barrier",
+
+    "transfer m/r": "Transfer M/R",
+    "transfer mr": "Transfer M/R",
+
+    retired: "Retired",
+
+    completed: "Completed",
+    complete: "Completed",
+    done: "Completed",
+  };
+
+  return aliases[key] || normalized;
 }
 
 function isCompletedStatus(status) {
   return COMPLETED_STATUSES.has(
-    safeString(status).toLowerCase()
+    statusKey(status)
   );
 }
 
+/* =========================================================
+   STATUS SQL
+========================================================= */
+
+const STATUS_SQL = `
+  COALESCE(
+    NULLIF(TRIM(da.status), ''),
+    NULLIF(TRIM(mt.current_status), ''),
+    'Pending'
+  )
+`;
+
+const NORMALIZED_STATUS_SQL = `
+  LOWER(
+    TRIM(
+      REPLACE(
+        REPLACE(
+          REPLACE(
+            REPLACE(
+              ${STATUS_SQL},
+              '_',
+              ' '
+            ),
+            '-',
+            ' '
+          ),
+          ' / ',
+          '/'
+        ),
+        '  ',
+        ' '
+      )
+    )
+  )
+`;
+
+/* =========================================================
+   DB
+========================================================= */
+
 async function dbQuery(sql, params = []) {
-  const [rows] = await pool.execute(sql, params);
+  const [rows] = await pool.execute(
+    sql,
+    params
+  );
+
   return rows;
+}
+
+/* =========================================================
+   JSON
+========================================================= */
+
+function jsonResponse(body, options = {}) {
+  const response = NextResponse.json(
+    body,
+    options
+  );
+
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+
+  response.headers.set(
+    "Pragma",
+    "no-cache"
+  );
+
+  response.headers.set(
+    "Expires",
+    "0"
+  );
+
+  return response;
 }
 
 /* =========================================================
@@ -67,12 +379,13 @@ async function dbQuery(sql, params = []) {
 
 async function authenticate(request) {
   try {
-    const token = request.cookies.get(COOKIE_NAME)?.value;
+    const token =
+      request.cookies.get(COOKIE_NAME)?.value;
 
     if (!token) {
       return {
         ok: false,
-        response: NextResponse.json(
+        response: jsonResponse(
           {
             success: false,
             message: "Unauthorized",
@@ -83,14 +396,17 @@ async function authenticate(request) {
     }
 
     if (!process.env.JWT_SECRET) {
-      console.error("[History API] JWT_SECRET is missing");
+      console.error(
+        "[History API] JWT_SECRET is missing"
+      );
 
       return {
         ok: false,
-        response: NextResponse.json(
+        response: jsonResponse(
           {
             success: false,
-            message: "Server authentication configuration is missing.",
+            message:
+              "Server authentication configuration is missing.",
           },
           { status: 500 }
         ),
@@ -100,16 +416,23 @@ async function authenticate(request) {
     let decoded;
 
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
     } catch (error) {
-      console.error("[History API] JWT verify error:", error);
+      console.error(
+        "[History API] JWT verify error:",
+        error
+      );
 
       return {
         ok: false,
-        response: NextResponse.json(
+        response: jsonResponse(
           {
             success: false,
-            message: "Invalid or expired session.",
+            message:
+              "Invalid or expired session.",
           },
           { status: 401 }
         ),
@@ -123,13 +446,17 @@ async function authenticate(request) {
         decoded?.sub
     );
 
-    if (!Number.isInteger(userId) || userId <= 0) {
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
       return {
         ok: false,
-        response: NextResponse.json(
+        response: jsonResponse(
           {
             success: false,
-            message: "Invalid user session.",
+            message:
+              "Invalid user session.",
           },
           { status: 401 }
         ),
@@ -154,10 +481,11 @@ async function authenticate(request) {
     if (!users.length) {
       return {
         ok: false,
-        response: NextResponse.json(
+        response: jsonResponse(
           {
             success: false,
-            message: "User account not found.",
+            message:
+              "User account not found.",
           },
           { status: 401 }
         ),
@@ -170,19 +498,22 @@ async function authenticate(request) {
       ok: true,
       user: {
         id: Number(user.id),
-        name: user.name || "",
-        email: user.email || "",
-        role: user.role || "",
-        status: user.status || "",
+        name: safeString(user.name),
+        email: safeString(user.email),
+        role: safeString(user.role),
+        status: safeString(user.status),
         isAdmin: isAdminRole(user.role),
       },
     };
   } catch (error) {
-    console.error("[History API] Authentication error:", error);
+    console.error(
+      "[History API] Authentication error:",
+      error
+    );
 
     return {
       ok: false,
-      response: NextResponse.json(
+      response: jsonResponse(
         {
           success: false,
           message: "Authentication failed.",
@@ -194,13 +525,146 @@ async function authenticate(request) {
 }
 
 /* =========================================================
-   GET SINGLE RECORD
+   FORMAT HISTORY RECORD
 ========================================================= */
 
-async function getHistoryRecord(assignmentId) {
+function formatHistoryRecord(row) {
+  const finalStatus =
+    row.assignment_status ||
+    row.current_status ||
+    "Pending";
+
+  return {
+    assignment_id:
+      row.assignment_id === null ||
+      row.assignment_id === undefined
+        ? null
+        : Number(row.assignment_id),
+
+    task_id:
+      row.task_id === null ||
+      row.task_id === undefined
+        ? null
+        : Number(row.task_id),
+
+    employee_id:
+      row.employee_id === null ||
+      row.employee_id === undefined
+        ? null
+        : Number(row.employee_id),
+
+    /*
+      IMPORTANT:
+      Exact DB calendar date.
+    */
+    assignment_date:
+      formatDbDateOnly(
+        row.assignment_date
+      ),
+
+    assigned_at:
+      formatDbDateTime(
+        row.assigned_at
+      ),
+
+    assignment_status:
+      finalStatus,
+
+    status:
+      finalStatus,
+
+    comment:
+      row.comment || "",
+
+    is_completed:
+      Number(row.is_completed) === 1 ||
+      isCompletedStatus(finalStatus),
+
+    updated_at:
+      formatDbDateTime(
+        row.updated_at
+      ),
+
+    created_at:
+      formatDbDateTime(
+        row.created_at
+      ),
+
+    master_task_id:
+      row.master_task_id === null ||
+      row.master_task_id === undefined
+        ? null
+        : Number(row.master_task_id),
+
+    pool_id:
+      row.pool_id === null ||
+      row.pool_id === undefined
+        ? null
+        : Number(row.pool_id),
+
+    sequence_no:
+      row.sequence_no === null ||
+      row.sequence_no === undefined
+        ? null
+        : Number(row.sequence_no),
+
+    task_date:
+      formatDbDateOnly(
+        row.task_date
+      ),
+
+    contact_name:
+      row.contact_name || "",
+
+    name:
+      row.contact_name || "",
+
+    phone_number:
+      row.phone_number || "",
+
+    phone:
+      row.phone_number || "",
+
+    business_name:
+      row.business_name || "",
+
+    business:
+      row.business_name || "",
+
+    current_status:
+      row.current_status || "",
+
+    is_locked:
+      Number(row.is_locked) === 1,
+
+    employee_user_id:
+      row.employee_user_id === null ||
+      row.employee_user_id === undefined
+        ? null
+        : Number(row.employee_user_id),
+
+    employee_name:
+      row.employee_name || "",
+
+    employee_email:
+      row.employee_email || "",
+
+    employee_role:
+      row.employee_role || "",
+  };
+}
+
+/* =========================================================
+   HISTORY RECORD QUERY
+========================================================= */
+
+async function getHistoryRecord(
+  assignmentId
+) {
   const rows = await dbQuery(
     `
     SELECT
+
       da.id AS assignment_id,
       da.task_id,
       da.employee_id,
@@ -242,7 +706,236 @@ async function getHistoryRecord(assignmentId) {
     [assignmentId]
   );
 
-  return rows?.[0] || null;
+  if (!rows?.length) {
+    return null;
+  }
+
+  return formatHistoryRecord(
+    rows[0]
+  );
+}
+
+/* =========================================================
+   BUILD FILTER
+========================================================= */
+
+function buildHistoryFilter({
+  user,
+  from,
+  to,
+  date,
+  employeeId,
+  status,
+  search,
+}) {
+  let where = `WHERE 1 = 1`;
+  const params = [];
+
+  /* =====================================================
+     NORMAL USER
+     Only own records
+  ===================================================== */
+
+  if (!user.isAdmin) {
+    where += `
+      AND da.employee_id = ?
+    `;
+
+    params.push(user.id);
+  }
+
+  /* =====================================================
+     ADMIN EMPLOYEE FILTER
+  ===================================================== */
+
+  if (user.isAdmin && employeeId) {
+    where += `
+      AND da.employee_id = ?
+    `;
+
+    params.push(employeeId);
+  }
+
+  /* =====================================================
+     EXACT DATE
+  ===================================================== */
+
+  if (date) {
+    const next = nextDate(date);
+
+    where += `
+      AND da.assignment_date >= ?
+      AND da.assignment_date < ?
+    `;
+
+    params.push(
+      date,
+      next
+    );
+  } else {
+    /* ===================================================
+       FROM
+    =================================================== */
+
+    if (from) {
+      where += `
+        AND da.assignment_date >= ?
+      `;
+
+      params.push(from);
+    }
+
+    /* ===================================================
+       TO
+    =================================================== */
+
+    if (to) {
+      const next = nextDate(to);
+
+      where += `
+        AND da.assignment_date < ?
+      `;
+
+      params.push(next);
+    }
+  }
+
+  /* =====================================================
+     STATUS FILTER
+  ===================================================== */
+
+  if (status) {
+    const canonical =
+      canonicalStatus(status);
+
+    if (
+      canonical === "Other"
+    ) {
+      const known = STATUS_LIST.map(
+        (item) =>
+          statusKey(item)
+      );
+
+      if (known.length) {
+        where += `
+          AND ${NORMALIZED_STATUS_SQL}
+          NOT IN (${known.map(() => "?").join(",")})
+        `;
+
+        params.push(...known);
+      }
+    } else {
+      const values = [
+        statusKey(canonical),
+      ];
+
+      /*
+        Completed aliases.
+      */
+      if (
+        canonical === "Completed"
+      ) {
+        values.push(
+          "complete",
+          "done"
+        );
+      }
+
+      /*
+        Pending should also catch blank/null,
+        because blank status becomes Pending.
+      */
+      if (
+        canonical === "Pending"
+      ) {
+        where += `
+          AND (
+            ${NORMALIZED_STATUS_SQL} = ?
+            OR da.status IS NULL
+            OR TRIM(da.status) = ''
+          )
+        `;
+
+        params.push(
+          statusKey(canonical)
+        );
+      } else {
+        where += `
+          AND ${NORMALIZED_STATUS_SQL}
+          IN (${values.map(() => "?").join(",")})
+        `;
+
+        params.push(...values);
+      }
+    }
+  }
+
+  /* =====================================================
+     SEARCH
+     Business / Name / Phone / Employee
+  ===================================================== */
+
+  if (search) {
+    where += `
+      AND (
+        mt.business_name LIKE ?
+        OR mt.name LIKE ?
+        OR mt.phone_number LIKE ?
+        OR u.name LIKE ?
+        OR u.email LIKE ?
+        OR da.comment LIKE ?
+      )
+    `;
+
+    const searchValue =
+      `%${search}%`;
+
+    params.push(
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue,
+      searchValue
+    );
+  }
+
+  return {
+    where,
+    params,
+  };
+}
+
+/* =========================================================
+   VALIDATE DATE FILTERS
+========================================================= */
+
+function validateDateFilters({
+  date,
+  from,
+  to,
+}) {
+  if (date && !validDate(date)) {
+    return "Invalid date. Use YYYY-MM-DD.";
+  }
+
+  if (from && !validDate(from)) {
+    return "Invalid from date. Use YYYY-MM-DD.";
+  }
+
+  if (to && !validDate(to)) {
+    return "Invalid to date. Use YYYY-MM-DD.";
+  }
+
+  if (
+    from &&
+    to &&
+    from > to
+  ) {
+    return "From date cannot be after To date.";
+  }
+
+  return null;
 }
 
 /* =========================================================
@@ -251,7 +944,8 @@ async function getHistoryRecord(assignmentId) {
 
 export async function GET(request) {
   try {
-    const auth = await authenticate(request);
+    const auth =
+      await authenticate(request);
 
     if (!auth.ok) {
       return auth.response;
@@ -259,14 +953,114 @@ export async function GET(request) {
 
     const { user } = auth;
 
-    const { searchParams } = new URL(request.url);
+    const { searchParams } =
+      new URL(request.url);
 
-    const from = safeString(searchParams.get("from"));
-    const to = safeString(searchParams.get("to"));
-    const date = safeString(searchParams.get("date"));
+    const from =
+      safeString(
+        searchParams.get("from")
+      );
 
-    let sql = `
+    const to =
+      safeString(
+        searchParams.get("to")
+      );
+
+    const date =
+      safeString(
+        searchParams.get("date")
+      );
+
+    const status =
+      safeString(
+        searchParams.get("status")
+      );
+
+    const search =
+      safeString(
+        searchParams.get("search")
+      );
+
+    const employeeRaw =
+      safeString(
+        searchParams.get(
+          "employee_id"
+        ) ||
+          searchParams.get(
+            "employeeId"
+          )
+      );
+
+    let employeeId = null;
+
+    if (
+      employeeRaw
+    ) {
+      employeeId =
+        Number(employeeRaw);
+
+      if (
+        !Number.isInteger(
+          employeeId
+        ) ||
+        employeeId <= 0
+      ) {
+        return jsonResponse(
+          {
+            success: false,
+            message:
+              "Invalid employee_id.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =====================================================
+       VALIDATE DATES
+    ===================================================== */
+
+    const dateError =
+      validateDateFilters({
+        date,
+        from,
+        to,
+      });
+
+    if (dateError) {
+      return jsonResponse(
+        {
+          success: false,
+          message: dateError,
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       FILTER
+    ===================================================== */
+
+    const filter =
+      buildHistoryFilter({
+        user,
+        from,
+        to,
+        date,
+        employeeId,
+        status,
+        search,
+      });
+
+    /* =====================================================
+       DATA QUERY
+       NO DISTINCT
+       EVERY ASSIGNMENT COUNTS
+    ===================================================== */
+
+    const dataSql = `
       SELECT
+
         da.id AS assignment_id,
         da.task_id,
         da.employee_id,
@@ -301,192 +1095,232 @@ export async function GET(request) {
       LEFT JOIN users u
         ON u.id = da.employee_id
 
-      WHERE 1 = 1
-    `;
+      ${filter.where}
 
-    const params = [];
-
-    /* =====================================================
-       NORMAL USER = ONLY OWN HISTORY
-    ===================================================== */
-
-    if (!user.isAdmin) {
-      sql += `
-        AND da.employee_id = ?
-      `;
-
-      params.push(user.id);
-    }
-
-    /* =====================================================
-       EXACT DATE
-    ===================================================== */
-
-    if (date) {
-      if (!validDate(date)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Invalid date. Use YYYY-MM-DD.",
-          },
-          { status: 400 }
-        );
-      }
-
-      sql += `
-        AND da.assignment_date = ?
-      `;
-
-      params.push(date);
-    } else {
-      /* ===================================================
-         FROM DATE
-      =================================================== */
-
-      if (from) {
-        if (!validDate(from)) {
-          return NextResponse.json(
-            {
-              success: false,
-              message: "Invalid from date. Use YYYY-MM-DD.",
-            },
-            { status: 400 }
-          );
-        }
-
-        sql += `
-          AND da.assignment_date >= ?
-        `;
-
-        params.push(from);
-      }
-
-      /* ===================================================
-         TO DATE
-      =================================================== */
-
-      if (to) {
-        if (!validDate(to)) {
-          return NextResponse.json(
-            {
-              success: false,
-              message: "Invalid to date. Use YYYY-MM-DD.",
-            },
-            { status: 400 }
-          );
-        }
-
-        sql += `
-          AND da.assignment_date <= ?
-        `;
-
-        params.push(to);
-      }
-    }
-
-    sql += `
       ORDER BY
         da.assignment_date DESC,
         da.id DESC
     `;
 
-    const rows = await dbQuery(sql, params);
+    const rows =
+      await dbQuery(
+        dataSql,
+        filter.params
+      );
 
-    const data = rows.map((row) => ({
-      assignment_id: Number(row.assignment_id),
-      task_id:
-        row.task_id === null || row.task_id === undefined
-          ? null
-          : Number(row.task_id),
+    const data =
+      rows.map(
+        formatHistoryRecord
+      );
 
-      employee_id:
-        row.employee_id === null || row.employee_id === undefined
-          ? null
-          : Number(row.employee_id),
+    /* =====================================================
+       TOTAL COUNT
+       SAME FILTER
+       NO DISTINCT
+    ===================================================== */
 
-      assignment_date: row.assignment_date,
-      assigned_at: row.assigned_at,
+    const totalRows =
+      await dbQuery(
+        `
+        SELECT COUNT(*) AS total
+        FROM daily_assignments da
 
-      assignment_status:
-        row.assignment_status || row.current_status || "Pending",
+        LEFT JOIN master_tasks mt
+          ON mt.id = da.task_id
 
-      status:
-        row.assignment_status || row.current_status || "Pending",
+        LEFT JOIN users u
+          ON u.id = da.employee_id
 
-      comment: row.comment || "",
+        ${filter.where}
+        `,
+        filter.params
+      );
 
-      is_completed:
-        Number(row.is_completed) === 1 ||
-        isCompletedStatus(row.assignment_status),
+    const total =
+      Number(
+        totalRows?.[0]?.total
+      ) || 0;
 
-      updated_at: row.updated_at,
-      created_at: row.created_at,
+    /* =====================================================
+       STATUS COUNTS
+       SAME FILTER
+       NO DISTINCT
+    ===================================================== */
 
-      master_task_id:
-        row.master_task_id === null ||
-        row.master_task_id === undefined
-          ? null
-          : Number(row.master_task_id),
+    const countRows =
+      await dbQuery(
+        `
+        SELECT
+          ${NORMALIZED_STATUS_SQL}
+            AS normalized_status,
 
-      pool_id:
-        row.pool_id === null || row.pool_id === undefined
-          ? null
-          : Number(row.pool_id),
+          COUNT(*) AS status_count
 
-      sequence_no:
-        row.sequence_no === null ||
-        row.sequence_no === undefined
-          ? null
-          : Number(row.sequence_no),
+        FROM daily_assignments da
 
-      task_date: row.task_date,
+        LEFT JOIN master_tasks mt
+          ON mt.id = da.task_id
 
-      contact_name: row.contact_name || "",
-      name: row.contact_name || "",
+        LEFT JOIN users u
+          ON u.id = da.employee_id
 
-      phone_number: row.phone_number || "",
-      phone: row.phone_number || "",
+        ${filter.where}
 
-      business_name: row.business_name || "",
-      business: row.business_name || "",
+        GROUP BY
+          ${NORMALIZED_STATUS_SQL}
+        `,
+        filter.params
+      );
 
-      current_status: row.current_status || "",
+    /* =====================================================
+       CREATE COUNTS
+    ===================================================== */
 
-      is_locked: Number(row.is_locked) === 1,
+    const counts = {};
 
-      employee_user_id:
-        row.employee_user_id === null ||
-        row.employee_user_id === undefined
-          ? null
-          : Number(row.employee_user_id),
+    for (
+      const item of STATUS_LIST
+    ) {
+      counts[item] = 0;
+    }
 
-      employee_name: row.employee_name || "",
-      employee_email: row.employee_email || "",
-      employee_role: row.employee_role || "",
-    }));
+    counts["Other"] = 0;
 
-    return NextResponse.json({
+    for (
+      const row of countRows
+    ) {
+      const raw =
+        row.normalized_status ||
+        "pending";
+
+      const canonical =
+        canonicalStatus(raw);
+
+      const count =
+        Number(
+          row.status_count
+        ) || 0;
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          counts,
+          canonical
+        )
+      ) {
+        counts[canonical] += count;
+      } else {
+        counts["Other"] += count;
+      }
+    }
+
+    /*
+      Total must always equal the sum
+      of all status buckets.
+    */
+    const statusCountTotal =
+      Object.values(counts).reduce(
+        (sum, value) =>
+          sum + Number(value || 0),
+        0
+      );
+
+    /*
+      Safety fallback.
+      If database has an unexpected status
+      that somehow wasn't grouped, Other gets it.
+    */
+    if (
+      statusCountTotal < total
+    ) {
+      counts["Other"] +=
+        total - statusCountTotal;
+    }
+
+    /* =====================================================
+       RESPONSE
+    ===================================================== */
+
+    return jsonResponse({
       success: true,
+
       data,
+
       records: data,
-      total: data.length,
+
+      total,
+
+      counts,
+
+      /*
+        Useful for UI/debugging.
+      */
+      filters: {
+        date: date || null,
+        from: from || null,
+        to: to || null,
+        status: status || null,
+        search: search || null,
+        employee_id:
+          employeeId || null,
+      },
+
+      pagination: {
+        total,
+        count: data.length,
+      },
+
+      server: {
+        california_date:
+          getCaliforniaDate(),
+      },
     });
   } catch (error) {
-    console.error("==========================================");
-    console.error("[History API] GET ERROR");
-    console.error("Message:", error?.message);
-    console.error("Code:", error?.code);
-    console.error("SQL State:", error?.sqlState);
-    console.error("SQL Message:", error?.sqlMessage);
-    console.error("Stack:", error?.stack);
-    console.error("==========================================");
+    console.error(
+      "=========================================="
+    );
 
-    return NextResponse.json(
+    console.error(
+      "[History API] GET ERROR"
+    );
+
+    console.error(
+      "Message:",
+      error?.message
+    );
+
+    console.error(
+      "Code:",
+      error?.code
+    );
+
+    console.error(
+      "SQL State:",
+      error?.sqlState
+    );
+
+    console.error(
+      "SQL Message:",
+      error?.sqlMessage
+    );
+
+    console.error(
+      "Stack:",
+      error?.stack
+    );
+
+    console.error(
+      "=========================================="
+    );
+
+    return jsonResponse(
       {
         success: false,
-        message: "Failed to load history.",
+        message:
+          "Failed to load history.",
+
         error:
-          process.env.NODE_ENV === "development"
+          process.env.NODE_ENV ===
+          "development"
             ? error?.message
             : undefined,
       },
@@ -497,15 +1331,17 @@ export async function GET(request) {
 
 /* =========================================================
    POST
-   ADMIN = CAN ADD FOR ANY EMPLOYEE
-   USER = CAN ADD ONLY FOR THEMSELVES
 ========================================================= */
 
-export async function POST(request) {
-  let createdMasterTaskId = null;
+export async function POST(
+  request
+) {
+  let createdMasterTaskId =
+    null;
 
   try {
-    const auth = await authenticate(request);
+    const auth =
+      await authenticate(request);
 
     if (!auth.ok) {
       return auth.response;
@@ -513,7 +1349,8 @@ export async function POST(request) {
 
     const { user } = auth;
 
-    const body = await request.json();
+    const body =
+      await request.json();
 
     /* =====================================================
        EMPLOYEE
@@ -528,41 +1365,58 @@ export async function POST(request) {
     let employeeId;
 
     if (
-      requestedEmployeeIdRaw === undefined ||
-      requestedEmployeeIdRaw === null ||
-      safeString(requestedEmployeeIdRaw) === ""
+      requestedEmployeeIdRaw ===
+        undefined ||
+      requestedEmployeeIdRaw ===
+        null ||
+      safeString(
+        requestedEmployeeIdRaw
+      ) === ""
     ) {
       if (user.isAdmin) {
-        return NextResponse.json(
+        return jsonResponse(
           {
             success: false,
-            message: "employee_id is required for admin.",
+            message:
+              "employee_id is required for admin.",
           },
           { status: 400 }
         );
       }
 
-      employeeId = user.id;
+      employeeId =
+        user.id;
     } else {
-      employeeId = Number(requestedEmployeeIdRaw);
+      employeeId =
+        Number(
+          requestedEmployeeIdRaw
+        );
 
-      if (!Number.isInteger(employeeId) || employeeId <= 0) {
-        return NextResponse.json(
+      if (
+        !Number.isInteger(
+          employeeId
+        ) ||
+        employeeId <= 0
+      ) {
+        return jsonResponse(
           {
             success: false,
-            message: "Invalid employee_id.",
+            message:
+              "Invalid employee_id.",
           },
           { status: 400 }
         );
       }
 
-      /* USER CANNOT ADD FOR ANOTHER EMPLOYEE */
-
-      if (!user.isAdmin && employeeId !== user.id) {
-        return NextResponse.json(
+      if (
+        !user.isAdmin &&
+        employeeId !== user.id
+      ) {
+        return jsonResponse(
           {
             success: false,
-            message: "You can only add your own history record.",
+            message:
+              "You can only add your own history record.",
           },
           { status: 403 }
         );
@@ -573,26 +1427,30 @@ export async function POST(request) {
        VERIFY EMPLOYEE
     ===================================================== */
 
-    const employeeRows = await dbQuery(
-      `
-      SELECT
-        id,
-        name,
-        email,
-        role,
-        status
-      FROM users
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [employeeId]
-    );
+    const employeeRows =
+      await dbQuery(
+        `
+        SELECT
+          id,
+          name,
+          email,
+          role,
+          status
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [employeeId]
+      );
 
-    if (!employeeRows.length) {
-      return NextResponse.json(
+    if (
+      !employeeRows.length
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Employee not found.",
+          message:
+            "Employee not found.",
         },
         { status: 404 }
       );
@@ -608,18 +1466,18 @@ export async function POST(request) {
           body?.assignmentDate ??
           body?.date
       ) ||
-      new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Los_Angeles",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(new Date());
+      getCaliforniaDate();
 
-    if (!validDate(assignmentDate)) {
-      return NextResponse.json(
+    if (
+      !validDate(
+        assignmentDate
+      )
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Invalid assignment date. Use YYYY-MM-DD.",
+          message:
+            "Invalid assignment date. Use YYYY-MM-DD.",
         },
         { status: 400 }
       );
@@ -629,162 +1487,189 @@ export async function POST(request) {
        FIELDS
     ===================================================== */
 
-    const businessName = safeString(
-      body?.business_name ??
-        body?.businessName ??
-        body?.business
-    ).slice(0, 150);
+    const businessName =
+      safeString(
+        body?.business_name ??
+          body?.businessName ??
+          body?.business
+      ).slice(0, 150);
 
-    const contactName = safeString(
-      body?.contact_name ??
-        body?.contactName ??
-        body?.name ??
-        body?.contact
-    ).slice(0, 100);
+    const contactName =
+      safeString(
+        body?.contact_name ??
+          body?.contactName ??
+          body?.name ??
+          body?.contact
+      ).slice(0, 100);
 
-    const phoneNumber = safeString(
-      body?.phone_number ??
-        body?.phoneNumber ??
-        body?.phone
-    ).slice(0, 30);
+    const phoneNumber =
+      safeString(
+        body?.phone_number ??
+          body?.phoneNumber ??
+          body?.phone
+      ).slice(0, 30);
 
     if (!phoneNumber) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           success: false,
-          message: "Phone number is required.",
+          message:
+            "Phone number is required.",
         },
         { status: 400 }
       );
     }
 
-    const status = normalizeStatus(
-      body?.status ??
-        body?.assignment_status ??
-        body?.assignmentStatus ??
-        "Pending"
-    ).slice(0, 50);
+    const status =
+      normalizeStatus(
+        body?.status ??
+          body?.assignment_status ??
+          body?.assignmentStatus ??
+          "Pending"
+      ).slice(0, 50);
 
-    const comment = safeString(
-      body?.comment ?? body?.comments
-    ).slice(0, 5000);
+    const comment =
+      safeString(
+        body?.comment ??
+          body?.comments
+      ).slice(0, 5000);
 
-    const isCompleted = isCompletedStatus(status) ? 1 : 0;
+    const isCompleted =
+      isCompletedStatus(
+        status
+      )
+        ? 1
+        : 0;
 
     /* =====================================================
-       GENERATE SEQUENCE
-       sequence_no IS REQUIRED IN master_tasks
+       SEQUENCE
     ===================================================== */
 
-    const sequenceRows = await dbQuery(
-      `
-      SELECT
-        COALESCE(MAX(sequence_no), 0) + 1 AS next_sequence
-      FROM master_tasks
-      `
-    );
+    const sequenceRows =
+      await dbQuery(
+        `
+        SELECT
+          COALESCE(
+            MAX(sequence_no),
+            0
+          ) + 1 AS next_sequence
+        FROM master_tasks
+        `
+      );
 
     const sequenceNo =
-      Number(sequenceRows?.[0]?.next_sequence) || 1;
+      Number(
+        sequenceRows?.[0]
+          ?.next_sequence
+      ) || 1;
 
     /* =====================================================
        CREATE MASTER TASK
-
-       IMPORTANT:
-       master_tasks DOES NOT HAVE task_id COLUMN.
     ===================================================== */
 
-    const masterResult = await dbQuery(
-      `
-      INSERT INTO master_tasks
-      (
-        sequence_no,
-        task_date,
-        name,
-        phone_number,
-        business_name,
-        current_status,
-        is_locked
-      )
-      VALUES (?, ?, ?, ?, ?, ?, 0)
-      `,
-      [
-        sequenceNo,
-        assignmentDate,
-        contactName || null,
-        phoneNumber,
-        businessName || null,
-        status,
-      ]
-    );
+    const masterResult =
+      await dbQuery(
+        `
+        INSERT INTO master_tasks
+        (
+          sequence_no,
+          task_date,
+          name,
+          phone_number,
+          business_name,
+          current_status,
+          is_locked
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 0)
+        `,
+        [
+          sequenceNo,
+          assignmentDate,
+          contactName || null,
+          phoneNumber,
+          businessName || null,
+          status,
+        ]
+      );
 
-    createdMasterTaskId = Number(masterResult.insertId);
+    createdMasterTaskId =
+      Number(
+        masterResult.insertId
+      );
 
-    if (!createdMasterTaskId) {
-      throw new Error("Failed to create master task.");
+    if (
+      !createdMasterTaskId
+    ) {
+      throw new Error(
+        "Failed to create master task."
+      );
     }
 
     /* =====================================================
-       CREATE DAILY ASSIGNMENT
+       CREATE ASSIGNMENT
     ===================================================== */
 
-    const assignmentResult = await dbQuery(
-      `
-      INSERT INTO daily_assignments
-      (
-        task_id,
-        employee_id,
-        assignment_date,
-        status,
-        comment,
-        is_completed,
-        created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, NOW())
-      `,
-      [
-        createdMasterTaskId,
-        employeeId,
-        assignmentDate,
-        status,
-        comment || null,
-        isCompleted,
-      ]
-    );
+    const assignmentResult =
+      await dbQuery(
+        `
+        INSERT INTO daily_assignments
+        (
+          task_id,
+          employee_id,
+          assignment_date,
+          status,
+          comment,
+          is_completed,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
+        `,
+        [
+          createdMasterTaskId,
+          employeeId,
+          assignmentDate,
+          status,
+          comment || null,
+          isCompleted,
+        ]
+      );
 
-    const assignmentId = Number(assignmentResult.insertId);
+    const assignmentId =
+      Number(
+        assignmentResult.insertId
+      );
 
-    /* =====================================================
-       GET CREATED RECORD
-    ===================================================== */
+    if (!assignmentId) {
+      throw new Error(
+        "Failed to create assignment."
+      );
+    }
 
-    const createdRecord = await getHistoryRecord(
-      assignmentId
-    );
+    const createdRecord =
+      await getHistoryRecord(
+        assignmentId
+      );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: true,
-        message: "History record added successfully.",
+
+        message:
+          "History record added successfully.",
+
         data: createdRecord,
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("==========================================");
-    console.error("[History API] POST ERROR");
-    console.error("Message:", error?.message);
-    console.error("Code:", error?.code);
-    console.error("SQL State:", error?.sqlState);
-    console.error("SQL Message:", error?.sqlMessage);
-    console.error("Stack:", error?.stack);
-    console.error("==========================================");
+    console.error(
+      "[History API] POST ERROR:",
+      error
+    );
 
-    /* =====================================================
-       CLEANUP MASTER TASK IF ASSIGNMENT INSERT FAILED
-    ===================================================== */
-
-    if (createdMasterTaskId) {
+    if (
+      createdMasterTaskId
+    ) {
       try {
         await dbQuery(
           `
@@ -794,7 +1679,9 @@ export async function POST(request) {
           `,
           [createdMasterTaskId]
         );
-      } catch (cleanupError) {
+      } catch (
+        cleanupError
+      ) {
         console.error(
           "[History API] Cleanup error:",
           cleanupError?.message
@@ -802,19 +1689,25 @@ export async function POST(request) {
       }
     }
 
-    let message = "Failed to add history record.";
+    let message =
+      "Failed to add history record.";
 
-    if (error?.code === "ER_DUP_ENTRY") {
+    if (
+      error?.code ===
+      "ER_DUP_ENTRY"
+    ) {
       message =
         "This history record could not be created because a duplicate assignment exists.";
     }
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         success: false,
         message,
+
         error:
-          process.env.NODE_ENV === "development"
+          process.env.NODE_ENV ===
+          "development"
             ? error?.message
             : undefined,
       },
@@ -825,12 +1718,16 @@ export async function POST(request) {
 
 /* =========================================================
    PUT
-   ONLY ADMIN CAN EDIT
+   ADMIN = CAN EDIT ANY RECORD
+   USER = CAN EDIT ONLY OWN RECORD
 ========================================================= */
 
-export async function PUT(request) {
+export async function PUT(
+  request
+) {
   try {
-    const auth = await authenticate(request);
+    const auth =
+      await authenticate(request);
 
     if (!auth.ok) {
       return auth.response;
@@ -838,121 +1735,161 @@ export async function PUT(request) {
 
     const { user } = auth;
 
+    const body =
+      await request.json();
+
     /* =====================================================
-       ONLY ADMIN
+       ASSIGNMENT ID
     ===================================================== */
-
-    if (!user.isAdmin) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Only admin can edit history records.",
-        },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
 
     const assignmentIdRaw =
       body?.assignment_id ??
       body?.assignmentId ??
       body?.id;
 
-    const assignmentId = Number(assignmentIdRaw);
+    const assignmentId =
+      Number(assignmentIdRaw);
 
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) {
-      return NextResponse.json(
+    if (
+      !Number.isInteger(
+        assignmentId
+      ) ||
+      assignmentId <= 0
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Valid assignment_id is required.",
+          message:
+            "Valid assignment_id is required.",
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       LOAD EXISTING ASSIGNMENT
+       LOAD ASSIGNMENT
     ===================================================== */
 
-    const assignmentRows = await dbQuery(
-      `
-      SELECT
-        id,
-        task_id,
-        employee_id,
-        assignment_date,
-        status,
-        comment,
-        is_completed
-      FROM daily_assignments
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [assignmentId]
-    );
+    const assignmentRows =
+      await dbQuery(
+        `
+        SELECT
+          id,
+          task_id,
+          employee_id,
+          assignment_date,
+          status,
+          comment,
+          is_completed
+        FROM daily_assignments
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [assignmentId]
+      );
 
-    if (!assignmentRows.length) {
-      return NextResponse.json(
+    if (
+      !assignmentRows.length
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "History record not found.",
+          message:
+            "History record not found.",
         },
         { status: 404 }
       );
     }
 
-    const existing = assignmentRows[0];
+    const existing =
+      assignmentRows[0];
 
-    const masterTaskId = Number(existing.task_id);
+    /* =====================================================
+       PERMISSION
 
-    if (!masterTaskId) {
-      return NextResponse.json(
+       ADMIN:
+       Can edit any record.
+
+       USER:
+       Can edit ONLY own record.
+    ===================================================== */
+
+    if (
+      !user.isAdmin &&
+      Number(existing.employee_id) !==
+        Number(user.id)
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Master task reference is missing.",
+          message:
+            "You can only edit your own history records.",
+        },
+        { status: 403 }
+      );
+    }
+
+    /* =====================================================
+       MASTER TASK
+    ===================================================== */
+
+    const masterTaskId =
+      Number(existing.task_id);
+
+    if (!masterTaskId) {
+      return jsonResponse(
+        {
+          success: false,
+          message:
+            "Master task reference is missing.",
         },
         { status: 500 }
       );
     }
 
-    /* =====================================================
-       LOAD MASTER TASK
-    ===================================================== */
+    const masterRows =
+      await dbQuery(
+        `
+        SELECT
+          id,
+          pool_id,
+          sequence_no,
+          task_date,
+          name,
+          phone_number,
+          business_name,
+          current_status,
+          is_locked
+        FROM master_tasks
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [masterTaskId]
+      );
 
-    const masterRows = await dbQuery(
-      `
-      SELECT
-        id,
-        pool_id,
-        sequence_no,
-        task_date,
-        name,
-        phone_number,
-        business_name,
-        current_status,
-        is_locked
-      FROM master_tasks
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [masterTaskId]
-    );
-
-    if (!masterRows.length) {
-      return NextResponse.json(
+    if (
+      !masterRows.length
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Master task not found.",
+          message:
+            "Master task not found.",
         },
         { status: 404 }
       );
     }
 
-    const master = masterRows[0];
+    const master =
+      masterRows[0];
 
     /* =====================================================
        EMPLOYEE
+
+       Admin can change employee.
+
+       Normal user cannot move the record
+       to another employee.
     ===================================================== */
 
     const employeeRaw =
@@ -961,23 +1898,50 @@ export async function PUT(request) {
       body?.assigned_employee_id ??
       body?.assignedEmployeeId;
 
-    let employeeId = Number(existing.employee_id);
+    let employeeId =
+      Number(existing.employee_id);
 
     if (
       employeeRaw !== undefined &&
       employeeRaw !== null &&
       safeString(employeeRaw) !== ""
     ) {
-      employeeId = Number(employeeRaw);
+      employeeId =
+        Number(employeeRaw);
     }
 
-    if (!Number.isInteger(employeeId) || employeeId <= 0) {
-      return NextResponse.json(
+    if (
+      !Number.isInteger(
+        employeeId
+      ) ||
+      employeeId <= 0
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Invalid employee_id.",
+          message:
+            "Invalid employee_id.",
         },
         { status: 400 }
+      );
+    }
+
+    /*
+      Normal employee can ONLY keep
+      the record assigned to himself.
+    */
+    if (
+      !user.isAdmin &&
+      employeeId !==
+        Number(user.id)
+    ) {
+      return jsonResponse(
+        {
+          success: false,
+          message:
+            "You cannot assign your record to another employee.",
+        },
+        { status: 403 }
       );
     }
 
@@ -985,26 +1949,30 @@ export async function PUT(request) {
        VERIFY EMPLOYEE
     ===================================================== */
 
-    const employeeRows = await dbQuery(
-      `
-      SELECT
-        id,
-        name,
-        email,
-        role,
-        status
-      FROM users
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [employeeId]
-    );
+    const employeeRows =
+      await dbQuery(
+        `
+        SELECT
+          id,
+          name,
+          email,
+          role,
+          status
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [employeeId]
+      );
 
-    if (!employeeRows.length) {
-      return NextResponse.json(
+    if (
+      !employeeRows.length
+    ) {
+      return jsonResponse(
         {
           success: false,
-          message: "Employee not found.",
+          message:
+            "Employee not found.",
         },
         { status: 404 }
       );
@@ -1012,10 +1980,16 @@ export async function PUT(request) {
 
     /* =====================================================
        DATE
+
+       IMPORTANT:
+       Existing DATE/DATETIME is converted
+       without timezone shifting.
     ===================================================== */
 
     let assignmentDate =
-      existing.assignment_date;
+      formatDbDateOnly(
+        existing.assignment_date
+      );
 
     const dateRaw =
       body?.assignment_date ??
@@ -1027,10 +2001,15 @@ export async function PUT(request) {
       dateRaw !== null &&
       safeString(dateRaw) !== ""
     ) {
-      assignmentDate = safeString(dateRaw);
+      assignmentDate =
+        safeString(dateRaw);
 
-      if (!validDate(assignmentDate)) {
-        return NextResponse.json(
+      if (
+        !validDate(
+          assignmentDate
+        )
+      ) {
+        return jsonResponse(
           {
             success: false,
             message:
@@ -1041,8 +2020,23 @@ export async function PUT(request) {
       }
     }
 
+    if (
+      !validDate(
+        assignmentDate
+      )
+    ) {
+      return jsonResponse(
+        {
+          success: false,
+          message:
+            "Existing assignment date is invalid.",
+        },
+        { status: 400 }
+      );
+    }
+
     /* =====================================================
-       BUSINESS NAME
+       BUSINESS
     ===================================================== */
 
     let businessName =
@@ -1057,10 +2051,17 @@ export async function PUT(request) {
       businessRaw !== undefined &&
       businessRaw !== null
     ) {
-      businessName = safeString(businessRaw);
+      businessName =
+        safeString(
+          businessRaw
+        );
     }
 
-    businessName = businessName.slice(0, 150);
+    businessName =
+      businessName.slice(
+        0,
+        150
+      );
 
     /* =====================================================
        CONTACT NAME
@@ -1079,10 +2080,17 @@ export async function PUT(request) {
       contactRaw !== undefined &&
       contactRaw !== null
     ) {
-      contactName = safeString(contactRaw);
+      contactName =
+        safeString(
+          contactRaw
+        );
     }
 
-    contactName = contactName.slice(0, 100);
+    contactName =
+      contactName.slice(
+        0,
+        100
+      );
 
     /* =====================================================
        PHONE
@@ -1100,16 +2108,24 @@ export async function PUT(request) {
       phoneRaw !== undefined &&
       phoneRaw !== null
     ) {
-      phoneNumber = safeString(phoneRaw);
+      phoneNumber =
+        safeString(
+          phoneRaw
+        );
     }
 
-    phoneNumber = phoneNumber.slice(0, 30);
+    phoneNumber =
+      phoneNumber.slice(
+        0,
+        30
+      );
 
     if (!phoneNumber) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           success: false,
-          message: "Phone number is required.",
+          message:
+            "Phone number is required.",
         },
         { status: 400 }
       );
@@ -1133,36 +2149,50 @@ export async function PUT(request) {
       statusRaw !== undefined &&
       statusRaw !== null
     ) {
-      status = safeString(statusRaw);
+      status =
+        safeString(
+          statusRaw
+        );
     }
 
-    status = status.slice(0, 50);
+    status =
+      normalizeStatus(
+        status
+      ).slice(0, 50);
 
-    const isCompleted = isCompletedStatus(status)
-      ? 1
-      : 0;
+    const isCompleted =
+      isCompletedStatus(
+        status
+      )
+        ? 1
+        : 0;
 
     /* =====================================================
        COMMENT
     ===================================================== */
 
-    let comment = existing.comment || "";
+    let comment =
+      existing.comment || "";
 
     if (
       body?.comment !== undefined ||
       body?.comments !== undefined
     ) {
-      comment = safeString(
-        body?.comment ?? body?.comments
-      );
+      comment =
+        safeString(
+          body?.comment ??
+            body?.comments
+        );
     }
 
-    comment = comment.slice(0, 5000);
+    comment =
+      comment.slice(
+        0,
+        5000
+      );
 
     /* =====================================================
        UPDATE DAILY ASSIGNMENT
-
-       sequence_no and pool_id remain untouched.
     ===================================================== */
 
     await dbQuery(
@@ -1173,7 +2203,8 @@ export async function PUT(request) {
         assignment_date = ?,
         status = ?,
         comment = ?,
-        is_completed = ?
+        is_completed = ?,
+        updated_at = NOW()
       WHERE id = ?
       LIMIT 1
       `,
@@ -1189,9 +2220,6 @@ export async function PUT(request) {
 
     /* =====================================================
        UPDATE MASTER TASK
-
-       IMPORTANT:
-       NO task_id COLUMN HERE.
     ===================================================== */
 
     await dbQuery(
@@ -1217,33 +2245,70 @@ export async function PUT(request) {
     );
 
     /* =====================================================
-       GET UPDATED RECORD
+       RETURN UPDATED RECORD
     ===================================================== */
 
     const updatedRecord =
-      await getHistoryRecord(assignmentId);
+      await getHistoryRecord(
+        assignmentId
+      );
 
-    return NextResponse.json({
+    return jsonResponse({
       success: true,
-      message: "History record updated successfully.",
+
+      message:
+        "History record updated successfully.",
+
       data: updatedRecord,
     });
   } catch (error) {
-    console.error("==========================================");
-    console.error("[History API] PUT ERROR");
-    console.error("Message:", error?.message);
-    console.error("Code:", error?.code);
-    console.error("SQL State:", error?.sqlState);
-    console.error("SQL Message:", error?.sqlMessage);
-    console.error("Stack:", error?.stack);
-    console.error("==========================================");
+    console.error(
+      "=========================================="
+    );
 
-    return NextResponse.json(
+    console.error(
+      "[History API] PUT ERROR"
+    );
+
+    console.error(
+      "Message:",
+      error?.message
+    );
+
+    console.error(
+      "Code:",
+      error?.code
+    );
+
+    console.error(
+      "SQL State:",
+      error?.sqlState
+    );
+
+    console.error(
+      "SQL Message:",
+      error?.sqlMessage
+    );
+
+    console.error(
+      "Stack:",
+      error?.stack
+    );
+
+    console.error(
+      "=========================================="
+    );
+
+    return jsonResponse(
       {
         success: false,
-        message: "Failed to update history record.",
+
+        message:
+          "Failed to update history record.",
+
         error:
-          process.env.NODE_ENV === "development"
+          process.env.NODE_ENV ===
+          "development"
             ? error?.message
             : undefined,
       },

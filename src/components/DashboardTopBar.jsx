@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -31,6 +30,12 @@ import { createPortal } from "react-dom";
 const CALIFORNIA_TIMEZONE = "America/Los_Angeles";
 
 const MAX_BREAKS = 5;
+
+// ============================================================
+// BREAK LIMITS
+// IMPORTANT:
+// These must match /api/users/status
+// ============================================================
 
 const BREAK_LIMITS = {
   "Short Break": {
@@ -84,6 +89,7 @@ export default function DashboardTopBar({
 
   // ============================================================
   // BREAK USAGE
+  // BACKEND IS SOURCE OF TRUTH
   // ============================================================
 
   const [breakUsage, setBreakUsage] =
@@ -101,12 +107,11 @@ export default function DashboardTopBar({
   // false = restored from backend
   const [isNewTimer, setIsNewTimer] = useState(false);
 
-  // IMPORTANT:
-  // This ref contains the exact browser timestamp
-  // when the NEW break was started.
+  // Exact browser timestamp for a newly started break.
+  // Used only for immediate UI timer accuracy.
   const newBreakStartedAtRef = useRef(null);
 
-  // Prevent duplicate auto-end requests
+  // Prevent duplicate auto-end requests.
   const autoEndingBreakRef = useRef(false);
 
   // ============================================================
@@ -323,7 +328,7 @@ export default function DashboardTopBar({
       let startDate;
 
       // ========================================================
-      // ISO / timezone-aware
+      // ISO / TIMEZONE AWARE
       // ========================================================
 
       if (
@@ -454,9 +459,10 @@ export default function DashboardTopBar({
       }
 
       const elapsed = Math.floor(
-        (Date.now() -
-          startDate.getTime()) /
-          1000
+        (
+          Date.now() -
+          startDate.getTime()
+        ) / 1000
       );
 
       return Math.max(
@@ -483,11 +489,78 @@ export default function DashboardTopBar({
       {
         timeZone:
           CALIFORNIA_TIMEZONE,
+
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
       }
     ).format(new Date());
+  };
+
+  // ============================================================
+  // CALIFORNIA TIME
+  // ============================================================
+
+  const getCaliforniaTimeParts = () => {
+    const parts =
+      new Intl.DateTimeFormat(
+        "en-US",
+        {
+          timeZone:
+            CALIFORNIA_TIMEZONE,
+
+          weekday: "short",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        }
+      ).formatToParts(
+        new Date()
+      );
+
+    const getPart = (type) =>
+      parts.find(
+        (part) =>
+          part.type === type
+      )?.value;
+
+    return {
+      weekday: getPart("weekday"),
+      year: getPart("year"),
+      month: getPart("month"),
+      day: getPart("day"),
+      hour: Number(
+        getPart("hour") || 0
+      ),
+      minute: Number(
+        getPart("minute") || 0
+      ),
+      second: Number(
+        getPart("second") || 0
+      ),
+    };
+  };
+
+  // ============================================================
+  // BREAK WINDOW
+  //
+  // 12:00 AM - 7:59 AM = ALLOWED
+  // 8:00 AM - 8:59 AM = BLOCKED
+  // 9:00 AM onward      = ALLOWED
+  //
+  // Backend remains final authority.
+  // ============================================================
+
+  const isBreakStartBlockedByTime = () => {
+    const {
+      hour,
+    } = getCaliforniaTimeParts();
+
+    return hour === 8;
   };
 
   // ============================================================
@@ -531,108 +604,11 @@ export default function DashboardTopBar({
   }, []);
 
   // ============================================================
-  // RESTORE BREAK USAGE FROM LOCAL STORAGE
-  // ============================================================
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    try {
-      const date =
-        getCaliforniaDate();
-
-      const storageKey =
-        `crm_break_usage_${currentUser.id}_${date}`;
-
-      const stored =
-        localStorage.getItem(
-          storageKey
-        );
-
-      if (!stored) {
-        setBreakUsage({
-          ...EMPTY_BREAK_USAGE,
-        });
-
-        return;
-      }
-
-      const parsed =
-        JSON.parse(stored);
-
-      setBreakUsage({
-        "Short Break": Math.min(
-          Number(
-            parsed?.["Short Break"] || 0
-          ),
-          BREAK_LIMITS[
-            "Short Break"
-          ].maxUses
-        ),
-
-        "Lunch Break": Math.min(
-          Number(
-            parsed?.["Lunch Break"] || 0
-          ),
-          BREAK_LIMITS[
-            "Lunch Break"
-          ].maxUses
-        ),
-
-        "Namaz Break": Math.min(
-          Number(
-            parsed?.["Namaz Break"] || 0
-          ),
-          BREAK_LIMITS[
-            "Namaz Break"
-          ].maxUses
-        ),
-      });
-    } catch (error) {
-      console.error(
-        "Restore break usage error:",
-        error
-      );
-    }
-  }, [currentUser?.id]);
-
-  // ============================================================
-  // SAVE BREAK USAGE
-  // ============================================================
-
-  useEffect(() => {
-    if (!currentUser?.id) {
-      return;
-    }
-
-    try {
-      const date =
-        getCaliforniaDate();
-
-      const storageKey =
-        `crm_break_usage_${currentUser.id}_${date}`;
-
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(
-          breakUsage
-        )
-      );
-    } catch (error) {
-      console.error(
-        "Save break usage error:",
-        error
-      );
-    }
-  }, [
-    breakUsage,
-    currentUser?.id,
-  ]);
-
-  // ============================================================
-  // RESTORE STATUS FROM BACKEND
+  // RESTORE STATUS + BREAK USAGE FROM BACKEND
+  //
+  // IMPORTANT:
+  // NO LOCAL STORAGE IS USED FOR BREAK COUNTS.
+  // Backend rolling 24h calculation is source of truth.
   // ============================================================
 
   useEffect(() => {
@@ -644,6 +620,10 @@ export default function DashboardTopBar({
             method: "GET",
             credentials: "include",
             cache: "no-store",
+            headers: {
+              "Cache-Control":
+                "no-cache",
+            },
           }
         );
 
@@ -655,7 +635,8 @@ export default function DashboardTopBar({
           await response.json();
 
         const currentStatus =
-          data?.status || "Active";
+          data?.status ||
+          "Active";
 
         // ======================================================
         // BACKEND BREAK USAGE
@@ -674,12 +655,15 @@ export default function DashboardTopBar({
         ) {
           setBreakUsage({
             "Short Break": Math.min(
-              Number(
-                backendUsage[
-                  "Short Break"
-                ] ||
-                  backendUsage.short_break ||
-                  0
+              Math.max(
+                0,
+                Number(
+                  backendUsage[
+                    "Short Break"
+                  ] ??
+                    backendUsage.short_break ??
+                    0
+                )
               ),
               BREAK_LIMITS[
                 "Short Break"
@@ -687,12 +671,15 @@ export default function DashboardTopBar({
             ),
 
             "Lunch Break": Math.min(
-              Number(
-                backendUsage[
-                  "Lunch Break"
-                ] ||
-                  backendUsage.lunch_break ||
-                  0
+              Math.max(
+                0,
+                Number(
+                  backendUsage[
+                    "Lunch Break"
+                  ] ??
+                    backendUsage.lunch_break ??
+                    0
+                )
               ),
               BREAK_LIMITS[
                 "Lunch Break"
@@ -700,17 +687,24 @@ export default function DashboardTopBar({
             ),
 
             "Namaz Break": Math.min(
-              Number(
-                backendUsage[
-                  "Namaz Break"
-                ] ||
-                  backendUsage.namaz_break ||
-                  0
+              Math.max(
+                0,
+                Number(
+                  backendUsage[
+                    "Namaz Break"
+                  ] ??
+                    backendUsage.namaz_break ??
+                    0
+                )
               ),
               BREAK_LIMITS[
                 "Namaz Break"
               ].maxUses
             ),
+          });
+        } else {
+          setBreakUsage({
+            ...EMPTY_BREAK_USAGE,
           });
         }
 
@@ -731,8 +725,10 @@ export default function DashboardTopBar({
           setStatusStartedAt(null);
           setTimerSeconds(0);
           setIsNewTimer(false);
+
           newBreakStartedAtRef.current =
             null;
+
           autoEndingBreakRef.current =
             false;
 
@@ -753,8 +749,12 @@ export default function DashboardTopBar({
           setStatusStartedAt(null);
           setTimerSeconds(0);
           setIsNewTimer(false);
+
           newBreakStartedAtRef.current =
             null;
+
+          autoEndingBreakRef.current =
+            false;
 
           return;
         }
@@ -768,10 +768,28 @@ export default function DashboardTopBar({
           data?.statusStartedAt ||
           null;
 
-        const maxSeconds =
+        const apiDurationSeconds =
+          Number(
+            data?.timer
+              ?.durationLimitSeconds ??
+              data?.timer
+                ?.duration_limit_seconds ??
+              data?.durationLimitSeconds ??
+              0
+          );
+
+        const configuredMaxSeconds =
           BREAK_LIMITS[
             currentStatus
           ].minutes * 60;
+
+        const maxSeconds =
+          apiDurationSeconds > 0
+            ? Math.min(
+                apiDurationSeconds,
+                configuredMaxSeconds
+              )
+            : configuredMaxSeconds;
 
         setTimerStatus(
           currentStatus
@@ -786,14 +804,33 @@ export default function DashboardTopBar({
         newBreakStartedAtRef.current =
           null;
 
-        const elapsed =
-          calculateElapsedTime(
-            startedAt
+        const apiElapsedSeconds =
+          Number(
+            data?.timer
+              ?.elapsedSeconds ??
+              data?.timer
+                ?.elapsed_seconds ??
+              data?.elapsedSeconds ??
+              NaN
           );
+
+        const calculatedElapsed =
+          Number.isFinite(
+            apiElapsedSeconds
+          )
+            ? apiElapsedSeconds
+            : calculateElapsedTime(
+                startedAt
+              );
 
         setTimerSeconds(
           Math.min(
-            Math.max(0, elapsed),
+            Math.max(
+              0,
+              Math.floor(
+                calculatedElapsed
+              )
+            ),
             maxSeconds
           )
         );
@@ -811,16 +848,9 @@ export default function DashboardTopBar({
   }, []);
 
   // ============================================================
-  // ⭐ MAIN TIMER EFFECT
-  // ============================================================
+  // MAIN TIMER EFFECT
   //
-  // THIS IS THE IMPORTANT FIX.
-  //
-  // No nested useEffect.
-  // New break uses Date.now().
-  // Existing break uses backend started_at.
-  // Timer can NEVER display above maxSeconds.
-  //
+  // Timer can NEVER display above configured/API maximum.
   // ============================================================
 
   useEffect(() => {
@@ -894,12 +924,8 @@ export default function DashboardTopBar({
       );
     };
 
-    // IMPORTANT:
-    // Immediately calculate instead of waiting 1 second.
     updateTimer();
 
-    // 250ms keeps UI smooth.
-    // Display itself changes only when full seconds change.
     const interval =
       setInterval(
         updateTimer,
@@ -918,7 +944,7 @@ export default function DashboardTopBar({
   ]);
 
   // ============================================================
-  // ⭐ AUTO END BREAK
+  // AUTO END BREAK
   // ============================================================
 
   useEffect(() => {
@@ -1004,7 +1030,7 @@ export default function DashboardTopBar({
           }
 
           // ====================================================
-          // RESET EVERYTHING
+          // RESET
           // ====================================================
 
           setStatus(
@@ -1036,6 +1062,71 @@ export default function DashboardTopBar({
 
           autoEndingBreakRef.current =
             false;
+
+          // ====================================================
+          // REFRESH BACKEND USAGE
+          // ====================================================
+
+          if (
+            data?.break_usage ||
+            data?.breakUsage ||
+            data?.usage
+          ) {
+            const usage =
+              data?.break_usage ||
+              data?.breakUsage ||
+              data?.usage;
+
+            setBreakUsage({
+              "Short Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    usage[
+                      "Short Break"
+                    ] ??
+                      usage.short_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Short Break"
+                ].maxUses
+              ),
+
+              "Lunch Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    usage[
+                      "Lunch Break"
+                    ] ??
+                      usage.lunch_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Lunch Break"
+                ].maxUses
+              ),
+
+              "Namaz Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    usage[
+                      "Namaz Break"
+                    ] ??
+                      usage.namaz_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Namaz Break"
+                ].maxUses
+              ),
+            });
+          }
         } catch (error) {
           console.error(
             "Auto end break error:",
@@ -1076,7 +1167,7 @@ export default function DashboardTopBar({
       }
 
       // ========================================================
-      // BREAK LIMIT CHECK
+      // BREAK
       // ========================================================
 
       const breakLimit =
@@ -1085,6 +1176,29 @@ export default function DashboardTopBar({
         ];
 
       if (breakLimit) {
+        // ======================================================
+        // 8:00 AM - 8:59 AM CALIFORNIA BLOCK
+        // ======================================================
+
+        if (
+          isBreakStartBlockedByTime()
+        ) {
+          alert(
+            "Breaks cannot be started between 8:00 AM and 9:00 AM California time."
+          );
+
+          setStatusDropdownOpen(
+            false
+          );
+
+          return;
+        }
+
+        // ======================================================
+        // FRONTEND CHECK
+        // Backend remains final authority.
+        // ======================================================
+
         const used =
           Number(
             breakUsage[
@@ -1102,7 +1216,7 @@ export default function DashboardTopBar({
               1
                 ? ""
                 : "s"
-            } per day.`
+            } within the rolling 24 hours.`
           );
 
           setStatusDropdownOpen(
@@ -1231,17 +1345,129 @@ export default function DashboardTopBar({
             false
           );
 
+          // ====================================================
+          // USE BACKEND USAGE IF RETURNED
+          // ====================================================
+
+          const returnedUsage =
+            data?.break_usage ||
+            data?.breakUsage ||
+            data?.usage;
+
+          if (
+            returnedUsage &&
+            typeof returnedUsage ===
+              "object"
+          ) {
+            setBreakUsage({
+              "Short Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    returnedUsage[
+                      "Short Break"
+                    ] ??
+                      returnedUsage.short_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Short Break"
+                ].maxUses
+              ),
+
+              "Lunch Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    returnedUsage[
+                      "Lunch Break"
+                    ] ??
+                      returnedUsage.lunch_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Lunch Break"
+                ].maxUses
+              ),
+
+              "Namaz Break": Math.min(
+                Math.max(
+                  0,
+                  Number(
+                    returnedUsage[
+                      "Namaz Break"
+                    ] ??
+                      returnedUsage.namaz_break ??
+                      0
+                  )
+                ),
+                BREAK_LIMITS[
+                  "Namaz Break"
+                ].maxUses
+              ),
+            });
+          }
+
           return;
         }
 
         // ======================================================
-        // ⭐ NEW BREAK
+        // NON-BREAK STATUS
+        // ======================================================
+
+        if (
+          !BREAK_LIMITS[
+            newStatus
+          ]
+        ) {
+          setStatus(
+            newStatus
+          );
+
+          setTimerOpen(
+            false
+          );
+
+          setTimerStatus(
+            null
+          );
+
+          setStatusStartedAt(
+            data?.status_started_at ||
+              data?.statusStartedAt ||
+              null
+          );
+
+          setTimerSeconds(
+            0
+          );
+
+          setIsNewTimer(
+            false
+          );
+
+          newBreakStartedAtRef.current =
+            null;
+
+          autoEndingBreakRef.current =
+            false;
+
+          setStatusDropdownOpen(
+            false
+          );
+
+          return;
+        }
+
+        // ======================================================
+        // NEW BREAK
         // ======================================================
 
         const clientBreakStartedAt =
           Date.now();
 
-        // THIS WAS MISSING IN YOUR CODE
         newBreakStartedAtRef.current =
           clientBreakStartedAt;
 
@@ -1262,7 +1488,8 @@ export default function DashboardTopBar({
           true
         );
 
-        // Backend value is retained for restoration.
+        // Backend timestamp retained
+        // for restoration.
         setStatusStartedAt(
           data?.status_started_at ||
             data?.statusStartedAt ||
@@ -1270,21 +1497,91 @@ export default function DashboardTopBar({
         );
 
         // ======================================================
-        // COUNT USAGE ONLY AFTER SUCCESS
+        // BACKEND USAGE
         // ======================================================
 
-        setBreakUsage(
-          (previous) => ({
-            ...previous,
+        const returnedUsage =
+          data?.break_usage ||
+          data?.breakUsage ||
+          data?.usage;
 
-            [newStatus]:
-              Number(
-                previous[
-                  newStatus
-                ] || 0
-              ) + 1,
-          })
-        );
+        if (
+          returnedUsage &&
+          typeof returnedUsage ===
+            "object"
+        ) {
+          setBreakUsage({
+            "Short Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Short Break"
+                  ] ??
+                    returnedUsage.short_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Short Break"
+              ].maxUses
+            ),
+
+            "Lunch Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Lunch Break"
+                  ] ??
+                    returnedUsage.lunch_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Lunch Break"
+              ].maxUses
+            ),
+
+            "Namaz Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Namaz Break"
+                  ] ??
+                    returnedUsage.namaz_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Namaz Break"
+              ].maxUses
+            ),
+          });
+        } else {
+          // ====================================================
+          // FALLBACK ONLY
+          // If API doesn't return usage, increment local
+          // successful usage for immediate UI.
+          // ====================================================
+
+          setBreakUsage(
+            (previous) => ({
+              ...previous,
+
+              [newStatus]:
+                Math.min(
+                  Number(
+                    previous[
+                      newStatus
+                    ] || 0
+                  ) + 1,
+                  breakLimit.maxUses
+                ),
+            })
+          );
+        }
 
         autoEndingBreakRef.current =
           false;
@@ -1423,6 +1720,71 @@ export default function DashboardTopBar({
 
         autoEndingBreakRef.current =
           false;
+
+        // ======================================================
+        // REFRESH BACKEND BREAK USAGE
+        // ======================================================
+
+        const returnedUsage =
+          data?.break_usage ||
+          data?.breakUsage ||
+          data?.usage;
+
+        if (
+          returnedUsage &&
+          typeof returnedUsage ===
+            "object"
+        ) {
+          setBreakUsage({
+            "Short Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Short Break"
+                  ] ??
+                    returnedUsage.short_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Short Break"
+              ].maxUses
+            ),
+
+            "Lunch Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Lunch Break"
+                  ] ??
+                    returnedUsage.lunch_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Lunch Break"
+              ].maxUses
+            ),
+
+            "Namaz Break": Math.min(
+              Math.max(
+                0,
+                Number(
+                  returnedUsage[
+                    "Namaz Break"
+                  ] ??
+                    returnedUsage.namaz_break ??
+                    0
+                )
+              ),
+              BREAK_LIMITS[
+                "Namaz Break"
+              ].maxUses
+            ),
+          });
+        }
       } catch (error) {
         console.error(
           "End timer error:",
@@ -2128,6 +2490,25 @@ export default function DashboardTopBar({
       : 0;
 
   // ============================================================
+  // TOTAL BREAK USAGE
+  // ============================================================
+
+  const totalBreakUsage =
+    Object.values(
+      breakUsage
+    ).reduce(
+      (
+        total,
+        value
+      ) =>
+        total +
+        Number(
+          value || 0
+        ),
+      0
+    );
+
+  // ============================================================
   // RENDER
   // ============================================================
 
@@ -2496,6 +2877,12 @@ export default function DashboardTopBar({
                                 limit.maxUses
                           );
 
+                        const timeBlocked =
+                          Boolean(
+                            isBreak &&
+                              isBreakStartBlockedByTime()
+                          );
+
                         return (
                           <button
                             type="button"
@@ -2504,7 +2891,8 @@ export default function DashboardTopBar({
                             }
                             disabled={
                               loading ||
-                              limitReached
+                              limitReached ||
+                              timeBlocked
                             }
                             onClick={() =>
                               handleStatusChange(
@@ -2517,7 +2905,8 @@ export default function DashboardTopBar({
                                 : "hover:bg-gray-50"
                             } ${
                               loading ||
-                              limitReached
+                              limitReached ||
+                              timeBlocked
                                 ? "cursor-not-allowed opacity-50"
                                 : ""
                             }`}
@@ -2555,6 +2944,13 @@ export default function DashboardTopBar({
                                   </span>
                                 )}
 
+                              {isBreak &&
+                                timeBlocked && (
+                                  <span className="block text-[10px] font-medium text-red-500">
+                                    Unavailable 8:00–9:00 AM CA
+                                  </span>
+                                )}
+
                             </div>
 
                             {selected && (
@@ -2579,26 +2975,17 @@ export default function DashboardTopBar({
                       <div className="mb-2 flex items-center justify-between">
 
                         <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                          Daily Breaks
+                          Breaks — Rolling 24h
                         </span>
 
                         <span className="text-[10px] font-semibold text-gray-500">
-                          {Object.values(
-                            breakUsage
-                          ).reduce(
-                            (
-                              total,
-                              value
-                            ) =>
-                              total +
-                              Number(
-                                value ||
-                                  0
-                              ),
-                            0
-                          )}
+                          {
+                            totalBreakUsage
+                          }
                           /
-                          {MAX_BREAKS}
+                          {
+                            MAX_BREAKS
+                          }
                         </span>
 
                       </div>
@@ -2767,7 +3154,7 @@ export default function DashboardTopBar({
                     </p>
 
                     <p className="mt-1 text-xs text-gray-400">
-                      Used today:{" "}
+                      Used in rolling 24h:{" "}
                       {
                         currentBreakUsed
                       }
