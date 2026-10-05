@@ -32,7 +32,6 @@ const CALIFORNIA_TIMEZONE = "America/Los_Angeles";
 
 const MAX_BREAKS = 5;
 
-// Break duration + daily usage limits
 const BREAK_LIMITS = {
   "Short Break": {
     minutes: 10,
@@ -52,6 +51,16 @@ const BREAK_LIMITS = {
 
 const BREAK_STATUSES = Object.keys(BREAK_LIMITS);
 
+const EMPTY_BREAK_USAGE = {
+  "Short Break": 0,
+  "Lunch Break": 0,
+  "Namaz Break": 0,
+};
+
+// ============================================================
+// COMPONENT
+// ============================================================
+
 export default function DashboardTopBar({
   onMenuClick,
   onLogout,
@@ -69,10 +78,7 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [status, setStatus] = useState("Active");
-
-  const [statusStartedAt, setStatusStartedAt] =
-    useState(null);
-
+  const [statusStartedAt, setStatusStartedAt] = useState(null);
   const [statusDropdownOpen, setStatusDropdownOpen] =
     useState(false);
 
@@ -80,29 +86,27 @@ export default function DashboardTopBar({
   // BREAK USAGE
   // ============================================================
 
-  const [breakUsage, setBreakUsage] = useState({
-    "Short Break": 0,
-    "Lunch Break": 0,
-    "Namaz Break": 0,
-  });
+  const [breakUsage, setBreakUsage] =
+    useState(EMPTY_BREAK_USAGE);
 
   // ============================================================
   // TIMER
   // ============================================================
 
   const [timerOpen, setTimerOpen] = useState(false);
-
   const [timerStatus, setTimerStatus] = useState(null);
-
   const [timerSeconds, setTimerSeconds] = useState(0);
 
-  /*
-    true  = new break just started
-    false = existing break restored from backend
-  */
+  // true = newly started break
+  // false = restored from backend
   const [isNewTimer, setIsNewTimer] = useState(false);
 
-  // Prevent multiple automatic end requests
+  // IMPORTANT:
+  // This ref contains the exact browser timestamp
+  // when the NEW break was started.
+  const newBreakStartedAtRef = useRef(null);
+
+  // Prevent duplicate auto-end requests
   const autoEndingBreakRef = useRef(false);
 
   // ============================================================
@@ -110,7 +114,6 @@ export default function DashboardTopBar({
   // ============================================================
 
   const [notifications, setNotifications] = useState([]);
-
   const [notificationOpen, setNotificationOpen] =
     useState(false);
 
@@ -123,8 +126,7 @@ export default function DashboardTopBar({
   const [officeClosingWarning, setOfficeClosingWarning] =
     useState(false);
 
-  const [officeClosed, setOfficeClosed] =
-    useState(false);
+  const [officeClosed, setOfficeClosed] = useState(false);
 
   const officeClosingNotificationSent =
     useRef({});
@@ -307,7 +309,7 @@ export default function DashboardTopBar({
   };
 
   // ============================================================
-  // CALIFORNIA TIME ELAPSED
+  // CALIFORNIA ELAPSED TIME
   // ============================================================
 
   const calculateElapsedTime = (startedAt) => {
@@ -316,12 +318,12 @@ export default function DashboardTopBar({
     }
 
     try {
-      let startDate;
-
       const value = String(startedAt).trim();
 
+      let startDate;
+
       // ========================================================
-      // ISO / timezone-aware date
+      // ISO / timezone-aware
       // ========================================================
 
       if (
@@ -333,8 +335,6 @@ export default function DashboardTopBar({
       } else {
         // ======================================================
         // MYSQL DATETIME
-        // Example:
-        // 2026-09-22 08:30:15
         // ======================================================
 
         const match = value.match(
@@ -354,7 +354,7 @@ export default function DashboardTopBar({
             second,
           ] = match;
 
-          let utcMs = Date.UTC(
+          const utcMs = Date.UTC(
             Number(year),
             Number(month) - 1,
             Number(day),
@@ -364,61 +364,66 @@ export default function DashboardTopBar({
           );
 
           const getOffsetMinutes = (date) => {
-            const formatter =
-              new Intl.DateTimeFormat(
-                "en-US",
-                {
-                  timeZone:
-                    CALIFORNIA_TIMEZONE,
+            try {
+              const formatter =
+                new Intl.DateTimeFormat(
+                  "en-US",
+                  {
+                    timeZone:
+                      CALIFORNIA_TIMEZONE,
 
-                  timeZoneName:
-                    "longOffset",
+                    timeZoneName:
+                      "longOffset",
 
-                  year: "numeric",
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                  hourCycle: "h23",
-                }
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hourCycle: "h23",
+                  }
+                );
+
+              const parts =
+                formatter.formatToParts(date);
+
+              const zonePart =
+                parts.find(
+                  (part) =>
+                    part.type ===
+                    "timeZoneName"
+                );
+
+              const offsetMatch =
+                zonePart?.value?.match(
+                  /GMT([+-])(\d{2}):(\d{2})/
+                );
+
+              if (!offsetMatch) {
+                return 0;
+              }
+
+              const sign =
+                offsetMatch[1] === "-"
+                  ? -1
+                  : 1;
+
+              return (
+                sign *
+                (
+                  Number(
+                    offsetMatch[2]
+                  ) *
+                    60 +
+                  Number(
+                    offsetMatch[3]
+                  )
+                )
               );
-
-            const parts =
-              formatter.formatToParts(date);
-
-            const zonePart =
-              parts.find(
-                (part) =>
-                  part.type ===
-                  "timeZoneName"
-              );
-
-            const offsetMatch =
-              zonePart?.value?.match(
-                /GMT([+-])(\d{2}):(\d{2})/
-              );
-
-            if (!offsetMatch) {
+            } catch {
               return 0;
             }
-
-            const sign =
-              offsetMatch[1] === "-"
-                ? -1
-                : 1;
-
-            const offsetHours =
-              Number(offsetMatch[2]);
-
-            const offsetMinutes =
-              Number(offsetMatch[3]);
-
-            return (
-              sign *
-              (offsetHours * 60 +
-                offsetMinutes)
-            );
           };
 
           const offsetMinutes =
@@ -426,18 +431,24 @@ export default function DashboardTopBar({
               new Date(utcMs)
             );
 
-          utcMs -=
+          const correctedUtcMs =
+            utcMs -
             offsetMinutes *
-            60 *
-            1000;
+              60 *
+              1000;
 
-          startDate = new Date(utcMs);
+          startDate =
+            new Date(
+              correctedUtcMs
+            );
         }
       }
 
       if (
         !startDate ||
-        Number.isNaN(startDate.getTime())
+        Number.isNaN(
+          startDate.getTime()
+        )
       ) {
         return 0;
       }
@@ -448,7 +459,10 @@ export default function DashboardTopBar({
           1000
       );
 
-      return Math.max(0, elapsed);
+      return Math.max(
+        0,
+        elapsed
+      );
     } catch (error) {
       console.error(
         "Timer calculation error:",
@@ -460,14 +474,15 @@ export default function DashboardTopBar({
   };
 
   // ============================================================
-  // GET CALIFORNIA DATE
+  // CALIFORNIA DATE
   // ============================================================
 
   const getCaliforniaDate = () => {
     return new Intl.DateTimeFormat(
       "en-CA",
       {
-        timeZone: CALIFORNIA_TIMEZONE,
+        timeZone:
+          CALIFORNIA_TIMEZONE,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -507,6 +522,8 @@ export default function DashboardTopBar({
           "Current user error:",
           error
         );
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -536,9 +553,7 @@ export default function DashboardTopBar({
 
       if (!stored) {
         setBreakUsage({
-          "Short Break": 0,
-          "Lunch Break": 0,
-          "Namaz Break": 0,
+          ...EMPTY_BREAK_USAGE,
         });
 
         return;
@@ -552,24 +567,27 @@ export default function DashboardTopBar({
           Number(
             parsed?.["Short Break"] || 0
           ),
-          BREAK_LIMITS["Short Break"]
-            .maxUses
+          BREAK_LIMITS[
+            "Short Break"
+          ].maxUses
         ),
 
         "Lunch Break": Math.min(
           Number(
             parsed?.["Lunch Break"] || 0
           ),
-          BREAK_LIMITS["Lunch Break"]
-            .maxUses
+          BREAK_LIMITS[
+            "Lunch Break"
+          ].maxUses
         ),
 
         "Namaz Break": Math.min(
           Number(
             parsed?.["Namaz Break"] || 0
           ),
-          BREAK_LIMITS["Namaz Break"]
-            .maxUses
+          BREAK_LIMITS[
+            "Namaz Break"
+          ].maxUses
         ),
       });
     } catch (error) {
@@ -614,7 +632,7 @@ export default function DashboardTopBar({
   ]);
 
   // ============================================================
-  // RESTORE STATUS
+  // RESTORE STATUS FROM BACKEND
   // ============================================================
 
   useEffect(() => {
@@ -640,7 +658,7 @@ export default function DashboardTopBar({
           data?.status || "Active";
 
         // ======================================================
-        // OPTIONAL BACKEND BREAK USAGE
+        // BACKEND BREAK USAGE
         // ======================================================
 
         const backendUsage =
@@ -713,6 +731,10 @@ export default function DashboardTopBar({
           setStatusStartedAt(null);
           setTimerSeconds(0);
           setIsNewTimer(false);
+          newBreakStartedAtRef.current =
+            null;
+          autoEndingBreakRef.current =
+            false;
 
           return;
         }
@@ -731,6 +753,8 @@ export default function DashboardTopBar({
           setStatusStartedAt(null);
           setTimerSeconds(0);
           setIsNewTimer(false);
+          newBreakStartedAtRef.current =
+            null;
 
           return;
         }
@@ -741,7 +765,13 @@ export default function DashboardTopBar({
 
         const startedAt =
           data?.status_started_at ||
+          data?.statusStartedAt ||
           null;
+
+        const maxSeconds =
+          BREAK_LIMITS[
+            currentStatus
+          ].minutes * 60;
 
         setTimerStatus(
           currentStatus
@@ -751,25 +781,22 @@ export default function DashboardTopBar({
           startedAt
         );
 
+        setIsNewTimer(false);
+
+        newBreakStartedAtRef.current =
+          null;
+
         const elapsed =
           calculateElapsedTime(
             startedAt
           );
 
-        const maxSeconds =
-          BREAK_LIMITS[
-            currentStatus
-          ].minutes * 60;
-
-        // Never display above allowed duration
         setTimerSeconds(
           Math.min(
-            elapsed,
+            Math.max(0, elapsed),
             maxSeconds
           )
         );
-
-        setIsNewTimer(false);
 
         setTimerOpen(true);
       } catch (error) {
@@ -777,8 +804,6 @@ export default function DashboardTopBar({
           "Restore status error:",
           error
         );
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -786,7 +811,16 @@ export default function DashboardTopBar({
   }, []);
 
   // ============================================================
-  // TIMER EFFECT
+  // ⭐ MAIN TIMER EFFECT
+  // ============================================================
+  //
+  // THIS IS THE IMPORTANT FIX.
+  //
+  // No nested useEffect.
+  // New break uses Date.now().
+  // Existing break uses backend started_at.
+  // Timer can NEVER display above maxSeconds.
+  //
   // ============================================================
 
   useEffect(() => {
@@ -802,7 +836,6 @@ export default function DashboardTopBar({
         timerStatus
       ];
 
-    // Non-break status
     if (!breakLimit) {
       return;
     }
@@ -810,66 +843,73 @@ export default function DashboardTopBar({
     const maxSeconds =
       breakLimit.minutes * 60;
 
-    // ========================================================
-    // NEW BREAK
-    // ========================================================
+    const updateTimer = () => {
+      let elapsed = 0;
 
-    if (isNewTimer) {
-      const interval =
-        setInterval(() => {
-          setTimerSeconds(
-            (previous) => {
-              const next =
-                previous + 1;
+      // ========================================================
+      // NEW BREAK
+      // ========================================================
 
-              return Math.min(
-                next,
-                maxSeconds
-              );
-            }
-          );
-        }, 1000);
-
-      return () => {
-        clearInterval(
-          interval
+      if (
+        isNewTimer &&
+        newBreakStartedAtRef.current
+      ) {
+        elapsed = Math.floor(
+          (
+            Date.now() -
+            newBreakStartedAtRef.current
+          ) / 1000
         );
-      };
-    }
+      }
 
-    // ========================================================
-    // EXISTING BREAK
-    // ========================================================
+      // ========================================================
+      // RESTORED BREAK
+      // ========================================================
 
-    if (statusStartedAt) {
-      const updateTimer = () => {
-        const elapsed =
+      else if (
+        !isNewTimer &&
+        statusStartedAt
+      ) {
+        elapsed =
           calculateElapsedTime(
             statusStartedAt
           );
+      }
 
-        setTimerSeconds(
-          Math.min(
-            elapsed,
-            maxSeconds
-          )
-        );
-      };
+      // ========================================================
+      // HARD SAFETY
+      // ========================================================
 
-      updateTimer();
-
-      const interval =
-        setInterval(
-          updateTimer,
-          1000
+      const safeElapsed =
+        Math.min(
+          Math.max(
+            0,
+            elapsed
+          ),
+          maxSeconds
         );
 
-      return () => {
-        clearInterval(
-          interval
-        );
-      };
-    }
+      setTimerSeconds(
+        safeElapsed
+      );
+    };
+
+    // IMPORTANT:
+    // Immediately calculate instead of waiting 1 second.
+    updateTimer();
+
+    // 250ms keeps UI smooth.
+    // Display itself changes only when full seconds change.
+    const interval =
+      setInterval(
+        updateTimer,
+        250
+      );
+
+    return () =>
+      clearInterval(
+        interval
+      );
   }, [
     timerOpen,
     timerStatus,
@@ -878,7 +918,7 @@ export default function DashboardTopBar({
   ]);
 
   // ============================================================
-  // AUTO END BREAK
+  // ⭐ AUTO END BREAK
   // ============================================================
 
   useEffect(() => {
@@ -925,21 +965,31 @@ export default function DashboardTopBar({
               "/api/users/status",
               {
                 method: "PUT",
+
                 headers: {
                   "Content-Type":
                     "application/json",
                 },
+
                 credentials:
                   "include",
-                body: JSON.stringify({
-                  status:
-                    "Active",
-                }),
+
+                body:
+                  JSON.stringify({
+                    status:
+                      "Active",
+                  }),
               }
             );
 
-          const data =
-            await response.json();
+          let data = {};
+
+          try {
+            data =
+              await response.json();
+          } catch {
+            data = {};
+          }
 
           if (!response.ok) {
             console.error(
@@ -952,6 +1002,10 @@ export default function DashboardTopBar({
 
             return;
           }
+
+          // ====================================================
+          // RESET EVERYTHING
+          // ====================================================
 
           setStatus(
             "Active"
@@ -976,6 +1030,12 @@ export default function DashboardTopBar({
           setIsNewTimer(
             false
           );
+
+          newBreakStartedAtRef.current =
+            null;
+
+          autoEndingBreakRef.current =
+            false;
         } catch (error) {
           console.error(
             "Auto end break error:",
@@ -1016,7 +1076,7 @@ export default function DashboardTopBar({
       }
 
       // ========================================================
-      // CHECK FRONTEND BREAK LIMIT
+      // BREAK LIMIT CHECK
       // ========================================================
 
       const breakLimit =
@@ -1071,11 +1131,16 @@ export default function DashboardTopBar({
       try {
         setLoading(true);
 
+        // ======================================================
+        // API
+        // ======================================================
+
         const response =
           await fetch(
             "/api/users/status",
             {
               method: "PUT",
+
               headers: {
                 "Content-Type":
                   "application/json",
@@ -1084,10 +1149,11 @@ export default function DashboardTopBar({
               credentials:
                 "include",
 
-              body: JSON.stringify({
-                status:
-                  newStatus,
-              }),
+              body:
+                JSON.stringify({
+                  status:
+                    newStatus,
+                }),
             }
           );
 
@@ -1101,7 +1167,7 @@ export default function DashboardTopBar({
         }
 
         // ======================================================
-        // API ERROR
+        // ERROR
         // ======================================================
 
         if (!response.ok) {
@@ -1155,6 +1221,9 @@ export default function DashboardTopBar({
             false
           );
 
+          newBreakStartedAtRef.current =
+            null;
+
           autoEndingBreakRef.current =
             false;
 
@@ -1166,8 +1235,15 @@ export default function DashboardTopBar({
         }
 
         // ======================================================
-        // NEW BREAK
+        // ⭐ NEW BREAK
         // ======================================================
+
+        const clientBreakStartedAt =
+          Date.now();
+
+        // THIS WAS MISSING IN YOUR CODE
+        newBreakStartedAtRef.current =
+          clientBreakStartedAt;
 
         setStatus(
           newStatus
@@ -1177,8 +1253,7 @@ export default function DashboardTopBar({
           newStatus
         );
 
-        // IMPORTANT:
-        // New break ALWAYS starts at 00:00
+        // ALWAYS START FROM ZERO
         setTimerSeconds(
           0
         );
@@ -1187,12 +1262,17 @@ export default function DashboardTopBar({
           true
         );
 
+        // Backend value is retained for restoration.
         setStatusStartedAt(
           data?.status_started_at ||
+            data?.statusStartedAt ||
             null
         );
 
-        // Count usage only after API succeeds
+        // ======================================================
+        // COUNT USAGE ONLY AFTER SUCCESS
+        // ======================================================
+
         setBreakUsage(
           (previous) => ({
             ...previous,
@@ -1222,6 +1302,10 @@ export default function DashboardTopBar({
           error
         );
 
+        // ======================================================
+        // RESTORE PREVIOUS STATE
+        // ======================================================
+
         setStatus(
           previousStatus
         );
@@ -1241,6 +1325,13 @@ export default function DashboardTopBar({
         setIsNewTimer(
           previousIsNewTimer
         );
+
+        if (
+          !previousIsNewTimer
+        ) {
+          newBreakStartedAtRef.current =
+            null;
+        }
 
         alert(
           "Something went wrong while changing status."
@@ -1268,6 +1359,7 @@ export default function DashboardTopBar({
             "/api/users/status",
             {
               method: "PUT",
+
               headers: {
                 "Content-Type":
                   "application/json",
@@ -1276,10 +1368,11 @@ export default function DashboardTopBar({
               credentials:
                 "include",
 
-              body: JSON.stringify({
-                status:
-                  "Active",
-              }),
+              body:
+                JSON.stringify({
+                  status:
+                    "Active",
+                }),
             }
           );
 
@@ -1324,6 +1417,9 @@ export default function DashboardTopBar({
         setIsNewTimer(
           false
         );
+
+        newBreakStartedAtRef.current =
+          null;
 
         autoEndingBreakRef.current =
           false;
@@ -1465,8 +1561,7 @@ export default function DashboardTopBar({
           await fetch(
             "/api/notifications",
             {
-              method:
-                "PATCH",
+              method: "PATCH",
 
               credentials:
                 "include",
@@ -1476,9 +1571,11 @@ export default function DashboardTopBar({
                   "application/json",
               },
 
-              body: JSON.stringify({
-                id: notificationId,
-              }),
+              body:
+                JSON.stringify({
+                  id:
+                    notificationId,
+                }),
             }
           );
 
@@ -1534,8 +1631,7 @@ export default function DashboardTopBar({
           await fetch(
             "/api/notifications",
             {
-              method:
-                "PATCH",
+              method: "PATCH",
 
               credentials:
                 "include",
@@ -1545,9 +1641,10 @@ export default function DashboardTopBar({
                   "application/json",
               },
 
-              body: JSON.stringify({
-                all: true,
-              }),
+              body:
+                JSON.stringify({
+                  all: true,
+                }),
             }
           );
 
@@ -1595,8 +1692,7 @@ export default function DashboardTopBar({
           await fetch(
             "/api/notifications?unread=true&limit=100",
             {
-              method:
-                "GET",
+              method: "GET",
 
               credentials:
                 "include",
@@ -1704,7 +1800,7 @@ export default function DashboardTopBar({
   }, []);
 
   // ============================================================
-  // OFFICE CLOSING NOTIFICATION
+  // OFFICE CLOSING
   // ============================================================
 
   useEffect(() => {
@@ -1766,17 +1862,13 @@ export default function DashboardTopBar({
 
           const minute =
             Number(
-              getPart(
-                "minute"
-              )
+              getPart("minute")
             );
 
-          // Saturday / Sunday OFF
+          // Weekend OFF
           if (
-            weekday ===
-              "Sat" ||
-            weekday ===
-              "Sun"
+            weekday === "Sat" ||
+            weekday === "Sun"
           ) {
             setOfficeClosingWarning(
               false
@@ -1821,7 +1913,8 @@ export default function DashboardTopBar({
               `office-closing-${currentUser.id}-${californiaDate}`;
 
             if (
-              officeClosingNotificationSent.current[
+              officeClosingNotificationSent
+                .current[
                 notificationKey
               ]
             ) {
@@ -1851,7 +1944,8 @@ export default function DashboardTopBar({
                 notificationKey
               ]
             ) {
-              officeClosingNotificationSent.current[
+              officeClosingNotificationSent
+                .current[
                 notificationKey
               ] = true;
 
@@ -1862,29 +1956,29 @@ export default function DashboardTopBar({
               await fetch(
                 "/api/notifications",
                 {
-                  method:
-                    "POST",
+                  method: "POST",
 
                   headers: {
                     "Content-Type":
                       "application/json",
                   },
 
-                  body: JSON.stringify({
-                    user_id:
-                      Number(
-                        currentUser.id
-                      ),
+                  body:
+                    JSON.stringify({
+                      user_id:
+                        Number(
+                          currentUser.id
+                        ),
 
-                    title:
-                      "Office Closing Soon",
+                      title:
+                        "Office Closing Soon",
 
-                    message:
-                      "Office closing time is in 5 minutes. Please complete and save your pending work.",
+                      message:
+                        "Office closing time is in 5 minutes. Please complete and save your pending work.",
 
-                    type:
-                      "general",
-                  }),
+                      type:
+                        "general",
+                    }),
                 }
               );
 
@@ -1895,7 +1989,8 @@ export default function DashboardTopBar({
               response.ok &&
               data?.success
             ) {
-              officeClosingNotificationSent.current[
+              officeClosingNotificationSent
+                .current[
                 notificationKey
               ] = true;
 
@@ -1979,7 +2074,7 @@ export default function DashboardTopBar({
     null;
 
   // ============================================================
-  // USER NAME
+  // USER
   // ============================================================
 
   const userId =
@@ -1997,7 +2092,7 @@ export default function DashboardTopBar({
     "Agent";
 
   // ============================================================
-  // STATUS INFO
+  // CURRENT STATUS INFO
   // ============================================================
 
   const currentStatusInfo =
@@ -2052,9 +2147,7 @@ export default function DashboardTopBar({
             {onMenuClick && (
               <button
                 type="button"
-                onClick={
-                  onMenuClick
-                }
+                onClick={onMenuClick}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 lg:hidden"
               >
                 <Menu size={20} />
@@ -2076,9 +2169,7 @@ export default function DashboardTopBar({
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
 
-            {/* ==================================================
-                LOGIN DATE/TIME
-            ================================================== */}
+            {/* LOGIN DATE/TIME */}
 
             <div className="hidden items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 lg:flex">
 
@@ -2089,33 +2180,23 @@ export default function DashboardTopBar({
 
               <div className="leading-tight">
                 <div className="text-xs font-semibold text-gray-700">
-                  {
-                    loginDetails.day
-                  }
+                  {loginDetails.day}
                 </div>
 
                 <div className="text-[11px] text-gray-500">
-                  {
-                    loginDetails.date
-                  }
+                  {loginDetails.date}
                 </div>
               </div>
 
               <div className="border-l border-gray-300 pl-3 text-xs font-semibold text-gray-700">
-                {
-                  loginDetails.time
-                }
+                {loginDetails.time}
               </div>
             </div>
 
-            {/* ==================================================
-                NOTIFICATIONS
-            ================================================== */}
+            {/* NOTIFICATIONS */}
 
             <div
-              ref={
-                notificationRef
-              }
+              ref={notificationRef}
               className="relative"
             >
               <button
@@ -2130,11 +2211,9 @@ export default function DashboardTopBar({
               >
                 <Bell size={19} />
 
-                {unreadCount >
-                  0 && (
+                {unreadCount > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ec3737] px-1 text-[10px] font-bold text-white">
-                    {unreadCount >
-                    99
+                    {unreadCount > 99
                       ? "99+"
                       : unreadCount}
                   </span>
@@ -2144,8 +2223,6 @@ export default function DashboardTopBar({
               {notificationOpen && (
                 <div className="absolute right-0 top-12 z-50 w-[350px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
 
-                  {/* HEADER */}
-
                   <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
 
                     <div>
@@ -2154,15 +2231,11 @@ export default function DashboardTopBar({
                       </h3>
 
                       <p className="text-xs text-gray-500">
-                        {
-                          unreadCount
-                        }{" "}
-                        unread
+                        {unreadCount} unread
                       </p>
                     </div>
 
-                    {unreadCount >
-                      0 && (
+                    {unreadCount > 0 && (
                       <button
                         type="button"
                         onClick={
@@ -2174,8 +2247,6 @@ export default function DashboardTopBar({
                       </button>
                     )}
                   </div>
-
-                  {/* LIST */}
 
                   <div className="max-h-[380px] overflow-y-auto">
                     {notifications.length ===
@@ -2192,15 +2263,12 @@ export default function DashboardTopBar({
                       </div>
                     ) : (
                       notifications.map(
-                        (
-                          notification
-                        ) => {
+                        (notification) => {
                           const isUnread =
                             Number(
                               notification?.is_read ||
                                 0
-                            ) ===
-                            0;
+                            ) === 0;
 
                           return (
                             <button
@@ -2223,15 +2291,11 @@ export default function DashboardTopBar({
                                   : "bg-white"
                               }`}
                             >
-                              {/* ICON */}
-
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
                                 {getNotificationIcon(
                                   notification
                                 )}
                               </div>
-
-                              {/* CONTENT */}
 
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold text-gray-800">
@@ -2252,8 +2316,6 @@ export default function DashboardTopBar({
                                 </p>
                               </div>
 
-                              {/* UNREAD DOT */}
-
                               {isUnread && (
                                 <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#ec3737]" />
                               )}
@@ -2267,9 +2329,7 @@ export default function DashboardTopBar({
               )}
             </div>
 
-            {/* ==================================================
-                PROFILE / STATUS
-            ================================================== */}
+            {/* PROFILE / STATUS */}
 
             <div className="relative">
 
@@ -2284,19 +2344,13 @@ export default function DashboardTopBar({
                 className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-1.5 transition hover:bg-gray-50 sm:px-3"
               >
 
-                {/* AVATAR */}
-
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100">
 
                   {profileImage &&
                   !imageError ? (
                     <img
-                      src={
-                        profileImage
-                      }
-                      alt={
-                        userName
-                      }
+                      src={profileImage}
+                      alt={userName}
                       className="h-full w-full object-cover"
                       onError={() =>
                         setImageError(
@@ -2313,28 +2367,18 @@ export default function DashboardTopBar({
 
                 </div>
 
-                {/* USER INFO */}
-
                 <div className="hidden min-w-0 text-left sm:block">
 
                   <div className="max-w-[120px] truncate text-xs font-bold text-gray-800">
-                    {
-                      userName
-                    }
+                    {userName}
                   </div>
 
                   <div className="text-[10px] capitalize text-gray-500">
-                    {
-                      userRole
-                    }
+                    {userRole}
                   </div>
 
                   <div className="text-[9px] text-gray-400">
-                    ID:{" "}
-                    {
-                      userId ||
-                      "—"
-                    }
+                    ID: {userId || "—"}
                   </div>
 
                 </div>
@@ -2350,14 +2394,10 @@ export default function DashboardTopBar({
 
               </button>
 
-              {/* =================================================
-                  STATUS DROPDOWN
-              ================================================= */}
+              {/* STATUS DROPDOWN */}
 
               {statusDropdownOpen && (
                 <div className="absolute right-0 top-12 z-50 w-[290px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-
-                  {/* USER HEADER */}
 
                   <div className="border-b border-gray-100 px-4 py-3">
 
@@ -2393,15 +2433,11 @@ export default function DashboardTopBar({
                       <div className="min-w-0">
 
                         <p className="truncate text-sm font-bold text-gray-900">
-                          {
-                            userName
-                          }
+                          {userName}
                         </p>
 
                         <p className="text-xs capitalize text-gray-500">
-                          {
-                            userRole
-                          }
+                          {userRole}
                         </p>
 
                       </div>
@@ -2410,8 +2446,6 @@ export default function DashboardTopBar({
 
                   </div>
 
-                  {/* STATUS TITLE */}
-
                   <div className="px-4 pb-2 pt-3">
 
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
@@ -2419,8 +2453,6 @@ export default function DashboardTopBar({
                     </p>
 
                   </div>
-
-                  {/* STATUS OPTIONS */}
 
                   <div className="max-h-[350px] overflow-y-auto px-2 pb-2">
 
@@ -2504,9 +2536,7 @@ export default function DashboardTopBar({
                             <div className="min-w-0 flex-1">
 
                               <span className="block text-sm font-medium text-gray-700">
-                                {
-                                  item.label
-                                }
+                                {item.label}
                               </span>
 
                               {isBreak &&
@@ -2516,9 +2546,7 @@ export default function DashboardTopBar({
                                       limit.minutes
                                     }{" "}
                                     min •{" "}
-                                    {
-                                      usage
-                                    }
+                                    {usage}
                                     /
                                     {
                                       limit.maxUses
@@ -2545,8 +2573,6 @@ export default function DashboardTopBar({
 
                   </div>
 
-                  {/* BREAK SUMMARY */}
-
                   {!isAdmin && (
                     <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
 
@@ -2572,9 +2598,7 @@ export default function DashboardTopBar({
                             0
                           )}
                           /
-                          {
-                            MAX_BREAKS
-                          }
+                          {MAX_BREAKS}
                         </span>
 
                       </div>
@@ -2631,8 +2655,6 @@ export default function DashboardTopBar({
                     </div>
                   )}
 
-                  {/* LOGOUT */}
-
                   {onLogout && (
                     <div className="border-t border-gray-100 p-2">
 
@@ -2649,11 +2671,13 @@ export default function DashboardTopBar({
                       >
 
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+
                           <LogOut
                             size={
                               16
                             }
                           />
+
                         </div>
 
                         <span className="text-sm font-semibold">
@@ -2697,9 +2721,7 @@ export default function DashboardTopBar({
                   </p>
 
                   <h2 className="mt-1 text-xl font-bold text-gray-900">
-                    {
-                      timerStatus
-                    }
+                    {timerStatus}
                   </h2>
 
                 </div>
@@ -2729,14 +2751,10 @@ export default function DashboardTopBar({
                 </p>
 
                 <div className="mt-3 font-mono text-5xl font-bold tracking-wider text-gray-900 sm:text-6xl">
-                  {
-                    formatTimer(
-                      timerSeconds
-                    )
-                  }
+                  {formatTimer(
+                    timerSeconds
+                  )}
                 </div>
-
-                {/* BREAK LIMIT */}
 
                 {currentBreakLimit && (
                   <>
@@ -2782,9 +2800,7 @@ export default function DashboardTopBar({
 
                 <button
                   type="button"
-                  disabled={
-                    loading
-                  }
+                  disabled={loading}
                   onClick={
                     endStatusTimer
                   }
@@ -2814,4 +2830,3 @@ export default function DashboardTopBar({
     </>
   );
 }
-

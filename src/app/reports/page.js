@@ -1,97 +1,95 @@
 "use client";
 
-import React, {
+import {
+  Plus,
+  X,
+  Save,
+  Pencil,
+  RefreshCw,
+  Search,
+  Download,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  UserRound,
+  Building2,
+  Phone,
+  MessageSquare,
+  FileSpreadsheet,
+  Hash,
+  Check,
+  AlertCircle,
+} from "lucide-react";
+
+import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
-import {
-  Search,
-  RefreshCw,
-  Download,
-  CalendarDays,
-  Users,
-  Layers3,
-  CheckCircle2,
-  Phone,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  BarChart3,
-  Activity,
-  MessageSquare,
-  FileText,
-  TrendingUp,
-  CircleDot,
-  SlidersHorizontal,
-  Pencil,
-  Save,
-  UserRound,
-  Loader2,
-  RotateCcw,
-} from "lucide-react";
-
 import Sidebar from "@/components/Sidebar";
-import LogoutModal from "@/components/LogoutModal";
+import LogoutModal from "../../components/LogoutModal";
 import { useRouter } from "next/navigation";
-import toast from "react-hot-toast";
-import Loader from "@/components/Loader";
 
 const ACCENT = "#ec3737";
 const PAGE_SIZE = 50;
 
-const API_URLS = {
-  history: "/api/admin/history",
-  staff: "/api/staffes/list",
-};
+const DEFAULT_STATUS = "Pending";
 
-/* ============================================================
-   HELPERS
-============================================================ */
+const STATUS_OPTIONS = [
+  "Pending",
+  "In Progress",
+  "Completed",
+  "Not Interested",
+  "DNC",
+  "Follow UP",
+  "Call Back",
+  "No Business",
+  "Wrong Num",
+  "Busy",
+  "Voice Mail",
+  "Straight To VM",
+  "No Answer/VM",
+  "Hang Up",
+  "Unable To Complete",
+  "Not In Service",
+  "Lang Barrier",
+  "Transfer M/R",
+  "Retired",
+];
 
 function safeString(value) {
   if (value === null || value === undefined) return "";
-  return String(value).trim();
+  return String(value);
 }
 
 function normalizeDate(value) {
   if (!value) return "";
 
-  try {
-    const str = String(value).trim();
+  const str = String(value);
 
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-      return str;
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
-      return str.substring(0, 10);
-    }
-
-    const date = new Date(str);
-
-    if (isNaN(date.getTime())) {
-      return "";
-    }
-
-    return [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    ].join("-");
-  } catch {
-    return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
   }
+
+  const d = new Date(value);
+
+  if (Number.isNaN(d.getTime())) return "";
+
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function formatDate(value) {
-  if (!value) return "—";
-
   const normalized = normalizeDate(value);
 
-  if (!normalized) return String(value);
+  if (!normalized) return "—";
 
   const [year, month, day] = normalized.split("-");
 
@@ -99,208 +97,169 @@ function formatDate(value) {
 }
 
 function formatPhone(value) {
-  const phone = safeString(value);
-  return phone || "—";
+  const phone = safeString(value).trim();
+
+  if (!phone) return "—";
+
+  return phone;
 }
 
-function getStatus(record) {
+function getStatus(row) {
   return (
-    safeString(record?.selected_status) ||
-    safeString(record?.selectedStatus) ||
-    safeString(record?.assignment_status) ||
-    safeString(record?.status) ||
-    safeString(record?.task_status) ||
-    safeString(record?.call_status) ||
-    safeString(record?.disposition) ||
-    safeString(record?.result) ||
+    row?.status ??
+    row?.assignment_status ??
+    row?.current_status ??
     "Pending"
   );
 }
 
-function getDate(record) {
+function getDate(row) {
   return (
-    safeString(record?.assignment_date) ||
-    safeString(record?.assignmentDate) ||
-    safeString(record?.assigned_date) ||
-    safeString(record?.assignedDate) ||
-    safeString(record?.task_date) ||
-    safeString(record?.taskDate) ||
-    safeString(record?.date) ||
-    safeString(record?.created_at) ||
-    safeString(record?.createdAt) ||
-    safeString(record?.updated_at) ||
-    safeString(record?.updatedAt) ||
+    row?.assignment_date ??
+    row?.assigned_date ??
+    row?.date ??
     ""
   );
 }
 
-function getPhone(record) {
+function getPhone(row) {
   return (
-    record?.phoneNumber ||
-    record?.phone_number ||
-    record?.phone ||
+    row?.phone_number ??
+    row?.phone ??
+    row?.contact_phone ??
     ""
   );
 }
 
-function getBusiness(record) {
+function getBusiness(row) {
   return (
-    safeString(record?.businessName) ||
-    safeString(record?.business_name) ||
+    row?.business_name ??
+    row?.business ??
+    ""
+  );
+}
+
+function getName(row) {
+  return (
+    row?.name ??
+    row?.contact_name ??
+    row?.customer_name ??
+    ""
+  );
+}
+
+function getComment(row) {
+  return (
+    row?.comment ??
+    row?.comments ??
+    ""
+  );
+}
+
+function getSheet(row) {
+  return (
+    row?.sheet_name ??
+    row?.sheet ??
+    row?.upload_name ??
+    ""
+  );
+}
+
+function getUserName(row) {
+  return (
+    row?.employee_name ??
+    row?.user_name ??
+    row?.staff_name ??
+    row?.employee ??
     "—"
   );
 }
 
-function getName(record) {
+function getEmployeeId(row) {
   return (
-    safeString(record?.name) ||
-    safeString(record?.contactName) ||
-    safeString(record?.contact_name) ||
-    "Unknown"
-  );
-}
-
-function getComment(record) {
-  return (
-    safeString(record?.comment) ||
-    safeString(record?.comments) ||
-    safeString(record?.notes) ||
-    safeString(record?.remark) ||
-    safeString(record?.remarks) ||
+    row?.employee_id ??
+    row?.staff_id ??
+    row?.user_id ??
     ""
   );
 }
 
-function getSheet(record) {
+function getTaskId(row) {
   return (
-    safeString(record?.sourceSheet) ||
-    safeString(record?.source_sheet) ||
-    safeString(record?.sheetName) ||
-    safeString(record?.sheet_name) ||
-    "—"
-  );
-}
-
-function getUserName(record) {
-  return (
-    safeString(record?.employee_name) ||
-    safeString(record?.employeeName) ||
-    safeString(record?.user_name) ||
-    safeString(record?.userName) ||
-    safeString(record?.staff_name) ||
-    safeString(record?.staffName) ||
-    safeString(record?.assigned_to) ||
-    "—"
-  );
-}
-
-function getEmployeeId(record) {
-  return (
-    record?.employee_id ??
-    record?.employeeId ??
-    record?.assigned_employee_id ??
-    record?.assignedEmployeeId ??
-    record?.staffId ??
-    record?.staff_id ??
-    record?.userId ??
-    record?.user_id ??
+    row?.task_id ??
+    row?.master_task_id ??
+    row?.id ??
     ""
   );
 }
 
-function getTaskId(record) {
+function getAssignmentId(row) {
   return (
-    record?.taskId ??
-    record?.task_id ??
-    record?.master_task_id ??
-    record?.masterTaskId ??
-    record?.assignment_task_id ??
-    "—"
-  );
-}
-
-function getAssignmentId(record) {
-  return (
-    record?.assignment_id ??
-    record?.assignmentId ??
-    record?.daily_assignment_id ??
-    record?.dailyAssignmentId ??
-    record?.id ??
+    row?.assignment_id ??
+    row?.daily_assignment_id ??
+    row?.id ??
     ""
   );
 }
 
-function getInitials(value) {
+function getInitials(name) {
+  const value = safeString(name).trim();
+
+  if (!value) return "—";
+
+  const parts = value.split(/\s+/).filter(Boolean);
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
   return (
-    safeString(value)
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join("") || "U"
-  );
+    parts[0][0] +
+    parts[parts.length - 1][0]
+  ).toUpperCase();
 }
 
 function statusClasses(status) {
   const value = safeString(status).toLowerCase();
 
-  if (value.includes("callback")) {
-    return "bg-amber-50 text-amber-700 border-amber-200";
-  }
-
-  if (value.includes("follow")) {
-    return "bg-sky-50 text-sky-700 border-sky-200";
-  }
-
   if (
-    value.includes("no answer") ||
-    value.includes("busy")
+    value.includes("completed") ||
+    value === "complete" ||
+    value === "done"
   ) {
-    return "bg-orange-50 text-orange-700 border-orange-200";
+    return "bg-green-50 text-green-700 border-green-200";
   }
 
   if (
-    value.includes("voicemail") ||
-    value.includes("straight")
-  ) {
-    return "bg-violet-50 text-violet-700 border-violet-200";
-  }
-
-  if (
-    value.includes("complete") ||
-    value.includes("success") ||
-    value.includes("interested")
-  ) {
-    return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  }
-
-  if (
-    value.includes("not interested") ||
-    value.includes("wrong")
-  ) {
-    return "bg-rose-50 text-rose-700 border-rose-200";
-  }
-
-  if (
-    value.includes("pending") ||
-    value.includes("progress")
+    value.includes("progress") ||
+    value === "in progress"
   ) {
     return "bg-blue-50 text-blue-700 border-blue-200";
   }
 
-  return "bg-slate-50 text-slate-600 border-slate-200";
+  if (
+    value.includes("pending")
+  ) {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+
+  if (
+    value.includes("dnc") ||
+    value.includes("not interested")
+  ) {
+    return "bg-red-50 text-red-700 border-red-200";
+  }
+
+  return "bg-gray-50 text-gray-700 border-gray-200";
 }
 
-function downloadCSV(records) {
-  if (!records?.length) {
-    toast.error("No records available to export.");
-    return;
-  }
+function downloadCSV(rows) {
+  if (!rows?.length) return;
 
   const headers = [
     "#",
     "Date",
-    "User",
+    "Employee",
     "Business",
     "Contact",
     "Phone",
@@ -310,40 +269,44 @@ function downloadCSV(records) {
     "Task ID",
   ];
 
-  const rows = records.map((record, index) => [
-    index + 1,
-    getDate(record),
-    getUserName(record),
-    getBusiness(record),
-    getName(record),
-    getPhone(record),
-    getStatus(record),
-    getComment(record),
-    getSheet(record),
-    getTaskId(record),
-  ]);
-
   const escapeCSV = (value) => {
-    const text = safeString(value);
-    return `"${text.replaceAll('"', '""')}"`;
+    const str = safeString(value);
+    return `"${str.replaceAll('"', '""')}"`;
   };
 
-  const csv = [
-    headers.map(escapeCSV).join(","),
-    ...rows.map((row) =>
-      row.map(escapeCSV).join(",")
-    ),
-  ].join("\n");
+  const data = rows.map((row, index) => [
+    index + 1,
+    formatDate(getDate(row)),
+    getUserName(row),
+    getBusiness(row),
+    getName(row),
+    getPhone(row),
+    getStatus(row),
+    getComment(row),
+    getSheet(row),
+    getTaskId(row),
+  ]);
 
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;",
-  });
+  const csv = [
+    headers,
+    ...data,
+  ]
+    .map((row) => row.map(escapeCSV).join(","))
+    .join("\n");
+
+  const blob = new Blob(
+    [csv],
+    {
+      type: "text/csv;charset=utf-8;",
+    }
+  );
 
   const url = URL.createObjectURL(blob);
 
   const link = document.createElement("a");
+
   link.href = url;
-  link.download = `admin-report-${new Date()
+  link.download = `admin-history-${new Date()
     .toISOString()
     .slice(0, 10)}.csv`;
 
@@ -352,2645 +315,2083 @@ function downloadCSV(records) {
   link.remove();
 
   URL.revokeObjectURL(url);
-
-  toast.success("Report exported successfully.");
 }
 
-/* ============================================================
-   PAGE
-============================================================ */
-
-export default function AdminReportsPage() {
+export default function AdminHistoryPage() {
   const router = useRouter();
 
   const [records, setRecords] = useState([]);
   const [staff, setStaff] = useState([]);
 
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
   const [error, setError] = useState("");
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [userFilter, setUserFilter] = useState("all");
-  const [sheetFilter, setSheetFilter] = useState("all");
-
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [employeeFilter, setEmployeeFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const [showFilters, setShowFilters] = useState(true);
-  const [showLogout, setShowLogout] = useState(false);
-
-  /* ============================================================
-     EDIT STATE
-  ============================================================ */
+  const [page, setPage] = useState(1);
 
   const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
-  const [editForm, setEditForm] = useState({
-    assignment_id: "",
-    assignment_date: "",
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [savingNew, setSavingNew] = useState(false);
+
+  const [newRow, setNewRow] = useState({
+    assignment_date: normalizeDate(new Date()),
     employee_id: "",
     business_name: "",
     name: "",
-    phone: "",
-    status: "",
+    phone_number: "",
+    status: DEFAULT_STATUS,
     comment: "",
   });
 
-  const [savingId, setSavingId] = useState(null);
+  const [addError, setAddError] = useState("");
+  const [addSuccess, setAddSuccess] = useState("");
 
-  /* ============================================================
-     LOAD STAFF
-  ============================================================ */
+  const addFormRef = useRef(null);
 
-  const loadStaff = useCallback(async () => {
+  // =========================================================
+  // CURRENT USER
+  // =========================================================
+
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/me", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        router.push("/login");
+        return null;
+      }
+
+      const data = await response.json();
+
+      const user =
+        data?.user ??
+        data?.data ??
+        data;
+
+      if (!user) {
+        router.push("/login");
+        return null;
+      }
+
+      setCurrentUser(user);
+
+      const admin =
+        String(user.role || "").toLowerCase() === "admin";
+
+      setIsAdmin(admin);
+
+      return user;
+    } catch (err) {
+      console.error(err);
+      router.push("/login");
+      return null;
+    }
+  }, [router]);
+
+  // =========================================================
+  // STAFF
+  // =========================================================
+
+  const fetchStaff = useCallback(async () => {
     try {
       const response = await fetch(
-        `${API_URLS.staff}?_=${Date.now()}`,
+        "/api/staffes/list",
         {
           credentials: "include",
           cache: "no-store",
         }
       );
 
-      if (!response.ok) return;
+      if (!response.ok) {
+        return;
+      }
 
       const data = await response.json();
 
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.users)
-        ? data.users
-        : Array.isArray(data?.staff)
-        ? data.staff
-        : Array.isArray(data?.data)
-        ? data.data
-        : [];
+      const list =
+        Array.isArray(data)
+          ? data
+          : data?.users ??
+            data?.staff ??
+            data?.data ??
+            [];
 
-      setStaff(list);
+      setStaff(Array.isArray(list) ? list : []);
     } catch (err) {
-      console.error("Staff load error:", err);
+      console.error("Staff fetch error:", err);
     }
   }, []);
 
-  /* ============================================================
-     LOAD REPORT
-  ============================================================ */
+  // =========================================================
+  // HISTORY
+  // =========================================================
 
   const fetchReport = useCallback(
-    async (showRefresh = false, isLive = false) => {
+    async (showLoader = false) => {
       try {
-        if (showRefresh && !isLive) {
-          setRefreshing(true);
-        } else if (!isLive) {
+        if (showLoader) {
           setLoading(true);
+        } else {
+          setRefreshing(true);
         }
 
         setError("");
 
         const params = new URLSearchParams();
 
-        if (
-          fromDate &&
-          toDate &&
-          fromDate === toDate
-        ) {
-          params.set("date", fromDate);
-        } else {
-          if (fromDate) {
-            params.set("from", fromDate);
-          }
-
-          if (toDate) {
-            params.set("to", toDate);
-          }
+        if (fromDate) {
+          params.set("from", fromDate);
         }
 
-        params.set("_", Date.now().toString());
+        if (toDate) {
+          params.set("to", toDate);
+        }
 
-        const response = await fetch(
-          `${API_URLS.history}?${params.toString()}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-            headers: {
-              Accept: "application/json",
-            },
-          }
-        );
-
-        const responseText =
-          await response.text();
-
-        let data = {};
-
-        try {
-          data = responseText
-            ? JSON.parse(responseText)
-            : {};
-        } catch {
-          throw new Error(
-            "Server returned invalid JSON response."
+        if (employeeFilter) {
+          params.set(
+            "employee_id",
+            employeeFilter
           );
         }
+
+        if (statusFilter) {
+          params.set(
+            "status",
+            statusFilter
+          );
+        }
+
+        const url =
+          `/api/admin/history?${params.toString()}`;
+
+        const response = await fetch(url, {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        const data = await response.json();
 
         if (!response.ok) {
           throw new Error(
-            data?.message ||
-              data?.error ||
-              "Unable to load admin report."
+            data?.error ||
+              data?.message ||
+              "Failed to load history."
           );
         }
 
-        const list = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : Array.isArray(data?.records)
-          ? data.records
-          : Array.isArray(data?.history)
-          ? data.history
-          : Array.isArray(data?.tasks)
-          ? data.tasks
-          : Array.isArray(data?.results)
-          ? data.results
-          : [];
+        const list =
+          Array.isArray(data)
+            ? data
+            : data?.records ??
+              data?.rows ??
+              data?.data ??
+              [];
 
-        setRecords(list);
-      } catch (err) {
-        console.error(
-          isLive
-            ? "Live report update error:"
-            : "Report error:",
-          err
+        setRecords(
+          Array.isArray(list) ? list : []
         );
+      } catch (err) {
+        console.error(err);
 
-        if (!isLive) {
-          setError(
-            err?.message ||
-              "Unable to load report."
-          );
-
-          setRecords([]);
-
-          toast.error(
-            err?.message ||
-              "Unable to load report."
-          );
-        }
+        setError(
+          err?.message ||
+            "Unable to load history."
+        );
       } finally {
-        if (!isLive) {
-          setLoading(false);
-          setRefreshing(false);
-        }
+        setLoading(false);
+        setRefreshing(false);
       }
     },
-    [fromDate, toDate]
+    [
+      fromDate,
+      toDate,
+      employeeFilter,
+      statusFilter,
+    ]
   );
 
-  /* ============================================================
-     INITIAL / LIVE REFRESH
-  ============================================================ */
+  // =========================================================
+  // INITIAL LOAD
+  // =========================================================
 
   useEffect(() => {
-    loadStaff();
-    fetchReport(false, false);
+    let mounted = true;
 
-    const intervalId = setInterval(() => {
-      if (
-        document.visibilityState ===
-        "visible"
-      ) {
-        /*
-         * Do not refresh while user is editing.
-         * This prevents the live API from replacing
-         * the values currently being edited.
-         */
-        if (!editingId) {
-          fetchReport(false, true);
-        }
+    async function init() {
+      const user = await fetchCurrentUser();
+
+      if (!mounted) return;
+
+      await fetchStaff();
+
+      if (!mounted) return;
+
+      if (user && !isAdmin) {
+        setNewRow((prev) => ({
+          ...prev,
+          employee_id: String(
+            user.id ??
+              user.user_id ??
+              ""
+          ),
+        }));
       }
-    }, 5000);
+
+      await fetchReport(true);
+    }
+
+    init();
 
     return () => {
-      clearInterval(intervalId);
+      mounted = false;
     };
-  }, [
-    loadStaff,
-    fetchReport,
-    editingId,
-  ]);
+  }, []);
 
-  /* ============================================================
-     STATUS OPTIONS
-  ============================================================ */
+  // =========================================================
+  // SET OWN EMPLOYEE AFTER USER LOAD
+  // =========================================================
 
-  const statusOptions = useMemo(() => {
-    const values = new Map();
+  useEffect(() => {
+    if (!currentUser) return;
 
-    records.forEach((record) => {
-      const status = getStatus(record);
+    const ownId =
+      currentUser.id ??
+      currentUser.user_id;
 
-      if (status) {
-        values.set(
-          status.toLowerCase(),
-          status
-        );
-      }
-    });
+    if (
+      ownId !== undefined &&
+      ownId !== null
+    ) {
+      setNewRow((prev) => {
+        if (!prev.employee_id || !isAdmin) {
+          return {
+            ...prev,
+            employee_id: String(ownId),
+          };
+        }
 
-    const defaults = [
-      "Pending",
-      "In Progress",
-      "Completed",
-      "Callback",
-      "Follow Up",
-      "No Answer",
-      "Voicemail",
-    ];
+        return prev;
+      });
+    }
+  }, [currentUser, isAdmin]);
 
-    defaults.forEach((status) => {
-      if (!values.has(status.toLowerCase())) {
-        values.set(
-          status.toLowerCase(),
-          status
-        );
-      }
-    });
+  // =========================================================
+  // LIVE REFRESH
+  // =========================================================
 
-    return Array.from(
-      values.values()
-    ).sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [records]);
-
-  /* ============================================================
-     USER OPTIONS
-  ============================================================ */
-
-  const userOptions = useMemo(() => {
-    const values = new Map();
-
-    staff.forEach((user) => {
-      const id =
-        user?.id ??
-        user?.user_id ??
-        user?._id;
-
-      const name =
-        safeString(user?.name) ||
-        safeString(user?.full_name) ||
-        safeString(user?.email);
-
-      if (id && name) {
-        values.set(String(id), {
-          id: String(id),
-          name,
-        });
-      }
-    });
-
-    records.forEach((record) => {
-      const id = getEmployeeId(record);
-      const name = getUserName(record);
-
+  useEffect(() => {
+    const interval = setInterval(() => {
       if (
-        id !== "" &&
-        id !== null &&
-        name !== "—"
+        document.visibilityState !==
+        "visible"
       ) {
-        values.set(String(id), {
-          id: String(id),
-          name,
-        });
-      }
-    });
-
-    return Array.from(
-      values.values()
-    ).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-  }, [staff, records]);
-
-  /* ============================================================
-     SHEET OPTIONS
-  ============================================================ */
-
-  const sheetOptions = useMemo(() => {
-    const values = new Map();
-
-    records.forEach((record) => {
-      const sheet = getSheet(record);
-
-      if (
-        sheet &&
-        sheet !== "—"
-      ) {
-        values.set(
-          sheet.toLowerCase(),
-          sheet
-        );
-      }
-    });
-
-    return Array.from(
-      values.values()
-    ).sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [records]);
-
-  /* ============================================================
-     START EDIT
-  ============================================================ */
-
-  const startEdit = useCallback(
-    (record) => {
-      const assignmentId =
-        getAssignmentId(record);
-
-      if (!assignmentId) {
-        toast.error(
-          "Assignment ID is missing for this record."
-        );
         return;
       }
 
-      const employeeId =
-        getEmployeeId(record);
+      if (editingId) return;
+      if (showAddForm) return;
+      if (savingNew) return;
 
-      setEditingId(
-        String(assignmentId)
-      );
+      fetchReport(false);
+    }, 5000);
 
-      setEditForm({
-        assignment_id:
-          assignmentId,
+    return () => clearInterval(interval);
+  }, [
+    editingId,
+    showAddForm,
+    savingNew,
+    fetchReport,
+  ]);
 
-        assignment_date:
-          normalizeDate(
-            getDate(record)
-          ),
+  // =========================================================
+  // FILTER
+  // =========================================================
 
-        employee_id:
-          employeeId !== null &&
-          employeeId !== undefined
-            ? String(employeeId)
-            : "",
+  const filteredRecords = useMemo(() => {
+    const query =
+      safeString(search)
+        .trim()
+        .toLowerCase();
 
-        business_name:
-          getBusiness(record) === "—"
-            ? ""
-            : getBusiness(record),
+    if (!query) {
+      return records;
+    }
 
-        name:
-          getName(record) === "Unknown"
-            ? ""
-            : getName(record),
+    return records.filter((row) => {
+      const searchable = [
+        getBusiness(row),
+        getName(row),
+        getPhone(row),
+        getStatus(row),
+        getComment(row),
+        getUserName(row),
+        getSheet(row),
+        getTaskId(row),
+        getEmployeeId(row),
+      ]
+        .map(safeString)
+        .join(" ")
+        .toLowerCase();
 
-        phone:
-          safeString(
-            getPhone(record)
-          ),
+      return searchable.includes(query);
+    });
+  }, [records, search]);
 
-        status:
-          getStatus(record),
-
-        comment:
-          getComment(record),
-      });
-    },
-    []
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredRecords.length / PAGE_SIZE
+    )
   );
 
-  /* ============================================================
-     CANCEL EDIT
-  ============================================================ */
+  const paginatedRecords = useMemo(() => {
+    const start =
+      (page - 1) * PAGE_SIZE;
 
-  const cancelEdit = useCallback(() => {
-    if (savingId) return;
+    return filteredRecords.slice(
+      start,
+      start + PAGE_SIZE
+    );
+  }, [
+    filteredRecords,
+    page,
+  ]);
 
-    setEditingId(null);
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
-    setEditForm({
-      assignment_id: "",
-      assignment_date: "",
-      employee_id: "",
+  // =========================================================
+  // ADD FORM
+  // =========================================================
+
+  const openAddForm = () => {
+    setAddError("");
+    setAddSuccess("");
+
+    const ownId =
+      currentUser?.id ??
+      currentUser?.user_id ??
+      "";
+
+    setNewRow({
+      assignment_date:
+        normalizeDate(new Date()),
+      employee_id: isAdmin
+        ? ""
+        : String(ownId),
       business_name: "",
       name: "",
-      phone: "",
-      status: "",
+      phone_number: "",
+      status: DEFAULT_STATUS,
       comment: "",
     });
-  }, [savingId]);
 
-  /* ============================================================
-     EDIT INPUT
-  ============================================================ */
+    setShowAddForm(true);
 
-  const updateEditField = (
+    setTimeout(() => {
+      addFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  };
+
+  const closeAddForm = () => {
+    if (savingNew) return;
+
+    setShowAddForm(false);
+    setAddError("");
+    setAddSuccess("");
+  };
+
+  const handleNewChange = (
     field,
     value
   ) => {
-    setEditForm((previous) => ({
-      ...previous,
+    setNewRow((prev) => ({
+      ...prev,
       [field]: value,
     }));
   };
 
-  /* ============================================================
-     SAVE EDIT
-  ============================================================ */
+  // =========================================================
+  // SAVE NEW ROW
+  // =========================================================
 
-  const saveEdit = useCallback(
-    async (record) => {
-      const assignmentId =
-        getAssignmentId(record);
+  const handleCreateRow = async (event) => {
+    event.preventDefault();
 
-      if (!assignmentId) {
-        toast.error(
-          "Assignment ID is missing."
-        );
-        return;
-      }
+    setAddError("");
+    setAddSuccess("");
 
-      if (
-        !editForm.assignment_date
-      ) {
-        toast.error(
-          "Date cannot be empty."
-        );
-        return;
-      }
+    const ownId =
+      currentUser?.id ??
+      currentUser?.user_id;
 
-      if (
-        !editForm.employee_id
-      ) {
-        toast.error(
-          "Please select an employee."
-        );
-        return;
-      }
+    const employeeId = isAdmin
+      ? newRow.employee_id
+      : String(ownId ?? "");
 
-      if (
-        !editForm.status
-      ) {
-        toast.error(
-          "Status cannot be empty."
-        );
-        return;
-      }
-
-      setSavingId(
-        String(assignmentId)
+    if (!employeeId) {
+      setAddError(
+        "Employee select karein."
       );
-
-      try {
-        const response =
-          await fetch(
-            API_URLS.history,
-            {
-              method: "PUT",
-
-              credentials:
-                "include",
-
-              cache: "no-store",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-
-                Accept:
-                  "application/json",
-              },
-
-              body: JSON.stringify({
-                assignment_id:
-                  assignmentId,
-
-                assignment_date:
-                  editForm.assignment_date,
-
-                employee_id:
-                  Number(
-                    editForm.employee_id
-                  ),
-
-                business_name:
-                  editForm.business_name,
-
-                name:
-                  editForm.name,
-
-                phone:
-                  editForm.phone,
-
-                status:
-                  editForm.status,
-
-                comment:
-                  editForm.comment,
-              }),
-            }
-          );
-
-        const responseText =
-          await response.text();
-
-        let data = {};
-
-        try {
-          data =
-            responseText
-              ? JSON.parse(
-                  responseText
-                )
-              : {};
-        } catch {
-          throw new Error(
-            "Server returned invalid JSON response."
-          );
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              data?.error ||
-              "Failed to update record."
-          );
-        }
-
-        if (
-          !data?.success
-        ) {
-          throw new Error(
-            data?.message ||
-              "Record update failed."
-          );
-        }
-
-        const updatedRecord =
-          data?.data;
-
-        /*
-         * If API returns updated row,
-         * immediately replace current row.
-         */
-        setRecords((previous) =>
-          previous.map((item) => {
-            const itemId =
-              String(
-                getAssignmentId(
-                  item
-                )
-              );
-
-            if (
-              itemId !==
-              String(
-                assignmentId
-              )
-            ) {
-              return item;
-            }
-
-            if (
-              updatedRecord
-            ) {
-              return {
-                ...item,
-                ...updatedRecord,
-              };
-            }
-
-            /*
-             * Fallback local update
-             * in case API doesn't return row.
-             */
-            return {
-              ...item,
-
-              assignment_date:
-                editForm.assignment_date,
-
-              assignmentDate:
-                editForm.assignment_date,
-
-              assignedDate:
-                editForm.assignment_date,
-
-              task_date:
-                editForm.assignment_date,
-
-              taskDate:
-                editForm.assignment_date,
-
-              date:
-                editForm.assignment_date,
-
-              employee_id:
-                Number(
-                  editForm.employee_id
-                ),
-
-              employeeId:
-                Number(
-                  editForm.employee_id
-                ),
-
-              assigned_employee_id:
-                Number(
-                  editForm.employee_id
-                ),
-
-              assignedEmployeeId:
-                Number(
-                  editForm.employee_id
-                ),
-
-              status:
-                editForm.status,
-
-              assignment_status:
-                editForm.status,
-
-              assignmentStatus:
-                editForm.status,
-
-              selected_status:
-                editForm.status,
-
-              selectedStatus:
-                editForm.status,
-
-              result:
-                editForm.status,
-
-              task_status:
-                editForm.status,
-
-              call_status:
-                editForm.status,
-
-              disposition:
-                editForm.status,
-
-              comment:
-                editForm.comment,
-
-              comments:
-                editForm.comment,
-
-              notes:
-                editForm.comment,
-
-              businessName:
-                editForm.business_name,
-
-              business_name:
-                editForm.business_name,
-
-              name:
-                editForm.name,
-
-              contactName:
-                editForm.name,
-
-              contact_name:
-                editForm.name,
-
-              phone:
-                editForm.phone,
-
-              phoneNumber:
-                editForm.phone,
-
-              phone_number:
-                editForm.phone,
-            };
-          })
-        );
-
-        /*
-         * Update employee name locally
-         * immediately if API response does not
-         * contain the joined user.
-         */
-        if (
-          !updatedRecord
-        ) {
-          const selectedEmployee =
-            userOptions.find(
-              (user) =>
-                String(
-                  user.id
-                ) ===
-                String(
-                  editForm.employee_id
-                )
-            );
-
-          if (
-            selectedEmployee
-          ) {
-            setRecords(
-              (previous) =>
-                previous.map(
-                  (item) => {
-                    if (
-                      String(
-                        getAssignmentId(
-                          item
-                        )
-                      ) !==
-                      String(
-                        assignmentId
-                      )
-                    ) {
-                      return item;
-                    }
-
-                    return {
-                      ...item,
-
-                      employee_name:
-                        selectedEmployee.name,
-
-                      employeeName:
-                        selectedEmployee.name,
-
-                      assignedToName:
-                        selectedEmployee.name,
-
-                      assigned_to:
-                        selectedEmployee.name,
-
-                      staffName:
-                        selectedEmployee.name,
-
-                      staff_name:
-                        selectedEmployee.name,
-
-                      userName:
-                        selectedEmployee.name,
-
-                      user_name:
-                        selectedEmployee.name,
-                    };
-                  }
-                )
-            );
-          }
-        }
-
-        toast.success(
-          "Report record updated successfully."
-        );
-
-        setEditingId(null);
-
-        setEditForm({
-          assignment_id: "",
-          assignment_date: "",
-          employee_id: "",
-          business_name: "",
-          name: "",
-          phone: "",
-          status: "",
-          comment: "",
-        });
-      } catch (err) {
-        console.error(
-          "Save report error:",
-          err
-        );
-
-        toast.error(
-          err?.message ||
-            "Failed to update record."
-        );
-      } finally {
-        setSavingId(null);
-      }
-    },
-    [
-      editForm,
-      userOptions,
-    ]
-  );
-
-  /* ============================================================
-     FILTERED
-  ============================================================ */
-
-  const filteredRecords = useMemo(() => {
-    const search =
-      searchQuery
-        .trim()
-        .toLowerCase();
-
-    return records.filter(
-      (record) => {
-        const recordDate =
-          normalizeDate(
-            getDate(record)
-          );
-
-        if (fromDate) {
-          if (!recordDate) {
-            return false;
-          }
-
-          if (
-            recordDate <
-            fromDate
-          ) {
-            return false;
-          }
-        }
-
-        if (toDate) {
-          if (!recordDate) {
-            return false;
-          }
-
-          if (
-            recordDate >
-            toDate
-          ) {
-            return false;
-          }
-        }
-
-        if (
-          statusFilter !==
-            "all" &&
-          getStatus(record)
-            .toLowerCase() !==
-            statusFilter.toLowerCase()
-        ) {
-          return false;
-        }
-
-        if (
-          userFilter !==
-            "all"
-        ) {
-          const recordUserId =
-            String(
-              getEmployeeId(
-                record
-              )
-            );
-
-          if (
-            recordUserId !==
-            String(
-              userFilter
-            )
-          ) {
-            return false;
-          }
-        }
-
-        if (
-          sheetFilter !==
-            "all" &&
-          getSheet(record)
-            .toLowerCase() !==
-            sheetFilter.toLowerCase()
-        ) {
-          return false;
-        }
-
-        if (search) {
-          const searchable = [
-            getName(record),
-            getBusiness(record),
-            getPhone(record),
-            getStatus(record),
-            getComment(record),
-            getSheet(record),
-            getUserName(record),
-            getTaskId(record),
-            getDate(record),
-            safeString(
-              record?.email
-            ),
-            safeString(
-              record?.sourceFile
-            ),
-            safeString(
-              record?.source_file
-            ),
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          if (
-            !searchable.includes(
-              search
-            )
-          ) {
-            return false;
-          }
-        }
-
-        return true;
-      }
-    );
-  }, [
-    records,
-    searchQuery,
-    statusFilter,
-    userFilter,
-    sheetFilter,
-    fromDate,
-    toDate,
-  ]);
-
-  /* ============================================================
-     STATS
-  ============================================================ */
-
-  const reportStats = useMemo(() => {
-    let completed = 0;
-    let callback = 0;
-    let followUp = 0;
-    let noAnswer = 0;
-    let voicemail = 0;
-    let pending = 0;
-
-    filteredRecords.forEach(
-      (record) => {
-        const status =
-          String(
-            record?.selected_status ||
-              record?.selectedStatus ||
-              record?.assignment_status ||
-              record?.status ||
-              record?.result ||
-              record?.task_status ||
-              record?.call_status ||
-              record?.disposition ||
-              ""
-          )
-            .trim()
-            .toLowerCase();
-
-        const normalizedStatus =
-          status.replace(
-            /[\s_-]+/g,
-            ""
-          );
-
-        if (
-          Number(
-            record?.is_completed
-          ) === 1 ||
-          status.includes(
-            "complete"
-          ) ||
-          normalizedStatus ===
-            "completed"
-        ) {
-          completed++;
-        }
-
-        if (
-          normalizedStatus.includes(
-            "callback"
-          )
-        ) {
-          callback++;
-        }
-
-        if (
-          normalizedStatus.includes(
-            "followup"
-          )
-        ) {
-          followUp++;
-        }
-
-        if (
-          normalizedStatus.includes(
-            "noanswer"
-          )
-        ) {
-          noAnswer++;
-        }
-
-        if (
-          normalizedStatus.includes(
-            "voicemail"
-          ) ||
-          normalizedStatus.includes(
-            "straight"
-          )
-        ) {
-          voicemail++;
-        }
-
-        if (
-          status.includes(
-            "pending"
-          ) ||
-          normalizedStatus.includes(
-            "inprogress"
-          ) ||
-          normalizedStatus ===
-            "progress"
-        ) {
-          pending++;
-        }
-      }
-    );
-
-    const uniqueUsers =
-      new Set(
-        filteredRecords
-          .map(
-            (record) =>
-              getUserName(
-                record
-              )
-          )
-          .filter(
-            (name) =>
-              name &&
-              name !== "—"
-          )
-      ).size;
-
-    const uniqueSheets =
-      new Set(
-        filteredRecords
-          .map(
-            (record) =>
-              getSheet(
-                record
-              )
-          )
-          .filter(
-            (sheet) =>
-              sheet &&
-              sheet !== "—"
-          )
-      ).size;
-
-    return {
-      total:
-        filteredRecords.length,
-
-      completed,
-      callback,
-      followUp,
-      noAnswer,
-      voicemail,
-      pending,
-      uniqueUsers,
-      uniqueSheets,
-    };
-  }, [filteredRecords]);
-
-  /* ============================================================
-     STATUS BREAKDOWN
-  ============================================================ */
-
-  const statusBreakdown =
-    useMemo(() => {
-      const map = new Map();
-
-      filteredRecords.forEach(
-        (record) => {
-          const status =
-            getStatus(
-              record
-            );
-
-          const key =
-            status.toLowerCase();
-
-          if (
-            !map.has(key)
-          ) {
-            map.set(key, {
-              name: status,
-              count: 0,
-            });
-          }
-
-          map.get(key).count++;
+      return;
+    }
+
+    if (!newRow.assignment_date) {
+      setAddError(
+        "Date select karein."
+      );
+      return;
+    }
+
+    if (!newRow.status?.trim()) {
+      setAddError(
+        "Status select karein."
+      );
+      return;
+    }
+
+    setSavingNew(true);
+
+    try {
+      const response = await fetch(
+        "/api/admin/history",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            assignment_date:
+              newRow.assignment_date,
+
+            employee_id:
+              employeeId,
+
+            business_name:
+              newRow.business_name.trim(),
+
+            name:
+              newRow.name.trim(),
+
+            phone_number:
+              newRow.phone_number.trim(),
+
+            status:
+              newRow.status.trim(),
+
+            comment:
+              newRow.comment.trim(),
+          }),
         }
       );
 
-      return Array.from(
-        map.values()
-      )
-        .sort(
-          (a, b) =>
-            b.count - a.count
-        )
-        .slice(0, 8);
-    }, [filteredRecords]);
+      const data =
+        await response.json();
 
-  /* ============================================================
-     PAGINATION
-  ============================================================ */
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            data?.message ||
+            "Unable to create row."
+        );
+      }
 
-  const totalPages =
-    Math.max(
-      1,
-      Math.ceil(
-        filteredRecords.length /
-          PAGE_SIZE
-      )
-    );
+      const created =
+        data?.record ??
+        data?.row ??
+        data?.data ??
+        data;
 
-  const safeCurrentPage =
-    Math.min(
-      currentPage,
-      totalPages
-    );
+      if (
+        created &&
+        typeof created === "object" &&
+        !Array.isArray(created)
+      ) {
+        setRecords((prev) => [
+          created,
+          ...prev,
+        ]);
+      } else {
+        await fetchReport(false);
+      }
 
-  const paginatedRecords =
-    filteredRecords.slice(
-      (safeCurrentPage - 1) *
-        PAGE_SIZE,
-      safeCurrentPage *
-        PAGE_SIZE
-    );
+      setAddSuccess(
+        "New row successfully add ho gayi."
+      );
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    searchQuery,
-    statusFilter,
-    userFilter,
-    sheetFilter,
-    fromDate,
-    toDate,
-  ]);
+      setNewRow({
+        assignment_date:
+          normalizeDate(new Date()),
+        employee_id: isAdmin
+          ? ""
+          : String(ownId ?? ""),
+        business_name: "",
+        name: "",
+        phone_number: "",
+        status: DEFAULT_STATUS,
+        comment: "",
+      });
 
-  const clearFilters = () => {
-    setSearchQuery("");
-    setStatusFilter("all");
-    setUserFilter("all");
-    setSheetFilter("all");
+      setPage(1);
+
+      setTimeout(() => {
+        setShowAddForm(false);
+        setAddSuccess("");
+      }, 800);
+    } catch (err) {
+      console.error(
+        "Create row error:",
+        err
+      );
+
+      setAddError(
+        err?.message ||
+          "Unable to create row."
+      );
+    } finally {
+      setSavingNew(false);
+    }
+  };
+
+  // =========================================================
+  // EDIT
+  // =========================================================
+
+  const startEdit = (row) => {
+    const id =
+      getAssignmentId(row);
+
+    setEditingId(id);
+
+    setEditForm({
+      assignment_date:
+        normalizeDate(getDate(row)),
+
+      employee_id:
+        String(getEmployeeId(row) || ""),
+
+      business_name:
+        getBusiness(row),
+
+      name:
+        getName(row),
+
+      phone_number:
+        getPhone(row),
+
+      status:
+        getStatus(row),
+
+      comment:
+        getComment(row),
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const handleEditChange = (
+    field,
+    value
+  ) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const saveEdit = async (row) => {
+    const assignmentId =
+      getAssignmentId(row);
+
+    if (!assignmentId) {
+      return;
+    }
+
+    try {
+      setError("");
+
+      const response = await fetch(
+        "/api/admin/history",
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            id: assignmentId,
+
+            assignment_date:
+              editForm.assignment_date,
+
+            employee_id:
+              editForm.employee_id,
+
+            business_name:
+              editForm.business_name,
+
+            name:
+              editForm.name,
+
+            phone_number:
+              editForm.phone_number,
+
+            status:
+              editForm.status,
+
+            comment:
+              editForm.comment,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            data?.message ||
+            "Unable to update row."
+        );
+      }
+
+      const updated =
+        data?.record ??
+        data?.row ??
+        data?.data ??
+        data;
+
+      if (
+        updated &&
+        typeof updated ===
+          "object" &&
+        !Array.isArray(updated)
+      ) {
+        setRecords((prev) =>
+          prev.map((item) =>
+            String(
+              getAssignmentId(item)
+            ) ===
+            String(assignmentId)
+              ? updated
+              : item
+          )
+        );
+      } else {
+        await fetchReport(false);
+      }
+
+      cancelEdit();
+    } catch (err) {
+      console.error(
+        "Update error:",
+        err
+      );
+
+      setError(
+        err?.message ||
+          "Unable to update row."
+      );
+    }
+  };
+
+  // =========================================================
+  // RESET FILTERS
+  // =========================================================
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setEmployeeFilter("");
     setFromDate("");
     setToDate("");
-    setCurrentPage(1);
+    setPage(1);
   };
 
-  const changePage = (
-    page
-  ) => {
-    setCurrentPage(
-      Math.max(
-        1,
-        Math.min(
-          page,
-          totalPages
-        )
-      )
-    );
-  };
+  // =========================================================
+  // SIDEBAR
+  // =========================================================
 
-  /* ============================================================
-     LOADING
-  ============================================================ */
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f6f8]">
-        <Sidebar />
+  const [showLogoutModal, setShowLogoutModal] =
+    useState(false);
 
-        <main className="lg:ml-[260px] min-h-screen flex items-center justify-center">
-          <Loader />
-        </main>
-      </div>
-    );
-  }
-
-  /* ============================================================
-     UI
-  ============================================================ */
+  // =========================================================
+  // UI
+  // =========================================================
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] text-slate-800">
-      <Sidebar />
+    <div className="min-h-screen bg-[#f7f7f8] text-gray-900">
+      <Sidebar
+        open={sidebarOpen}
+        setOpen={setSidebarOpen}
+        onLogout={() =>
+          setShowLogoutModal(true)
+        }
+      />
 
-      <main className="lg:ml-[260px] min-h-screen">
-        <div className="max-w-[1900px] mx-auto px-4 sm:px-6 xl:px-8 py-5 sm:py-7">
 
-          {/* ==================================================
-              HEADER
-          ================================================== */}
+      <div className="lg:pl-[260px]">
+        {/* =========================================================
+    STATUS SUMMARY
+========================================================= */}
 
-          <div className="relative overflow-hidden rounded-[24px] bg-slate-950 text-white mb-5 shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
+<div className="mb-5 py-10 px-10 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
 
-            <div
-              className="absolute -right-24 -top-24 h-72 w-72 rounded-full blur-3xl opacity-20"
-              style={{
-                backgroundColor:
-                  ACCENT,
-              }}
-            />
+  {/* TOTAL */}
 
-            <div className="relative px-5 sm:px-7 py-6 sm:py-7">
-              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Total
+    </div>
 
-                <div>
-                  <div className="flex items-center gap-3 mb-3">
+    <div className="mt-2 text-2xl font-extrabold text-gray-900">
+      {records.length.toLocaleString()}
+    </div>
 
-                    <div
-                      className="h-11 w-11 rounded-xl flex items-center justify-center"
-                      style={{
-                        backgroundColor:
-                          "rgba(236,55,55,0.14)",
-                        color:
-                          ACCENT,
-                      }}
-                    >
-                      <BarChart3
-                        size={22}
-                      />
-                    </div>
+    <div className="mt-1 text-[11px] text-gray-500">
+      All Records
+    </div>
+  </div>
 
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-black">
-                        Digital Orbit CRM
-                      </p>
+  {/* FOLLOW UP */}
 
-                      <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-                        Reports
-                      </h1>
-                    </div>
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Follow UP
+    </div>
 
-                  </div>
+    <div className="mt-2 text-2xl font-extrabold text-blue-600">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "follow up"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
 
-                  <p className="text-sm text-slate-400 max-w-2xl">
-                    Complete task activity, employee performance
-                    and customer outcomes in one place.
-                  </p>
-                </div>
+  {/* CALL BACK */}
 
-                <div className="flex flex-wrap items-center gap-2">
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Call Back
+    </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      fetchReport(
-                        true,
-                        false
-                      )
-                    }
-                    disabled={
-                      refreshing ||
-                      Boolean(
-                        editingId
-                      )
-                    }
-                    className="h-10 px-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 inline-flex items-center gap-2 text-xs font-bold transition disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      size={15}
-                      className={
-                        refreshing
-                          ? "animate-spin"
-                          : ""
-                      }
-                    />
+    <div className="mt-2 text-2xl font-extrabold text-purple-600">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "call back"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
 
-                    Refresh
-                  </button>
+  {/* WRONG NUM */}
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      downloadCSV(
-                        filteredRecords
-                      )
-                    }
-                    className="h-10 px-4 rounded-xl inline-flex items-center gap-2 text-xs font-black text-white shadow-lg transition hover:opacity-90"
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Wrong Num
+    </div>
+
+    <div className="mt-2 text-2xl font-extrabold text-red-600">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "wrong num"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
+
+  {/* NOT INTERESTED */}
+
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Not Interested
+    </div>
+
+    <div className="mt-2 text-2xl font-extrabold text-orange-600">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "not interested"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
+
+  {/* DNC */}
+
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      DNC
+    </div>
+
+    <div className="mt-2 text-2xl font-extrabold text-red-700">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "dnc"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
+
+  {/* NO BUSINESS */}
+
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      No Business
+    </div>
+
+    <div className="mt-2 text-2xl font-extrabold text-gray-700">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "no business"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
+
+  {/* PENDING */}
+
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+      Pending
+    </div>
+
+    <div className="mt-2 text-2xl font-extrabold text-amber-600">
+      {
+        records.filter(
+          (row) =>
+            String(getStatus(row))
+              .toLowerCase()
+              .trim() === "pending"
+        ).length.toLocaleString()
+      }
+    </div>
+  </div>
+
+</div>
+        {/* =====================================================
+            MOBILE TOP BAR
+        ===================================================== */}
+
+        <div className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:hidden">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() =>
+                setSidebarOpen(true)
+              }
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold shadow-sm"
+            >
+              Menu
+            </button>
+
+            <div className="text-sm font-bold">
+              Admin History
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                fetchReport(false)
+              }
+              className="rounded-xl border border-gray-200 p-2"
+              title="Refresh"
+            >
+              <RefreshCw
+                size={17}
+                className={
+                  refreshing
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* =====================================================
+            MAIN
+        ===================================================== */}
+
+        <main className="px-3 py-4 sm:px-5 md:px-7 lg:px-8 lg:py-7">
+          {/* HEADER */}
+
+          <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                  Admin Reports
+                </h1>
+
+                {isAdmin && (
+                  <span
+                    className="rounded-full px-2.5 py-1 text-[11px] font-bold text-white"
                     style={{
                       backgroundColor:
                         ACCENT,
                     }}
                   >
-                    <Download
-                      size={15}
-                    />
-                    Export
-                  </button>
-
-                </div>
+                    ADMIN
+                  </span>
+                )}
               </div>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Call activity and task history
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  fetchReport(false)
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+              >
+                <RefreshCw
+                  size={16}
+                  className={
+                    refreshing
+                      ? "animate-spin"
+                      : ""
+                  }
+                />
+
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCSV(
+                    filteredRecords
+                  )
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+              >
+                <Download size={16} />
+                Export CSV
+              </button>
+
+              <button
+                type="button"
+                onClick={openAddForm}
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 active:scale-[0.98]"
+                style={{
+                  backgroundColor:
+                    ACCENT,
+                }}
+              >
+                <Plus size={18} />
+                Add New Row
+              </button>
             </div>
           </div>
 
-          {/* ==================================================
-              KPI
-          ================================================== */}
+          {/* ===================================================
+              ADD NEW ROW FORM
+          =================================================== */}
 
-          <section className="bg-white border border-slate-200 rounded-[20px] shadow-[0_5px_25px_rgba(15,23,42,0.04)] mb-5 overflow-hidden">
-
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 divide-x divide-y xl:divide-y-0 divide-slate-100">
-
-              {[
-                {
-                  label:
-                    "Total Tasks",
-                  value:
-                    reportStats.total,
-                  icon: FileText,
-                  accent:
-                    "text-slate-800",
-                },
-                {
-                  label:
-                    "Completed",
-                  value:
-                    reportStats.completed,
-                  icon:
-                    CheckCircle2,
-                  accent:
-                    "text-emerald-600",
-                },
-                {
-                  label:
-                    "Callback",
-                  value:
-                    reportStats.callback,
-                  icon: Phone,
-                  accent:
-                    "text-amber-600",
-                },
-                {
-                  label:
-                    "Follow Up",
-                  value:
-                    reportStats.followUp,
-                  icon:
-                    Activity,
-                  accent:
-                    "text-sky-600",
-                },
-                {
-                  label:
-                    "No Answer",
-                  value:
-                    reportStats.noAnswer,
-                  icon:
-                    CircleDot,
-                  accent:
-                    "text-orange-600",
-                },
-                {
-                  label:
-                    "Voicemail",
-                  value:
-                    reportStats.voicemail,
-                  icon:
-                    MessageSquare,
-                  accent:
-                    "text-violet-600",
-                },
-              ].map(
-                (item) => {
-                  const Icon =
-                    item.icon;
-
-                  return (
+          {showAddForm && (
+            <section
+              ref={addFormRef}
+              className="mb-5 overflow-hidden rounded-2xl border border-red-100 bg-white shadow-sm"
+            >
+              <div
+                className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                style={{
+                  background:
+                    "linear-gradient(to right, #fff5f5, #ffffff)",
+                }}
+              >
+                <div>
+                  <div className="flex items-center gap-2">
                     <div
-                      key={
-                        item.label
-                      }
-                      className="px-4 sm:px-5 py-4 hover:bg-slate-50/70 transition"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
+                      style={{
+                        backgroundColor:
+                          ACCENT,
+                      }}
                     >
-                      <div className="flex items-center justify-between gap-3">
-
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider font-black text-slate-400">
-                            {
-                              item.label
-                            }
-                          </p>
-
-                          <p
-                            className={`text-2xl font-black mt-1 ${item.accent}`}
-                          >
-                            {item.value.toLocaleString()}
-                          </p>
-                        </div>
-
-                        <div className="h-9 w-9 rounded-xl bg-slate-50 flex items-center justify-center">
-                          <Icon
-                            size={16}
-                            className="text-slate-400"
-                          />
-                        </div>
-
-                      </div>
+                      <Plus size={18} />
                     </div>
-                  );
-                }
-              )}
 
-            </div>
-          </section>
+                    <div>
+                      <h2 className="font-bold text-gray-900">
+                        Add New Row
+                      </h2>
 
-          {/* ==================================================
-              FILTER TOOLBAR
-          ================================================== */}
-
-          <section className="bg-white border border-slate-200 rounded-[20px] shadow-[0_5px_25px_rgba(15,23,42,0.04)] mb-5">
-
-            <div className="px-4 sm:px-5 py-4">
-
-              <div className="flex flex-col xl:flex-row xl:items-center gap-3">
-
-                <div className="relative flex-1 min-w-0">
-
-                  <Search
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-
-                  <input
-                    value={
-                      searchQuery
-                    }
-                    onChange={(e) =>
-                      setSearchQuery(
-                        e.target.value
-                      )
-                    }
-                    placeholder="Search business, contact, phone, user, status or task ID..."
-                    className="w-full h-11 pl-10 pr-10 rounded-xl border border-slate-200 bg-slate-50/60 text-sm font-medium text-slate-700 outline-none transition focus:bg-white focus:border-red-300 focus:ring-4 focus:ring-red-50"
-                  />
-
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSearchQuery(
-                          ""
-                        )
-                      }
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 h-7 w-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400"
-                    >
-                      <X
-                        size={14}
-                      />
-                    </button>
-                  )}
-
+                      <p className="text-xs text-gray-500">
+                        Manually create a brand-new task record
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setShowFilters(
-                      (v) => !v
-                    )
-                  }
-                  className={`h-11 px-4 rounded-xl border inline-flex items-center justify-center gap-2 text-xs font-black transition ${
-                    showFilters
-                      ? "border-red-200 bg-red-50 text-red-600"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                  }`}
+                  disabled={savingNew}
+                  onClick={closeAddForm}
+                  className="inline-flex items-center justify-center gap-2 self-end rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 sm:self-auto"
                 >
-                  <SlidersHorizontal
-                    size={15}
-                  />
-                  Filters
+                  <X size={16} />
+                  Cancel
                 </button>
-
-                <button
-                  type="button"
-                  onClick={
-                    clearFilters
-                  }
-                  className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-500 hover:bg-slate-50 transition"
-                >
-                  Clear
-                </button>
-
               </div>
 
-              {showFilters && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 mt-4 pt-4 border-t border-slate-100">
+              <form
+                onSubmit={handleCreateRow}
+                className="p-4 sm:p-5"
+              >
+                {addError && (
+                  <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <AlertCircle
+                      size={17}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span>
+                      {addError}
+                    </span>
+                  </div>
+                )}
 
-                  {/* FROM */}
+                {addSuccess && (
+                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+                    <Check size={17} />
+                    {addSuccess}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {/* DATE */}
 
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
-                      From Date
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Date
                     </label>
 
                     <div className="relative">
                       <CalendarDays
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                       />
 
                       <input
                         type="date"
                         value={
-                          fromDate
+                          newRow.assignment_date
                         }
-                        max={
-                          toDate ||
-                          undefined
-                        }
-                        onChange={(
-                          e
-                        ) =>
-                          setFromDate(
-                            e.target
-                              .value
+                        onChange={(e) =>
+                          handleNewChange(
+                            "assignment_date",
+                            e.target.value
                           )
                         }
-                        className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                        required
                       />
                     </div>
                   </div>
 
-                  {/* TO */}
+                  {/* EMPLOYEE */}
 
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
-                      To Date
-                    </label>
-
-                    <div className="relative">
-                      <CalendarDays
-                        size={15}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-
-                      <input
-                        type="date"
-                        value={
-                          toDate
-                        }
-                        min={
-                          fromDate ||
-                          undefined
-                        }
-                        onChange={(
-                          e
-                        ) =>
-                          setToDate(
-                            e.target
-                              .value
-                          )
-                        }
-                        className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
-                      />
-                    </div>
-                  </div>
-
-                  {/* USER */}
-
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
                       Employee
                     </label>
 
-                    <select
-                      value={
-                        userFilter
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setUserFilter(
-                          e.target
-                            .value
-                        )
-                      }
-                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
-                    >
-                      <option value="all">
-                        All Employees
-                      </option>
+                    {isAdmin ? (
+                      <div className="relative">
+                        <UserRound
+                          size={16}
+                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                        />
 
-                      {userOptions.map(
-                        (
-                          user
-                        ) => (
-                          <option
-                            key={
-                              user.id
-                            }
-                            value={
-                              user.id
-                            }
-                          >
-                            {
-                              user.name
-                            }
+                        <select
+                          value={
+                            newRow.employee_id
+                          }
+                          onChange={(e) =>
+                            handleNewChange(
+                              "employee_id",
+                              e.target.value
+                            )
+                          }
+                          className="h-11 w-full appearance-none rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                          required
+                        >
+                          <option value="">
+                            Select employee
                           </option>
-                        )
-                      )}
-                    </select>
+
+                          {staff.map(
+                            (person) => {
+                              const id =
+                                person.id ??
+                                person.user_id;
+
+                              const name =
+                                person.name ??
+                                person.full_name ??
+                                person.email ??
+                                `Employee ${id}`;
+
+                              return (
+                                <option
+                                  key={id}
+                                  value={String(
+                                    id
+                                  )}
+                                >
+                                  {name}
+                                </option>
+                              );
+                            }
+                          )}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3">
+                        <UserRound
+                          size={16}
+                          className="text-gray-400"
+                        />
+
+                        <span className="truncate text-sm font-semibold text-gray-700">
+                          {currentUser?.name ||
+                            currentUser?.full_name ||
+                            currentUser?.email ||
+                            "My Account"}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* SHEET */}
+                  {/* BUSINESS */}
 
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
-                      Sheet
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Business
                     </label>
 
-                    <select
-                      value={
-                        sheetFilter
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setSheetFilter(
-                          e.target
-                            .value
-                        )
-                      }
-                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
-                    >
-                      <option value="all">
-                        All Sheets
-                      </option>
+                    <div className="relative">
+                      <Building2
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
 
-                      {sheetOptions.map(
-                        (
-                          sheet
-                        ) => (
-                          <option
-                            key={
-                              sheet
-                            }
-                            value={
-                              sheet
-                            }
-                          >
-                            {
-                              sheet
-                            }
-                          </option>
-                        )
-                      )}
-                    </select>
+                      <input
+                        type="text"
+                        value={
+                          newRow.business_name
+                        }
+                        onChange={(e) =>
+                          handleNewChange(
+                            "business_name",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Business name"
+                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      />
+                    </div>
+                  </div>
+
+                  {/* CONTACT */}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Contact
+                    </label>
+
+                    <div className="relative">
+                      <UserRound
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+
+                      <input
+                        type="text"
+                        value={newRow.name}
+                        onChange={(e) =>
+                          handleNewChange(
+                            "name",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Contact name"
+                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      />
+                    </div>
+                  </div>
+
+                  {/* PHONE */}
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Phone
+                    </label>
+
+                    <div className="relative">
+                      <Phone
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      />
+
+                      <input
+                        type="text"
+                        value={
+                          newRow.phone_number
+                        }
+                        onChange={(e) =>
+                          handleNewChange(
+                            "phone_number",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Phone number"
+                        className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      />
+                    </div>
                   </div>
 
                   {/* STATUS */}
 
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider font-black text-slate-400 block mb-1.5">
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
                       Status
                     </label>
 
                     <select
-                      value={
-                        statusFilter
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setStatusFilter(
-                          e.target
-                            .value
+                      value={newRow.status}
+                      onChange={(e) =>
+                        handleNewChange(
+                          "status",
+                          e.target.value
                         )
                       }
-                      className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-red-300 focus:ring-4 focus:ring-red-50"
+                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      required
                     >
-                      <option value="all">
-                        All Statuses
-                      </option>
-
-                      {statusOptions.map(
-                        (
-                          status
-                        ) => (
+                      {STATUS_OPTIONS.map(
+                        (status) => (
                           <option
-                            key={
-                              status
-                            }
-                            value={
-                              status
-                            }
+                            key={status}
+                            value={status}
                           >
-                            {
-                              status
-                            }
+                            {status}
                           </option>
                         )
                       )}
                     </select>
                   </div>
 
+                  {/* COMMENT */}
+
+                  <div className="sm:col-span-2 lg:col-span-3 xl:col-span-2">
+                    <label className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Comments
+                    </label>
+
+                    <div className="relative">
+                      <MessageSquare
+                        size={16}
+                        className="pointer-events-none absolute left-3 top-3.5 text-gray-400"
+                      />
+
+                      <textarea
+                        value={
+                          newRow.comment
+                        }
+                        onChange={(e) =>
+                          handleNewChange(
+                            "comment",
+                            e.target.value
+                          )
+                        }
+                        placeholder="Comments..."
+                        rows={1}
+                        className="min-h-[44px] w-full resize-y rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                      />
+                    </div>
+                  </div>
                 </div>
-              )}
 
-            </div>
-          </section>
-
-          {/* ==================================================
-              STATUS QUICK FILTER
-          ================================================== */}
-
-          <section className="mb-5">
-
-            <div className="flex items-center gap-2 mb-3 px-1">
-
-              <Activity
-                size={15}
-                style={{
-                  color:
-                    ACCENT,
-                }}
-              />
-
-              <span className="text-xs font-black text-slate-700">
-                Status Overview
-              </span>
-
-              <span className="text-[10px] font-bold text-slate-400">
-                {
-                  statusBreakdown.length
-                }{" "}
-                active statuses
-              </span>
-
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto pb-1">
-
-              <button
-                type="button"
-                onClick={() =>
-                  setStatusFilter(
-                    "all"
-                  )
-                }
-                className={`shrink-0 h-9 px-4 rounded-xl border text-xs font-black transition ${
-                  statusFilter ===
-                  "all"
-                    ? "text-white border-transparent"
-                    : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
-                }`}
-                style={
-                  statusFilter ===
-                  "all"
-                    ? {
-                        backgroundColor:
-                          ACCENT,
-                      }
-                    : undefined
-                }
-              >
-                All
-                <span className="ml-2 opacity-70">
-                  {
-                    filteredRecords.length
-                  }
-                </span>
-              </button>
-
-              {statusBreakdown.map(
-                (item) => (
+                <div className="mt-5 flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
                   <button
-                    key={
-                      item.name
-                    }
                     type="button"
-                    onClick={() =>
-                      setStatusFilter(
-                        item.name
-                      )
-                    }
-                    className={`shrink-0 h-9 px-4 rounded-xl border text-xs font-black transition ${statusClasses(
-                      item.name
-                    )}`}
+                    disabled={savingNew}
+                    onClick={closeAddForm}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                   >
-                    {
-                      item.name
-                    }
-
-                    <span className="ml-2 opacity-70">
-                      {
-                        item.count
-                      }
-                    </span>
+                    <X size={16} />
+                    Cancel
                   </button>
-                )
-              )}
 
-            </div>
-          </section>
-
-          {/* ==================================================
-              TABLE
-          ================================================== */}
-
-          <section className="bg-white border border-slate-200 rounded-[22px] shadow-[0_8px_35px_rgba(15,23,42,0.05)] overflow-hidden">
-
-            {/* TABLE TOP */}
-
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100">
-
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-
-                <div className="flex items-center gap-3">
-
-                  <div
-                    className="h-10 w-10 rounded-xl flex items-center justify-center"
+                  <button
+                    type="submit"
+                    disabled={savingNew}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
                     style={{
                       backgroundColor:
-                        "#fff1f1",
-                      color:
                         ACCENT,
                     }}
                   >
-                    <TrendingUp
-                      size={18}
-                    />
-                  </div>
+                    {savingNew ? (
+                      <>
+                        <Loader2
+                          size={17}
+                          className="animate-spin"
+                        />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={17} />
+                        Save New Row
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
 
-                  <div>
-                    <h2 className="text-sm sm:text-base font-black text-slate-900">
-                      Task Activity
-                    </h2>
+          {/* ===================================================
+              FILTER CARD
+          =================================================== */}
 
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Employee activity and customer outcomes
-                    </p>
-                  </div>
+          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">
+                  Filters
+                </h2>
 
+                <p className="text-xs text-gray-500">
+                  Search and filter history records
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="self-start text-xs font-semibold text-gray-500 hover:text-gray-900 sm:self-auto"
+              >
+                Reset filters
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {/* SEARCH */}
+
+              <div className="relative sm:col-span-2 lg:col-span-3 xl:col-span-2">
+                <Search
+                  size={17}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
+
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(
+                      e.target.value
+                    );
+                    setPage(1);
+                  }}
+                  placeholder="Search business, phone, employee..."
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-3 text-sm outline-none transition focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+                />
+              </div>
+
+              {/* STATUS */}
+
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(
+                    e.target.value
+                  );
+                  setPage(1);
+                }}
+                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              >
+                <option value="">
+                  All Status
+                </option>
+
+                {STATUS_OPTIONS.map(
+                  (status) => (
+                    <option
+                      key={status}
+                      value={status}
+                    >
+                      {status}
+                    </option>
+                  )
+                )}
+              </select>
+
+              {/* EMPLOYEE */}
+
+              {isAdmin ? (
+                <select
+                  value={employeeFilter}
+                  onChange={(e) => {
+                    setEmployeeFilter(
+                      e.target.value
+                    );
+                    setPage(1);
+                  }}
+                  className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+                >
+                  <option value="">
+                    All Employees
+                  </option>
+
+                  {staff.map((person) => {
+                    const id =
+                      person.id ??
+                      person.user_id;
+
+                    const name =
+                      person.name ??
+                      person.full_name ??
+                      person.email ??
+                      `Employee ${id}`;
+
+                    return (
+                      <option
+                        key={id}
+                        value={String(id)}
+                      >
+                        {name}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <div className="flex h-11 items-center rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-600">
+                  My Records
+                </div>
+              )}
+
+              {/* FROM */}
+
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => {
+                  setFromDate(
+                    e.target.value
+                  );
+                  setPage(1);
+                }}
+                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              />
+
+              {/* TO */}
+
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => {
+                  setToDate(
+                    e.target.value
+                  );
+                  setPage(1);
+                }}
+                className="h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100"
+              />
+            </div>
+          </section>
+
+          {/* ===================================================
+              ERROR
+          =================================================== */}
+
+          {error && (
+            <div className="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <AlertCircle
+                size={17}
+                className="mt-0.5 shrink-0"
+              />
+
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* ===================================================
+              TABLE CARD
+          =================================================== */}
+
+          <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            {/* TABLE HEADER */}
+
+            <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-gray-900">
+                    History Records
+                  </h2>
+
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+                    {filteredRecords.length}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <p className="mt-1 text-xs text-gray-500">
+                  All matching records
+                </p>
+              </div>
 
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-black text-slate-500">
-                    <Users
-                      size={13}
-                    />
-
-                    {
-                      reportStats.uniqueUsers
-                    }{" "}
-                    Users
-                  </span>
-
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-black text-slate-500">
-                    <Layers3
-                      size={13}
-                    />
-
-                    {
-                      reportStats.uniqueSheets
-                    }{" "}
-                    Sheets
-                  </span>
-
-                  <span className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-black">
-                    {
-                      filteredRecords.length.toLocaleString()
-                    }{" "}
-                    Records
-                  </span>
-
-                </div>
+              <div className="text-xs text-gray-500">
+                {refreshing
+                  ? "Updating..."
+                  : "Live"}
               </div>
             </div>
 
-            {/* ERROR */}
+            {/* LOADING */}
 
-            {error && (
-              <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-700">
-                {error}
+            {loading ? (
+              <div className="flex min-h-[300px] items-center justify-center">
+                <div className="flex flex-col items-center gap-3 text-gray-500">
+                  <Loader2
+                    size={30}
+                    className="animate-spin"
+                    style={{
+                      color: ACCENT,
+                    }}
+                  />
+
+                  <span className="text-sm font-medium">
+                    Loading records...
+                  </span>
+                </div>
               </div>
-            )}
-
-            {/* EMPTY */}
-
-            {filteredRecords.length ===
-            0 ? (
-              <div className="py-20 px-6 text-center">
-
-                <div className="mx-auto h-16 w-16 rounded-2xl bg-slate-100 flex items-center justify-center">
-                  <Search
-                    size={26}
-                    className="text-slate-400"
+            ) : filteredRecords.length ===
+              0 ? (
+              <div className="flex min-h-[300px] flex-col items-center justify-center px-5 text-center">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100">
+                  <FileSpreadsheet
+                    size={25}
+                    className="text-gray-400"
                   />
                 </div>
 
-                <h3 className="mt-5 text-base font-black text-slate-800">
-                  No matching records
+                <h3 className="font-bold text-gray-900">
+                  No records found
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-400 max-w-md mx-auto">
-                  No task activity matches the selected filters.
+                <p className="mt-1 max-w-md text-sm text-gray-500">
+                  No history records match your current filters.
                 </p>
 
                 <button
                   type="button"
-                  onClick={
-                    clearFilters
-                  }
-                  className="mt-5 h-10 px-4 rounded-xl text-xs font-black text-white"
+                  onClick={openAddForm}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white"
                   style={{
                     backgroundColor:
                       ACCENT,
                   }}
                 >
-                  Clear Filters
+                  <Plus size={17} />
+                  Add New Row
                 </button>
-
               </div>
             ) : (
               <>
-                <div className="max-h-[550px] overflow-auto">
+                {/* =================================================
+                    DESKTOP TABLE
+                ================================================= */}
 
-                  <table className="w-full min-w-[1700px] text-left">
+                <div className="hidden overflow-x-auto md:block">
+                  <table className="w-full min-w-[1250px] border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50 text-left">
+                        <th className="w-[55px] px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          #
+                        </th>
 
-                    <thead className="sticky top-0 z-20">
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Date
+                        </th>
 
-                      <tr className="bg-slate-50/95 backdrop-blur border-b border-slate-200">
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Employee
+                        </th>
 
-                        {[
-                          "#",
-                          "Date",
-                          "Employee",
-                          "Business",
-                          "Contact",
-                          "Phone",
-                          "Status",
-                          "Comments",
-                          "Sheet",
-                          "Task ID",
-                          "Action",
-                        ].map(
-                          (
-                            heading
-                          ) => (
-                            <th
-                              key={
-                                heading
-                              }
-                              className="px-5 py-3.5 text-[10px] uppercase tracking-[0.12em] font-black text-slate-500 whitespace-nowrap"
-                            >
-                              {
-                                heading
-                              }
-                            </th>
-                          )
-                        )}
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Business
+                        </th>
 
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Contact
+                        </th>
+
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Phone
+                        </th>
+
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Status
+                        </th>
+
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Comments
+                        </th>
+
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Sheet
+                        </th>
+
+                        <th className="px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Task ID
+                        </th>
+
+                        <th className="sticky right-0 z-10 bg-gray-50 px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          Action
+                        </th>
                       </tr>
                     </thead>
 
-                    <tbody className="divide-y divide-slate-100">
-
+                    <tbody>
                       {paginatedRecords.map(
-                        (
-                          record,
-                          index
-                        ) => {
-                          const globalIndex =
-                            (safeCurrentPage -
-                              1) *
-                              PAGE_SIZE +
-                            index +
-                            1;
-
+                        (row, index) => {
                           const assignmentId =
-                            String(
-                              getAssignmentId(
-                                record
-                              )
+                            getAssignmentId(
+                              row
                             );
 
                           const isEditing =
-                            editingId ===
-                            assignmentId;
-
-                          const isSaving =
-                            savingId ===
-                            assignmentId;
-
-                          const user =
-                            getUserName(
-                              record
-                            );
-
-                          const contact =
-                            getName(
-                              record
-                            );
-
-                          const business =
-                            getBusiness(
-                              record
-                            );
-
-                          const phone =
-                            getPhone(
-                              record
-                            );
-
-                          const status =
-                            getStatus(
-                              record
-                            );
-
-                          const comment =
-                            getComment(
-                              record
-                            );
-
-                          const sheet =
-                            getSheet(
-                              record
-                            );
-
-                          const date =
-                            getDate(
-                              record
-                            );
-
-                          const taskId =
-                            getTaskId(
-                              record
+                            String(
+                              editingId
+                            ) ===
+                            String(
+                              assignmentId
                             );
 
                           return (
                             <tr
-                              key={`${assignmentId}-${globalIndex}`}
-                              className={`group transition-colors ${
-                                isEditing
-                                  ? "bg-red-50/30"
-                                  : "hover:bg-[#fffafa]"
-                              }`}
+                              key={`${assignmentId}-${index}`}
+                              className="border-b border-gray-100 transition hover:bg-gray-50"
                             >
+                              {/* # */}
 
-                              {/* NUMBER */}
-
-                              <td className="px-5 py-4 align-top">
-
-                                <span className="text-[11px] font-black text-slate-400">
-                                  {String(
-                                    globalIndex
-                                  ).padStart(
-                                    2,
-                                    "0"
-                                  )}
-                                </span>
-
+                              <td className="px-3 py-3 align-top text-sm font-semibold text-gray-500">
+                                {(page - 1) *
+                                  PAGE_SIZE +
+                                  index +
+                                  1}
                               </td>
 
                               {/* DATE */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="px-3 py-3 align-top">
                                 {isEditing ? (
-                                  <div className="w-[145px]">
-
-                                    <div className="relative">
-
-                                      <CalendarDays
-                                        size={14}
-                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                                      />
-
-                                      <input
-                                        type="date"
-                                        value={
-                                          editForm.assignment_date
-                                        }
-                                        onChange={(
-                                          e
-                                        ) =>
-                                          updateEditField(
-                                            "assignment_date",
-                                            e
-                                              .target
-                                              .value
-                                          )
-                                        }
-                                        disabled={
-                                          isSaving
-                                        }
-                                        className="w-full h-9 pl-9 pr-2 rounded-lg border border-red-200 bg-white text-[11px] font-bold outline-none focus:ring-4 focus:ring-red-50"
-                                      />
-
-                                    </div>
-                                  </div>
+                                  <input
+                                    type="date"
+                                    value={
+                                      editForm.assignment_date ||
+                                      ""
+                                    }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      handleEditChange(
+                                        "assignment_date",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="h-9 rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  />
                                 ) : (
-                                  <div className="flex items-center gap-2.5">
-
-                                    <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                                      <CalendarDays
-                                        size={14}
-                                        className="text-slate-500"
-                                      />
-                                    </div>
-
-                                    <div>
-                                      <p className="text-xs font-black text-slate-700 whitespace-nowrap">
-                                        {formatDate(
-                                          date
-                                        )}
-                                      </p>
-
-                                      {normalizeDate(
-                                        date
-                                      ) && (
-                                        <p className="text-[10px] text-slate-400 mt-0.5">
-                                          Task date
-                                        </p>
-                                      )}
-                                    </div>
-
-                                  </div>
+                                  <span className="whitespace-nowrap text-sm font-medium text-gray-700">
+                                    {formatDate(
+                                      getDate(
+                                        row
+                                      )
+                                    )}
+                                  </span>
                                 )}
-
                               </td>
 
                               {/* EMPLOYEE */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="px-3 py-3 align-top">
                                 {isEditing ? (
-                                  <div className="w-[180px]">
-
+                                  isAdmin ? (
                                     <select
                                       value={
-                                        editForm.employee_id
+                                        editForm.employee_id ||
+                                        ""
                                       }
                                       onChange={(
                                         e
                                       ) =>
-                                        updateEditField(
+                                        handleEditChange(
                                           "employee_id",
-                                          e
-                                            .target
-                                            .value
+                                          e.target.value
                                         )
                                       }
-                                      disabled={
-                                        isSaving
-                                      }
-                                      className="w-full h-9 px-2.5 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                      className="h-9 min-w-[150px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                                     >
                                       <option value="">
-                                        Select Employee
+                                        Select
                                       </option>
 
-                                      {userOptions.map(
+                                      {staff.map(
                                         (
-                                          employee
-                                        ) => (
-                                          <option
-                                            key={
-                                              employee.id
-                                            }
-                                            value={
-                                              employee.id
-                                            }
-                                          >
-                                            {
-                                              employee.name
-                                            }
-                                          </option>
-                                        )
+                                          person
+                                        ) => {
+                                          const id =
+                                            person.id ??
+                                            person.user_id;
+
+                                          const name =
+                                            person.name ??
+                                            person.full_name ??
+                                            person.email ??
+                                            `Employee ${id}`;
+
+                                          return (
+                                            <option
+                                              key={
+                                                id
+                                              }
+                                              value={String(
+                                                id
+                                              )}
+                                            >
+                                              {
+                                                name
+                                              }
+                                            </option>
+                                          );
+                                        }
                                       )}
                                     </select>
-
-                                  </div>
+                                  ) : (
+                                    <span className="text-xs font-semibold text-gray-600">
+                                      {getUserName(
+                                        row
+                                      )}
+                                    </span>
+                                  )
                                 ) : (
-                                  <div className="flex items-center gap-2.5">
-
+                                  <div className="flex items-center gap-2">
                                     <div
-                                      className="h-9 w-9 rounded-xl flex items-center justify-center shrink-0 text-[11px] font-black"
+                                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
                                       style={{
                                         backgroundColor:
-                                          "#fff1f1",
-                                        color:
                                           ACCENT,
                                       }}
                                     >
                                       {getInitials(
-                                        user
+                                        getUserName(
+                                          row
+                                        )
                                       )}
                                     </div>
 
-                                    <div className="max-w-[145px]">
-
-                                      <p
-                                        title={
-                                          user
-                                        }
-                                        className="text-xs font-black text-slate-800 truncate"
-                                      >
-                                        {
-                                          user
-                                        }
-                                      </p>
-
-                                      <p className="text-[10px] text-slate-400 mt-0.5">
-                                        Assigned employee
-                                      </p>
-
-                                    </div>
-
+                                    <span className="max-w-[140px] truncate text-sm font-semibold text-gray-700">
+                                      {getUserName(
+                                        row
+                                      )}
+                                    </span>
                                   </div>
                                 )}
-
                               </td>
 
                               {/* BUSINESS */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="max-w-[190px] px-3 py-3 align-top">
                                 {isEditing ? (
                                   <input
                                     type="text"
                                     value={
-                                      editForm.business_name
+                                      editForm.business_name ||
+                                      ""
                                     }
                                     onChange={(
                                       e
                                     ) =>
-                                      updateEditField(
+                                      handleEditChange(
                                         "business_name",
-                                        e
-                                          .target
-                                          .value
+                                        e.target.value
                                       )
                                     }
-                                    disabled={
-                                      isSaving
-                                    }
-                                    placeholder="Business name"
-                                    className="w-[210px] h-9 px-3 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                    className="h-9 w-[180px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                                   />
                                 ) : (
-                                  <div className="max-w-[210px]">
-
-                                    <p
-                                      title={
-                                        business
-                                      }
-                                      className="text-xs font-black text-slate-800 truncate"
-                                    >
-                                      {
-                                        business
-                                      }
-                                    </p>
-
-                                    {safeString(
-                                      record?.sourceFile
-                                    ) && (
-                                      <p
-                                        title={safeString(
-                                          record?.sourceFile
-                                        )}
-                                        className="text-[10px] text-slate-400 mt-1 truncate"
-                                      >
-                                        {safeString(
-                                          record?.sourceFile
-                                        )}
-                                      </p>
+                                  <span
+                                    className="block max-w-[180px] truncate text-sm font-semibold text-gray-800"
+                                    title={getBusiness(
+                                      row
                                     )}
-
-                                  </div>
+                                  >
+                                    {getBusiness(
+                                      row
+                                    ) || "—"}
+                                  </span>
                                 )}
-
                               </td>
 
                               {/* CONTACT */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="max-w-[150px] px-3 py-3 align-top">
                                 {isEditing ? (
                                   <input
                                     type="text"
                                     value={
-                                      editForm.name
+                                      editForm.name ||
+                                      ""
                                     }
                                     onChange={(
                                       e
                                     ) =>
-                                      updateEditField(
+                                      handleEditChange(
                                         "name",
-                                        e
-                                          .target
-                                          .value
+                                        e.target.value
                                       )
                                     }
-                                    disabled={
-                                      isSaving
-                                    }
-                                    placeholder="Contact name"
-                                    className="w-[180px] h-9 px-3 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
+                                    className="h-9 w-[145px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                                   />
                                 ) : (
-                                  <div className="flex items-center gap-2.5">
-
-                                    <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
-                                      {getInitials(
-                                        contact
-                                      )}
-                                    </div>
-
-                                    <span
-                                      title={
-                                        contact
-                                      }
-                                      className="text-xs font-bold text-slate-700 max-w-[150px] truncate"
-                                    >
-                                      {
-                                        contact
-                                      }
-                                    </span>
-
-                                  </div>
+                                  <span
+                                    className="block max-w-[145px] truncate text-sm text-gray-700"
+                                    title={getName(
+                                      row
+                                    )}
+                                  >
+                                    {getName(
+                                      row
+                                    ) || "—"}
+                                  </span>
                                 )}
-
                               </td>
 
                               {/* PHONE */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="px-3 py-3 align-top">
                                 {isEditing ? (
-                                  <div className="relative w-[160px]">
-
-                                    <Phone
-                                      size={13}
-                                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                                    />
-
-                                    <input
-                                      type="text"
-                                      value={
-                                        editForm.phone
-                                      }
-                                      onChange={(
-                                        e
-                                      ) =>
-                                        updateEditField(
-                                          "phone",
-                                          e
-                                            .target
-                                            .value
-                                        )
-                                      }
-                                      disabled={
-                                        isSaving
-                                      }
-                                      placeholder="Phone"
-                                      className="w-full h-9 pl-8 pr-2 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
-                                    />
-
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-2 whitespace-nowrap">
-
-                                    <Phone
-                                      size={14}
-                                      className="text-slate-400"
-                                    />
-
-                                    <span className="text-xs font-black text-slate-700">
-                                      {formatPhone(
-                                        phone
-                                      )}
-                                    </span>
-
-                                  </div>
-                                )}
-
-                              </td>
-
-                              {/* STATUS */}
-
-                              <td className="px-5 py-4 align-top">
-
-                                {isEditing ? (
-                                  <select
+                                  <input
+                                    type="text"
                                     value={
-                                      editForm.status
+                                      editForm.phone_number ||
+                                      ""
                                     }
                                     onChange={(
                                       e
                                     ) =>
-                                      updateEditField(
-                                        "status",
-                                        e
-                                          .target
-                                          .value
+                                      handleEditChange(
+                                        "phone_number",
+                                        e.target.value
                                       )
                                     }
-                                    disabled={
-                                      isSaving
-                                    }
-                                    className="w-[160px] h-9 px-2.5 rounded-lg border border-red-200 bg-white text-[11px] font-bold text-slate-700 outline-none focus:ring-4 focus:ring-red-50"
-                                  >
-                                    <option value="">
-                                      Select Status
-                                    </option>
+                                    className="h-9 w-[130px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  />
+                                ) : (
+                                  <span className="whitespace-nowrap text-sm font-medium text-gray-700">
+                                    {formatPhone(
+                                      getPhone(
+                                        row
+                                      )
+                                    )}
+                                  </span>
+                                )}
+                              </td>
 
-                                    {statusOptions.map(
+                              {/* STATUS */}
+
+                              <td className="px-3 py-3 align-top">
+                                {isEditing ? (
+                                  <select
+                                    value={
+                                      editForm.status ||
+                                      DEFAULT_STATUS
+                                    }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      handleEditChange(
+                                        "status",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="h-9 min-w-[135px] rounded-lg border border-gray-200 px-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  >
+                                    {STATUS_OPTIONS.map(
                                       (
-                                        item
+                                        status
                                       ) => (
                                         <option
                                           key={
-                                            item
+                                            status
                                           }
                                           value={
-                                            item
+                                            status
                                           }
                                         >
                                           {
-                                            item
+                                            status
                                           }
                                         </option>
                                       )
                                     )}
                                   </select>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setStatusFilter(
-                                        status
+                                  <span
+                                    className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusClasses(
+                                      getStatus(
+                                        row
                                       )
-                                    }
-                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-black whitespace-nowrap hover:shadow-sm transition ${statusClasses(
-                                      status
                                     )}`}
-                                    title="Filter by this status"
                                   >
-                                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-
-                                    {
-                                      status
-                                    }
-                                  </button>
+                                    {getStatus(
+                                      row
+                                    )}
+                                  </span>
                                 )}
-
                               </td>
 
                               {/* COMMENTS */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="max-w-[220px] px-3 py-3 align-top">
                                 {isEditing ? (
                                   <textarea
                                     value={
-                                      editForm.comment
+                                      editForm.comment ||
+                                      ""
                                     }
                                     onChange={(
                                       e
                                     ) =>
-                                      updateEditField(
+                                      handleEditChange(
                                         "comment",
-                                        e
-                                          .target
-                                          .value
+                                        e.target.value
                                       )
                                     }
-                                    disabled={
-                                      isSaving
-                                    }
-                                    placeholder="Comments"
-                                    rows={
-                                      2
-                                    }
-                                    className="w-[270px] min-h-[72px] px-3 py-2 rounded-lg border border-red-200 bg-white text-[11px] font-medium text-slate-700 outline-none resize-none focus:ring-4 focus:ring-red-50"
+                                    rows={2}
+                                    className="w-[210px] resize-y rounded-lg border border-gray-200 px-2 py-2 text-xs outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
                                   />
                                 ) : (
-                                  <div className="flex items-start gap-2 max-w-[260px]">
-
-                                    <MessageSquare
-                                      size={14}
-                                      className="text-slate-300 mt-0.5 shrink-0"
-                                    />
-
-                                    <p
-                                      title={
-                                        comment
-                                      }
-                                      className="text-xs text-slate-500 leading-5 truncate"
-                                    >
-                                      {
-                                        comment ||
-                                        "No comments"
-                                      }
-                                    </p>
-
-                                  </div>
+                                  <span
+                                    className="block max-w-[210px] truncate text-sm text-gray-600"
+                                    title={getComment(
+                                      row
+                                    )}
+                                  >
+                                    {getComment(
+                                      row
+                                    ) || "—"}
+                                  </span>
                                 )}
-
                               </td>
 
                               {/* SHEET */}
 
-                              <td className="px-5 py-4 align-top">
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    sheet !==
-                                      "—" &&
-                                    setSheetFilter(
-                                      sheet
-                                    )
-                                  }
-                                  disabled={
-                                    isEditing
-                                  }
-                                  className="inline-flex items-center gap-1.5 max-w-[180px] px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[10px] font-black text-slate-600 hover:bg-slate-100 transition disabled:opacity-70"
-                                >
-                                  <Layers3
-                                    size={12}
-                                    className="shrink-0"
+                              <td className="px-3 py-3 align-top">
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500">
+                                  <FileSpreadsheet
+                                    size={14}
                                   />
-
-                                  <span className="truncate">
-                                    {
-                                      sheet
-                                    }
-                                  </span>
-                                </button>
-
+                                  {getSheet(
+                                    row
+                                  ) || "—"}
+                                </span>
                               </td>
 
                               {/* TASK ID */}
 
-                              <td className="px-5 py-4 align-top">
-
-                                <span className="inline-flex items-center px-2.5 py-1.5 rounded-lg bg-slate-950 text-white text-[10px] font-black font-mono whitespace-nowrap">
-                                  #
-                                  {
-                                    taskId
-                                  }
+                              <td className="px-3 py-3 align-top">
+                                <span className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 font-mono text-[11px] font-semibold text-gray-600">
+                                  <Hash
+                                    size={12}
+                                  />
+                                  {getTaskId(
+                                    row
+                                  ) || "—"}
                                 </span>
-
                               </td>
 
                               {/* ACTION */}
 
-                              <td className="px-5 py-4 align-top">
-
+                              <td className="sticky right-0 z-10 bg-white px-3 py-3 align-top">
                                 {isEditing ? (
-                                  <div className="flex items-center gap-2">
-
+                                  <div className="flex items-center justify-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={() =>
                                         saveEdit(
-                                          record
+                                          row
                                         )
                                       }
-                                      disabled={
-                                        isSaving
-                                      }
-                                      className="h-9 px-3 rounded-lg text-white text-[10px] font-black inline-flex items-center gap-1.5 transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-white"
                                       style={{
                                         backgroundColor:
-                                          "#16a34a",
+                                          ACCENT,
                                       }}
                                     >
-                                      {isSaving ? (
-                                        <Loader2
-                                          size={
-                                            13
-                                          }
-                                          className="animate-spin"
-                                        />
-                                      ) : (
-                                        <Save
-                                          size={
-                                            13
-                                          }
-                                        />
-                                      )}
-
-                                      {isSaving
-                                        ? "Saving..."
-                                        : "Save"}
+                                      <Save
+                                        size={
+                                          13
+                                        }
+                                      />
+                                      Save
                                     </button>
 
                                     <button
@@ -2998,10 +2399,7 @@ export default function AdminReportsPage() {
                                       onClick={
                                         cancelEdit
                                       }
-                                      disabled={
-                                        isSaving
-                                      }
-                                      className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-[10px] font-black inline-flex items-center gap-1.5 hover:bg-slate-50 transition disabled:opacity-50"
+                                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
                                     >
                                       <X
                                         size={
@@ -3010,22 +2408,16 @@ export default function AdminReportsPage() {
                                       />
                                       Cancel
                                     </button>
-
                                   </div>
                                 ) : (
                                   <button
                                     type="button"
                                     onClick={() =>
                                       startEdit(
-                                        record
+                                        row
                                       )
                                     }
-                                    disabled={
-                                      Boolean(
-                                        editingId
-                                      )
-                                    }
-                                    className="h-9 px-3 rounded-lg border border-red-200 bg-red-50 text-red-600 text-[10px] font-black inline-flex items-center gap-1.5 hover:bg-red-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="mx-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50"
                                   >
                                     <Pencil
                                       size={
@@ -3035,229 +2427,573 @@ export default function AdminReportsPage() {
                                     Edit
                                   </button>
                                 )}
-
                               </td>
-
                             </tr>
                           );
                         }
                       )}
-
                     </tbody>
-
                   </table>
-
                 </div>
 
-                {/* ==================================================
-                    PAGINATION
-                ================================================== */}
+                {/* =================================================
+                    MOBILE CARDS
+                ================================================= */}
 
-                <div className="px-4 sm:px-6 py-4 border-t border-slate-100">
+                <div className="divide-y divide-gray-100 md:hidden">
+                  {paginatedRecords.map(
+                    (row, index) => {
+                      const assignmentId =
+                        getAssignmentId(
+                          row
+                        );
 
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      const isEditing =
+                        String(
+                          editingId
+                        ) ===
+                        String(
+                          assignmentId
+                        );
 
-                    <div className="text-[11px] text-slate-400 font-medium">
+                      return (
+                        <div
+                          key={`${assignmentId}-${index}`}
+                          className="p-4"
+                        >
+                          {/* CARD TOP */}
 
-                      Showing{" "}
+                          <div className="mb-3 flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white"
+                                style={{
+                                  backgroundColor:
+                                    ACCENT,
+                                }}
+                              >
+                                {getInitials(
+                                  getUserName(
+                                    row
+                                  )
+                                )}
+                              </div>
 
-                      <span className="font-black text-slate-700">
-                        {filteredRecords.length ===
-                        0
-                          ? 0
-                          : (safeCurrentPage -
-                              1) *
-                              PAGE_SIZE +
-                            1}
-                      </span>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-bold text-gray-900">
+                                  {getBusiness(
+                                    row
+                                  ) ||
+                                    "No Business"}
+                                </div>
 
-                      {" "}—{" "}
+                                <div className="mt-0.5 truncate text-xs text-gray-500">
+                                  {getUserName(
+                                    row
+                                  )}
+                                </div>
+                              </div>
+                            </div>
 
-                      <span className="font-black text-slate-700">
-                        {Math.min(
-                          safeCurrentPage *
-                            PAGE_SIZE,
-                          filteredRecords.length
-                        )}
-                      </span>
+                            <span className="shrink-0 text-[11px] font-semibold text-gray-400">
+                              #
+                              {(page - 1) *
+                                PAGE_SIZE +
+                                index +
+                                1}
+                            </span>
+                          </div>
 
-                      {" "}of{" "}
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              {/* EDIT DATE */}
 
-                      <span className="font-black text-slate-700">
-                        {
-                          filteredRecords.length
-                        }
-                      </span>
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Date
+                                </label>
 
-                      {" "}records
+                                <input
+                                  type="date"
+                                  value={
+                                    editForm.assignment_date ||
+                                    ""
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "assignment_date",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
 
-                    </div>
+                              {/* EDIT EMPLOYEE */}
 
-                    <div className="flex items-center gap-1.5">
+                              {isAdmin && (
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                    Employee
+                                  </label>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          changePage(
-                            safeCurrentPage -
-                              1
-                          )
-                        }
-                        disabled={
-                          safeCurrentPage <=
-                          1 ||
-                          Boolean(
-                            editingId
-                          )
-                        }
-                        className="h-9 w-9 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-                      >
-                        <ChevronLeft
-                          size={15}
-                        />
-                      </button>
-
-                      {Array.from(
-                        {
-                          length:
-                            Math.min(
-                              totalPages,
-                              7
-                            ),
-                        },
-                        (
-                          _,
-                          index
-                        ) => {
-                          let page =
-                            index +
-                            1;
-
-                          if (
-                            totalPages >
-                              7 &&
-                            safeCurrentPage >
-                              4
-                          ) {
-                            page =
-                              Math.min(
-                                totalPages -
-                                  6 +
-                                  index,
-                                totalPages
-                              );
-                          }
-
-                          return (
-                            <button
-                              type="button"
-                              key={
-                                page
-                              }
-                              onClick={() =>
-                                changePage(
-                                  page
-                                )
-                              }
-                              disabled={Boolean(
-                                editingId
-                              )}
-                              className={`h-9 min-w-9 px-2 rounded-lg text-[11px] font-black transition disabled:opacity-40 ${
-                                safeCurrentPage ===
-                                page
-                                  ? "text-white"
-                                  : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                              }`}
-                              style={
-                                safeCurrentPage ===
-                                page
-                                  ? {
-                                      backgroundColor:
-                                        ACCENT,
+                                  <select
+                                    value={
+                                      editForm.employee_id ||
+                                      ""
                                     }
-                                  : undefined
-                              }
-                            >
-                              {
-                                page
-                              }
-                            </button>
-                          );
-                        }
+                                    onChange={(
+                                      e
+                                    ) =>
+                                      handleEditChange(
+                                        "employee_id",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  >
+                                    <option value="">
+                                      Select employee
+                                    </option>
+
+                                    {staff.map(
+                                      (
+                                        person
+                                      ) => {
+                                        const id =
+                                          person.id ??
+                                          person.user_id;
+
+                                        const name =
+                                          person.name ??
+                                          person.full_name ??
+                                          person.email ??
+                                          `Employee ${id}`;
+
+                                        return (
+                                          <option
+                                            key={
+                                              id
+                                            }
+                                            value={String(
+                                              id
+                                            )}
+                                          >
+                                            {
+                                              name
+                                            }
+                                          </option>
+                                        );
+                                      }
+                                    )}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* EDIT BUSINESS */}
+
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Business
+                                </label>
+
+                                <input
+                                  type="text"
+                                  value={
+                                    editForm.business_name ||
+                                    ""
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "business_name",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
+
+                              {/* EDIT CONTACT */}
+
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Contact
+                                </label>
+
+                                <input
+                                  type="text"
+                                  value={
+                                    editForm.name ||
+                                    ""
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "name",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
+
+                              {/* EDIT PHONE */}
+
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Phone
+                                </label>
+
+                                <input
+                                  type="text"
+                                  value={
+                                    editForm.phone_number ||
+                                    ""
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "phone_number",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
+
+                              {/* EDIT STATUS */}
+
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Status
+                                </label>
+
+                                <select
+                                  value={
+                                    editForm.status ||
+                                    DEFAULT_STATUS
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "status",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="h-10 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                >
+                                  {STATUS_OPTIONS.map(
+                                    (
+                                      status
+                                    ) => (
+                                      <option
+                                        key={
+                                          status
+                                        }
+                                        value={
+                                          status
+                                        }
+                                      >
+                                        {
+                                          status
+                                        }
+                                      </option>
+                                    )
+                                  )}
+                                </select>
+                              </div>
+
+                              {/* EDIT COMMENT */}
+
+                              <div>
+                                <label className="mb-1 block text-[11px] font-bold text-gray-500">
+                                  Comments
+                                </label>
+
+                                <textarea
+                                  value={
+                                    editForm.comment ||
+                                    ""
+                                  }
+                                  onChange={(
+                                    e
+                                  ) =>
+                                    handleEditChange(
+                                      "comment",
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={3}
+                                  className="w-full resize-y rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                />
+                              </div>
+
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    saveEdit(
+                                      row
+                                    )
+                                  }
+                                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl text-sm font-bold text-white"
+                                  style={{
+                                    backgroundColor:
+                                      ACCENT,
+                                  }}
+                                >
+                                  <Save
+                                    size={
+                                      16
+                                    }
+                                  />
+                                  Save
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={
+                                    cancelEdit
+                                  }
+                                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-700"
+                                >
+                                  <X
+                                    size={
+                                      16
+                                    }
+                                  />
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              {/* CARD INFO */}
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Date
+                                  </div>
+
+                                  <div className="mt-1 text-sm font-semibold text-gray-700">
+                                    {formatDate(
+                                      getDate(
+                                        row
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Status
+                                  </div>
+
+                                  <div className="mt-1">
+                                    <span
+                                      className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${statusClasses(
+                                        getStatus(
+                                          row
+                                        )
+                                      )}`}
+                                    >
+                                      {getStatus(
+                                        row
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Contact
+                                  </div>
+
+                                  <div className="mt-1 truncate text-sm font-semibold text-gray-700">
+                                    {getName(
+                                      row
+                                    ) ||
+                                      "—"}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Phone
+                                  </div>
+
+                                  <div className="mt-1 truncate text-sm font-semibold text-gray-700">
+                                    {formatPhone(
+                                      getPhone(
+                                        row
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="col-span-2 rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Comments
+                                  </div>
+
+                                  <div className="mt-1 text-sm text-gray-600">
+                                    {getComment(
+                                      row
+                                    ) ||
+                                      "—"}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Sheet
+                                  </div>
+
+                                  <div className="mt-1 truncate text-xs font-semibold text-gray-600">
+                                    {getSheet(
+                                      row
+                                    ) ||
+                                      "—"}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-gray-50 p-3">
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                    Task ID
+                                  </div>
+
+                                  <div className="mt-1 font-mono text-xs font-bold text-gray-600">
+                                    {getTaskId(
+                                      row
+                                    ) ||
+                                      "—"}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  startEdit(
+                                    row
+                                  )
+                                }
+                                className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50"
+                              >
+                                <Pencil
+                                  size={16}
+                                />
+                                Edit Row
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+
+                {/* =================================================
+                    PAGINATION
+                ================================================= */}
+
+                <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-xs text-gray-500">
+                    Showing{" "}
+                    <span className="font-bold text-gray-700">
+                      {filteredRecords.length ===
+                      0
+                        ? 0
+                        : (page - 1) *
+                            PAGE_SIZE +
+                          1}
+                    </span>{" "}
+                    to{" "}
+                    <span className="font-bold text-gray-700">
+                      {Math.min(
+                        page * PAGE_SIZE,
+                        filteredRecords.length
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          changePage(
-                            safeCurrentPage +
-                              1
-                          )
-                        }
-                        disabled={
-                          safeCurrentPage >=
-                            totalPages ||
-                          Boolean(
-                            editingId
-                          )
-                        }
-                        className="h-9 w-9 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
-                      >
-                        <ChevronRight
-                          size={15}
-                        />
-                      </button>
-
-                    </div>
-
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-bold text-gray-700">
+                      {
+                        filteredRecords.length
+                      }
+                    </span>
                   </div>
 
+                  <div className="flex items-center justify-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={page <= 1}
+                      onClick={() =>
+                        setPage(
+                          (p) =>
+                            Math.max(
+                              1,
+                              p - 1
+                            )
+                        )
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronLeft
+                        size={16}
+                      />
+                    </button>
+
+                    <div className="flex h-9 min-w-[42px] items-center justify-center rounded-lg bg-gray-100 px-2 text-xs font-bold text-gray-700">
+                      {page} /{" "}
+                      {totalPages}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={
+                        page >= totalPages
+                      }
+                      onClick={() =>
+                        setPage(
+                          (p) =>
+                            Math.min(
+                              totalPages,
+                              p + 1
+                            )
+                        )
+                      }
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronRight
+                        size={16}
+                      />
+                    </button>
+                  </div>
                 </div>
               </>
             )}
-
           </section>
+        </main>
+      </div>
 
-          {/* ==================================================
-              EDIT INFO
-          ================================================== */}
+      {/* =========================================================
+          LOGOUT MODAL
+      ========================================================= */}
 
-          <div className="mt-4 flex items-center gap-2 px-1 text-[10px] text-slate-400 font-medium">
-
-            <UserRound
-              size={12}
-            />
-
-            <span>
-              Admin can edit Date, Employee, Business, Contact,
-              Phone, Status and Comments. Sheet and Task ID are
-              read-only.
-            </span>
-
-          </div>
-
-        </div>
-      </main>
-
-      {/* ==========================================================
-          LOGOUT
-      ========================================================== */}
-
-      {showLogout && (
+      {showLogoutModal && (
         <LogoutModal
+          open={showLogoutModal}
           onClose={() =>
-            setShowLogout(
-              false
-            )
+            setShowLogoutModal(false)
           }
-          onConfirm={() => {
-            setShowLogout(
-              false
-            );
-            router.push(
-              "/login"
-            );
-          }}
         />
       )}
     </div>

@@ -1,53 +1,48 @@
+
+// app/api/admin/history/route.js
+
 import { NextResponse } from "next/server";
-import { query } from "../../../lib/db";
 import jwt from "jsonwebtoken";
+import pool from "../../../lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ============================================================
+// =========================================================
+// CONFIG
+// =========================================================
+
+const COOKIE_NAME = "token";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const COMPLETED_STATUSES = new Set([
+  "completed",
+  "complete",
+  "done",
+]);
+
+// =========================================================
+// DB QUERY HELPER
+// =========================================================
+
+async function query(sql, params = []) {
+  const [rows] = await pool.execute(sql, params);
+  return rows;
+}
+
+// =========================================================
 // HELPERS
-// ============================================================
+// =========================================================
 
-function isValidDate(value) {
-  if (!value) return true;
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-
-  const d = new Date(Date.UTC(year, month - 1, day));
-
-  return (
-    d.getUTCFullYear() === year &&
-    d.getUTCMonth() === month - 1 &&
-    d.getUTCDate() === day
-  );
-}
-
-function cleanString(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  return String(value).trim();
-}
-
-function getUserIdFromToken(decoded) {
-  return (
-    decoded?.id ??
-    decoded?.userId ??
-    decoded?.user_id ??
-    decoded?._id
-  );
+function normalizeRole(role) {
+  return String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function isAdminRole(role) {
-  const normalized = String(role || "")
-    .trim()
-    .toLowerCase();
+  const normalized = normalizeRole(role);
 
   return (
     normalized === "admin" ||
@@ -57,35 +52,189 @@ function isAdminRole(role) {
   );
 }
 
-// ============================================================
-// AUTHENTICATION
-// ============================================================
+function normalizeStatus(status) {
+  return String(status || "").trim();
+}
 
-async function authenticate(request) {
-  const token = request.cookies.get("token")?.value;
+function isCompletedStatus(status) {
+  return COMPLETED_STATUSES.has(
+    normalizeStatus(status).toLowerCase()
+  );
+}
 
-  if (!token) {
-    return {
-      error: NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized. Please login again.",
-        },
-        { status: 401 }
-      ),
-    };
+function safeString(value) {
+  if (value === null || value === undefined) {
+    return "";
   }
 
-  let decoded;
+  return String(value).trim();
+}
 
+function validDate(value) {
+  if (!value) {
+    return false;
+  }
+
+  const str = String(value).trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return false;
+  }
+
+  const date = new Date(`${str}T00:00:00`);
+
+  return !Number.isNaN(date.getTime());
+}
+
+function getCaliforniaDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+// =========================================================
+// GET NEXT SEQUENCE NUMBER
+//
+// master_tasks.sequence_no = INT NOT NULL
+// =========================================================
+
+async function getNextSequenceNumber() {
+  const rows = await query(`
+    SELECT
+      COALESCE(MAX(sequence_no), 0) + 1 AS next_sequence
+    FROM master_tasks
+  `);
+
+  const nextSequence = Number(
+    rows?.[0]?.next_sequence
+  );
+
+  if (
+    !Number.isInteger(nextSequence) ||
+    nextSequence <= 0
+  ) {
+    return 1;
+  }
+
+  return nextSequence;
+}
+
+// =========================================================
+// AUTHENTICATION
+// =========================================================
+
+async function authenticate(request) {
   try {
-    decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET
+    if (!JWT_SECRET) {
+      return {
+        error: NextResponse.json(
+          {
+            success: false,
+            message: "JWT_SECRET is not configured",
+          },
+          { status: 500 }
+        ),
+      };
+    }
+
+    const token =
+      request.cookies.get(COOKIE_NAME)?.value;
+
+    if (!token) {
+      return {
+        error: NextResponse.json(
+          {
+            success: false,
+            message: "Unauthorized",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return {
+        error: NextResponse.json(
+          {
+            success: false,
+            message: "Invalid or expired token",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    const currentUserId = Number(
+      decoded?.id ??
+        decoded?.userId ??
+        decoded?.user_id ??
+        decoded?.uid
     );
+
+    if (
+      !Number.isInteger(currentUserId) ||
+      currentUserId <= 0
+    ) {
+      return {
+        error: NextResponse.json(
+          {
+            success: false,
+            message: "Invalid user ID in token",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Always load real user from DB.
+    const users = await query(
+      `
+      SELECT
+        id,
+        name,
+        email,
+        role,
+        status
+      FROM users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [currentUserId]
+    );
+
+    if (!users || users.length === 0) {
+      return {
+        error: NextResponse.json(
+          {
+            success: false,
+            message: "User not found",
+          },
+          { status: 401 }
+        ),
+      };
+    }
+
+    const currentUser = users[0];
+
+    const isAdmin = isAdminRole(
+      currentUser.role
+    );
+
+    return {
+      currentUser,
+      currentUserId,
+      isAdmin,
+    };
   } catch (error) {
     console.error(
-      "ADMIN HISTORY JWT ERROR:",
+      "[History Auth Error]",
       error
     );
 
@@ -93,149 +242,133 @@ async function authenticate(request) {
       error: NextResponse.json(
         {
           success: false,
-          message: "Invalid or expired login session.",
+          message: "Authentication failed",
         },
-        { status: 401 }
+        { status: 500 }
       ),
     };
   }
+}
 
-  const currentUserId =
-    getUserIdFromToken(decoded);
+// =========================================================
+// GET ONE HISTORY RECORD
+//
+// RELATION:
+//
+// daily_assignments.task_id
+//          ↓
+// master_tasks.id
+//
+// IMPORTANT:
+// master_tasks.task_id DOES NOT EXIST.
+// =========================================================
 
-  if (!currentUserId) {
-    return {
-      error: NextResponse.json(
-        {
-          success: false,
-          message: "User ID not found in token.",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const users = await query(
+async function getHistoryRecord(assignmentId) {
+  const rows = await query(
     `
-      SELECT
-        id,
-        name,
-        email,
-        role
-      FROM users
-      WHERE id = ?
-      LIMIT 1
+    SELECT
+
+      da.id AS assignment_id,
+      da.id AS assignmentId,
+
+      da.task_id AS task_id,
+      da.task_id AS taskId,
+
+      da.employee_id AS employee_id,
+      da.employee_id AS employeeId,
+
+      da.assignment_date AS assignment_date,
+      da.assignment_date AS assignmentDate,
+
+      da.assigned_at AS assigned_at,
+      da.assigned_at AS assignedAt,
+
+      da.status AS assignment_status,
+      da.status AS status,
+
+      da.comment AS assignment_comment,
+      da.comment AS comment,
+
+      da.is_completed AS is_completed,
+      da.is_completed AS isCompleted,
+
+      da.updated_at AS assignment_updated_at,
+      da.updated_at AS updatedAt,
+
+      da.created_at AS assignment_created_at,
+      da.created_at AS createdAt,
+
+      mt.id AS master_task_id,
+      mt.id AS masterTaskId,
+
+      mt.pool_id AS pool_id,
+      mt.pool_id AS poolId,
+
+      mt.sequence_no AS sequence_no,
+      mt.sequence_no AS sequenceNo,
+
+      mt.task_date AS task_date,
+      mt.task_date AS taskDate,
+
+      mt.business_name AS business_name,
+      mt.business_name AS businessName,
+
+      mt.name AS contact_name,
+      mt.name AS contactName,
+
+      mt.name AS name,
+
+      mt.phone_number AS phone_number,
+      mt.phone_number AS phoneNumber,
+
+      mt.current_status AS task_status,
+      mt.current_status AS taskStatus,
+
+      mt.is_locked AS is_locked,
+      mt.is_locked AS isLocked,
+
+      u.id AS user_id,
+      u.id AS userId,
+
+      u.name AS employee_name,
+      u.name AS employeeName,
+
+      u.email AS employee_email,
+      u.email AS employeeEmail,
+
+      u.role AS employee_role,
+      u.role AS employeeRole
+
+    FROM daily_assignments da
+
+    LEFT JOIN master_tasks mt
+      ON mt.id = da.task_id
+
+    LEFT JOIN users u
+      ON u.id = da.employee_id
+
+    WHERE da.id = ?
+
+    LIMIT 1
     `,
-    [currentUserId]
+    [assignmentId]
   );
 
-  if (
-    !Array.isArray(users) ||
-    users.length === 0
-  ) {
-    return {
-      error: NextResponse.json(
-        {
-          success: false,
-          message: "Logged-in user was not found.",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const currentUser = users[0];
-
-  return {
-    currentUser,
-    currentUserId,
-    isAdmin: isAdminRole(currentUser.role),
-  };
+  return rows?.[0] || null;
 }
 
-// ============================================================
-// RESPONSE HEADERS
-// ============================================================
-
-function noCacheHeaders() {
-  return {
-    "Cache-Control":
-      "no-store, no-cache, must-revalidate, proxy-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-    "Surrogate-Control": "no-store",
-  };
-}
-
-// ============================================================
+// =========================================================
 // GET
-// ============================================================
+//
+// ADMIN:
+//   All history records.
+//
+// NORMAL USER:
+//   Only own history records.
+// =========================================================
 
 export async function GET(request) {
   try {
-    // ========================================================
-    // QUERY PARAMS
-    // ========================================================
-
-    const { searchParams } =
-      new URL(request.url);
-
-    const dateStr = String(
-      searchParams.get("date") || ""
-    ).trim();
-
-    const fromDate = String(
-      searchParams.get("from") || ""
-    ).trim();
-
-    const toDate = String(
-      searchParams.get("to") || ""
-    ).trim();
-
-    // ========================================================
-    // DATE VALIDATION
-    // ========================================================
-
-    if (
-      !isValidDate(dateStr) ||
-      !isValidDate(fromDate) ||
-      !isValidDate(toDate)
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Invalid date format. Use YYYY-MM-DD.",
-        },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
-      );
-    }
-
-    if (
-      fromDate &&
-      toDate &&
-      fromDate > toDate
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "From date cannot be greater than To date.",
-        },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
-      );
-    }
-
-    // ========================================================
-    // AUTH
-    // ========================================================
-
     const auth = await authenticate(request);
 
     if (auth.error) {
@@ -243,288 +376,184 @@ export async function GET(request) {
     }
 
     const {
-      currentUser,
       currentUserId,
       isAdmin,
     } = auth;
 
-    // ========================================================
-    // MAIN QUERY
-    // ========================================================
-    //
-    // IMPORTANT:
-    // NO updated_at COLUMN IS USED.
-    //
-    // Your daily_assignments table uses created_at.
-    //
-    // ========================================================
+    const { searchParams } =
+      new URL(request.url);
+
+    const from = safeString(
+      searchParams.get("from")
+    );
+
+    const to = safeString(
+      searchParams.get("to")
+    );
+
+    const date = safeString(
+      searchParams.get("date")
+    );
 
     let sql = `
       SELECT
 
-        /* ==================================================
-           DAILY ASSIGNMENT
-        ================================================== */
-
-        da.id AS id,
-
         da.id AS assignment_id,
+        da.id AS assignmentId,
 
-        da.id AS daily_assignment_id,
-
-        da.task_id AS assignment_task_id,
-
-        da.task_id AS assignmentTaskId,
+        da.task_id AS task_id,
+        da.task_id AS taskId,
 
         da.employee_id AS employee_id,
-
         da.employee_id AS employeeId,
 
-        da.employee_id AS assigned_employee_id,
-
-        da.employee_id AS assignedEmployeeId,
-
-        /* ==================================================
-           DATE
-        ================================================== */
-
         da.assignment_date AS assignment_date,
-
         da.assignment_date AS assignmentDate,
 
-        DATE(da.assignment_date) AS assignedDate,
-
-        DATE(da.assignment_date) AS assignmentDateOnly,
-
-        DATE(da.assignment_date) AS task_date,
-
-        DATE(da.assignment_date) AS taskDate,
-
-        DATE(da.assignment_date) AS date,
-
-        /* ==================================================
-           CREATED TIME
-           updated_at REMOVED
-        ================================================== */
-
-        da.created_at AS created_at,
-
-        da.created_at AS createdAt,
-
-        /* ==================================================
-           STATUS
-        ================================================== */
-
-        da.status AS status,
+        da.assigned_at AS assigned_at,
+        da.assigned_at AS assignedAt,
 
         da.status AS assignment_status,
+        da.status AS status,
 
-        da.status AS assignmentStatus,
-
-        da.status AS assignment_status_name,
-
-        da.status AS selected_status,
-
-        da.status AS selectedStatus,
-
-        da.status AS result,
-
-        da.status AS result_status,
-
-        da.status AS task_status,
-
-        da.status AS taskStatus,
-
-        da.status AS call_status,
-
-        da.status AS callStatus,
-
-        da.status AS disposition,
-
-        da.status AS outcome,
-
-        da.status AS current_status,
-
-        da.status AS selected_result,
-
-        /* ==================================================
-           COMMENT
-        ================================================== */
-
+        da.comment AS assignment_comment,
         da.comment AS comment,
 
-        da.comment AS comments,
-
-        da.comment AS notes,
-
-        da.comment AS task_comment,
-
-        da.comment AS taskComment,
-
-        /* ==================================================
-           COMPLETION
-        ================================================== */
-
         da.is_completed AS is_completed,
-
         da.is_completed AS isCompleted,
 
-        /* ==================================================
-           MASTER TASK
-        ================================================== */
+        da.updated_at AS assignment_updated_at,
+        da.updated_at AS updatedAt,
 
-        mt.id AS taskId,
-
-        mt.id AS task_id,
+        da.created_at AS assignment_created_at,
+        da.created_at AS createdAt,
 
         mt.id AS master_task_id,
-
         mt.id AS masterTaskId,
+
+        mt.pool_id AS pool_id,
+        mt.pool_id AS poolId,
+
+        mt.sequence_no AS sequence_no,
+        mt.sequence_no AS sequenceNo,
+
+        mt.task_date AS task_date,
+        mt.task_date AS taskDate,
+
+        mt.business_name AS business_name,
+        mt.business_name AS businessName,
+
+        mt.name AS contact_name,
+        mt.name AS contactName,
 
         mt.name AS name,
 
-        mt.name AS contactName,
-
-        mt.name AS contact_name,
-
-        mt.phone_number AS phone,
-
+        mt.phone_number AS phone_number,
         mt.phone_number AS phoneNumber,
 
-        mt.phone_number AS phone_number,
-
-        mt.business_name AS businessName,
-
-        mt.business_name AS business_name,
-
-        mt.current_status AS master_current_status,
+        mt.current_status AS task_status,
+        mt.current_status AS taskStatus,
 
         mt.is_locked AS is_locked,
+        mt.is_locked AS isLocked,
 
-        /* ==================================================
-           USER
-        ================================================== */
-
-        u.id AS staffId,
-
-        u.id AS staff_id,
-
+        u.id AS user_id,
         u.id AS userId,
 
-        u.name AS assignedToName,
-
-        u.name AS assigned_to,
-
+        u.name AS employee_name,
         u.name AS employeeName,
 
-        u.name AS employee_name,
-
-        u.name AS staffName,
-
-        u.name AS staff_name,
-
-        u.name AS userName,
-
-        u.name AS user_name,
-
-        u.email AS staffEmail,
-
+        u.email AS employee_email,
         u.email AS employeeEmail,
 
-        u.email AS userEmail,
-
-        u.email AS email,
-
-        u.role AS staffRole,
-
-        u.role AS employeeRole,
-
-        u.role AS userRole
+        u.role AS employee_role,
+        u.role AS employeeRole
 
       FROM daily_assignments da
 
       LEFT JOIN master_tasks mt
-        ON da.task_id = mt.id
+        ON mt.id = da.task_id
 
       LEFT JOIN users u
-        ON da.employee_id = u.id
+        ON u.id = da.employee_id
+
+      WHERE 1 = 1
     `;
 
-    // ========================================================
-    // WHERE
-    // ========================================================
-
-    const where = [];
     const params = [];
 
-    // --------------------------------------------------------
-    // NORMAL USER
-    // --------------------------------------------------------
+    // =====================================================
+    // NORMAL USER = ONLY OWN RECORDS
+    // =====================================================
 
     if (!isAdmin) {
-      where.push(
-        `da.employee_id = ?`
-      );
+      sql += `
+        AND da.employee_id = ?
+      `;
 
       params.push(currentUserId);
     }
 
-    // --------------------------------------------------------
-    // SINGLE DATE
-    // --------------------------------------------------------
+    // =====================================================
+    // DATE FILTER
+    // =====================================================
 
-    if (dateStr) {
-      where.push(
-        `DATE(da.assignment_date) = ?`
-      );
+    if (date) {
+      if (!validDate(date)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid date format. Use YYYY-MM-DD.",
+          },
+          { status: 400 }
+        );
+      }
 
-      params.push(dateStr);
-    }
-
-    // --------------------------------------------------------
-    // FROM DATE
-    // --------------------------------------------------------
-
-    if (fromDate) {
-      where.push(
-        `DATE(da.assignment_date) >= ?`
-      );
-
-      params.push(fromDate);
-    }
-
-    // --------------------------------------------------------
-    // TO DATE
-    // --------------------------------------------------------
-
-    if (toDate) {
-      where.push(
-        `DATE(da.assignment_date) <= ?`
-      );
-
-      params.push(toDate);
-    }
-
-    // ========================================================
-    // APPLY WHERE
-    // ========================================================
-
-    if (where.length > 0) {
       sql += `
-        WHERE ${where.join(" AND ")}
+        AND da.assignment_date = ?
       `;
-    }
 
-    // ========================================================
-    // ORDER
-    // ========================================================
-    //
-    // updated_at REMOVED.
-    //
-    // Newest assignment date first,
-    // then newest ID.
-    //
-    // ========================================================
+      params.push(date);
+    } else {
+      if (from) {
+        if (!validDate(from)) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Invalid from date.",
+            },
+            { status: 400 }
+          );
+        }
+
+        sql += `
+          AND da.assignment_date >= ?
+        `;
+
+        params.push(from);
+      }
+
+      if (to) {
+        if (!validDate(to)) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                "Invalid to date.",
+            },
+            { status: 400 }
+          );
+        }
+
+        sql += `
+          AND da.assignment_date <= ?
+        `;
+
+        params.push(to);
+      }
+    }
 
     sql += `
       ORDER BY
@@ -532,322 +561,578 @@ export async function GET(request) {
         da.id DESC
     `;
 
-    // ========================================================
-    // DATABASE
-    // ========================================================
-
     const rows = await query(
       sql,
       params
     );
 
-    // ========================================================
-    // NORMALIZE
-    // ========================================================
-
-    const normalizedTasks =
-      Array.isArray(rows)
-        ? rows.map((row) => {
-            const status =
-              row?.status === null ||
-              row?.status === undefined
-                ? ""
-                : String(
-                    row.status
-                  ).trim();
-
-            const comment =
-              row?.comment === null ||
-              row?.comment === undefined
-                ? ""
-                : String(
-                    row.comment
-                  ).trim();
-
-            return {
-              ...row,
-
-              // ==================================================
-              // DATE
-              // ==================================================
-
-              assignment_date:
-                row?.assignment_date ||
-                null,
-
-              assignmentDate:
-                row?.assignmentDate ||
-                row?.assignment_date ||
-                null,
-
-              assignedDate:
-                row?.assignedDate ||
-                null,
-
-              assignmentDateOnly:
-                row?.assignmentDateOnly ||
-                row?.assignedDate ||
-                null,
-
-              task_date:
-                row?.task_date ||
-                row?.assignedDate ||
-                null,
-
-              taskDate:
-                row?.taskDate ||
-                row?.assignedDate ||
-                null,
-
-              date:
-                row?.date ||
-                row?.assignedDate ||
-                null,
-
-              // ==================================================
-              // STATUS
-              // ==================================================
-
-              status,
-
-              assignment_status:
-                status,
-
-              assignmentStatus:
-                status,
-
-              assignment_status_name:
-                status,
-
-              selected_status:
-                status,
-
-              selectedStatus:
-                status,
-
-              result:
-                status,
-
-              result_status:
-                status,
-
-              task_status:
-                status,
-
-              taskStatus:
-                status,
-
-              call_status:
-                status,
-
-              callStatus:
-                status,
-
-              disposition:
-                status,
-
-              outcome:
-                status,
-
-              current_status:
-                status,
-
-              selected_result:
-                status,
-
-              // ==================================================
-              // COMMENT
-              // ==================================================
-
-              comment:
-                comment || null,
-
-              comments:
-                comment || null,
-
-              notes:
-                comment || null,
-
-              task_comment:
-                comment || null,
-
-              taskComment:
-                comment || null,
-
-              // ==================================================
-              // COMPLETION
-              // ==================================================
-
-              is_completed:
-                Number(
-                  row?.is_completed ?? 0
-                ),
-
-              isCompleted:
-                Number(
-                  row?.is_completed ?? 0
-                ),
-
-              // ==================================================
-              // EMPLOYEE
-              // ==================================================
-
-              employee_id:
-                row?.employee_id ??
-                null,
-
-              employeeId:
-                row?.employeeId ??
-                row?.employee_id ??
-                null,
-
-              assigned_employee_id:
-                row?.assigned_employee_id ??
-                row?.employee_id ??
-                null,
-
-              assignedEmployeeId:
-                row?.assignedEmployeeId ??
-                row?.employee_id ??
-                null,
-
-              employee_name:
-                row?.employee_name ||
-                row?.employeeName ||
-                row?.assignedToName ||
-                "",
-
-              employeeName:
-                row?.employeeName ||
-                row?.employee_name ||
-                row?.assignedToName ||
-                "",
-
-              assignedToName:
-                row?.assignedToName ||
-                row?.employeeName ||
-                "",
-
-              assigned_to:
-                row?.assigned_to ||
-                row?.employeeName ||
-                "",
-
-              staffName:
-                row?.staffName ||
-                row?.employeeName ||
-                "",
-
-              userName:
-                row?.userName ||
-                row?.employeeName ||
-                "",
-
-              user_name:
-                row?.user_name ||
-                row?.employeeName ||
-                "",
-            };
-          })
-        : [];
-
-    // ========================================================
-    // RESPONSE
-    // ========================================================
-
-    return NextResponse.json(
-      {
-        success: true,
-
-        data: normalizedTasks,
-
-        records: normalizedTasks,
-
-        history: normalizedTasks,
-
-        tasks: normalizedTasks,
-
-        count:
-          normalizedTasks.length,
-
-        date:
-          dateStr || null,
-
-        from:
-          fromDate || null,
-
-        to:
-          toDate || null,
-
-        source:
-          "daily_assignments",
-
-        timezone:
-          "America/Los_Angeles",
-
-        viewer: {
-          id:
-            currentUser.id,
-
-          name:
-            currentUser.name || "",
-
-          email:
-            currentUser.email || "",
-
-          role:
-            currentUser.role || "",
-
-          isAdmin,
-        },
-      },
-      {
-        status: 200,
-        headers: noCacheHeaders(),
-      }
-    );
+    return NextResponse.json({
+      success: true,
+      data: rows,
+      records: rows,
+      total: rows.length,
+    });
   } catch (error) {
     console.error(
-      "ADMIN HISTORY GET ERROR:",
+      "[History GET Error]",
       error
     );
 
     return NextResponse.json(
       {
         success: false,
-
         message:
-          error?.message ||
-          "Failed to fetch admin history",
-
+          "Failed to load history",
         error:
-          process.env.NODE_ENV ===
-          "development"
-            ? String(error)
+          process.env.NODE_ENV === "development"
+            ? error?.message
             : undefined,
       },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control":
-            "no-store",
-        },
-      }
+      { status: 500 }
     );
   }
 }
 
-// ============================================================
-// PUT
-// EDIT REPORT / HISTORY RECORD
-// ============================================================
+// =========================================================
+// POST - CREATE NEW ROW
+//
+// ADMIN:
+//   Can create for ANY employee.
+//
+// NORMAL USER:
+//   Can create ONLY for own login user.
+//
+// =========================================================
+
+export async function POST(request) {
+  let createdMasterTaskId = 0;
+
+  try {
+    const auth = await authenticate(request);
+
+    if (auth.error) {
+      return auth.error;
+    }
+
+    const {
+      currentUserId,
+      isAdmin,
+    } = auth;
+
+    let body;
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid JSON body",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // EMPLOYEE ID
+    // =====================================================
+
+    const rawEmployeeId =
+      body?.employee_id ??
+      body?.employeeId ??
+      body?.assigned_employee_id ??
+      body?.assignedEmployeeId;
+
+    let employeeId;
+
+    if (
+      rawEmployeeId === undefined ||
+      rawEmployeeId === null ||
+      rawEmployeeId === ""
+    ) {
+      // Normal user automatically gets own ID.
+      if (!isAdmin) {
+        employeeId = currentUserId;
+      } else {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Employee is required for admin.",
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      employeeId = Number(rawEmployeeId);
+    }
+
+    if (
+      !Number.isInteger(employeeId) ||
+      employeeId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid employee ID.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // SECURITY
+    //
+    // NORMAL USER CAN ONLY CREATE OWN RECORD.
+    // =====================================================
+
+    if (
+      !isAdmin &&
+      employeeId !== Number(currentUserId)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You can only create records for your own user ID.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // =====================================================
+    // VERIFY EMPLOYEE
+    // =====================================================
+
+    const employeeRows =
+      await query(
+        `
+        SELECT
+          id,
+          name,
+          email,
+          role,
+          status
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [employeeId]
+      );
+
+    if (
+      !employeeRows ||
+      employeeRows.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Selected employee does not exist.",
+        },
+        { status: 404 }
+      );
+    }
+
+    // =====================================================
+    // DATE
+    // =====================================================
+
+    const assignmentDate =
+      safeString(
+        body?.assignment_date ??
+          body?.assignmentDate ??
+          body?.date
+      ) || getCaliforniaDate();
+
+    if (!validDate(assignmentDate)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid assignment date. Use YYYY-MM-DD.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // BUSINESS NAME
+    // =====================================================
+
+    const businessName =
+      safeString(
+        body?.business_name ??
+          body?.businessName ??
+          body?.business
+      );
+
+    if (businessName.length > 150) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Business name must be 150 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // CONTACT NAME
+    // =====================================================
+
+    const contactName =
+      safeString(
+        body?.contact_name ??
+          body?.contactName ??
+          body?.name ??
+          body?.contact
+      );
+
+    if (contactName.length > 100) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Contact name must be 100 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // PHONE
+    // =====================================================
+
+    const phoneNumber =
+      safeString(
+        body?.phone_number ??
+          body?.phoneNumber ??
+          body?.phone
+      );
+
+    if (!phoneNumber) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Phone number is required.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (phoneNumber.length > 30) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Phone number must be 30 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // STATUS
+    // =====================================================
+
+    const status =
+      normalizeStatus(
+        body?.status ??
+          body?.assignment_status ??
+          body?.assignmentStatus
+      ) || "Pending";
+
+    if (status.length > 50) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Status must be 50 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // COMMENT
+    // =====================================================
+
+    const comment =
+      safeString(
+        body?.comment ??
+          body?.comments
+      );
+
+    if (comment.length > 5000) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Comment must be 5000 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const isCompleted =
+      isCompletedStatus(status)
+        ? 1
+        : 0;
+
+    // =====================================================
+    // GET NEXT SEQUENCE
+    // =====================================================
+
+    const sequenceNo =
+      await getNextSequenceNumber();
+
+    // =====================================================
+    // CREATE MASTER TASK
+    //
+    // CURRENT SCHEMA:
+    //
+    // id
+    // pool_id
+    // sequence_no
+    // task_date
+    // name
+    // phone_number
+    // business_name
+    // current_status
+    // is_locked
+    //
+    // master_tasks.task_id DOES NOT EXIST.
+    // =====================================================
+
+    const masterTaskResult =
+      await query(
+        `
+        INSERT INTO master_tasks
+        (
+          sequence_no,
+          task_date,
+          name,
+          phone_number,
+          business_name,
+          current_status,
+          is_locked
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 0)
+        `,
+        [
+          sequenceNo,
+          assignmentDate,
+          contactName || null,
+          phoneNumber,
+          businessName || null,
+          status,
+        ]
+      );
+
+    createdMasterTaskId =
+      Number(
+        masterTaskResult?.insertId
+      );
+
+    if (
+      !Number.isInteger(
+        createdMasterTaskId
+      ) ||
+      createdMasterTaskId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Master task was not created.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // =====================================================
+    // CREATE DAILY ASSIGNMENT
+    //
+    // daily_assignments.task_id
+    // = master_tasks.id
+    // =====================================================
+
+    let assignmentId = 0;
+
+    try {
+      const assignmentResult =
+        await query(
+          `
+          INSERT INTO daily_assignments
+          (
+            task_id,
+            employee_id,
+            assignment_date,
+            status,
+            comment,
+            is_completed,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, NOW())
+          `,
+          [
+            createdMasterTaskId,
+            employeeId,
+            assignmentDate,
+            status,
+            comment || null,
+            isCompleted,
+          ]
+        );
+
+      assignmentId =
+        Number(
+          assignmentResult?.insertId
+        );
+    } catch (assignmentError) {
+      // Remove orphan master task.
+      try {
+        await query(
+          `
+          DELETE FROM master_tasks
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [createdMasterTaskId]
+        );
+      } catch (cleanupError) {
+        console.error(
+          "[History POST Cleanup Error]",
+          cleanupError
+        );
+      }
+
+      throw assignmentError;
+    }
+
+    if (
+      !Number.isInteger(
+        assignmentId
+      ) ||
+      assignmentId <= 0
+    ) {
+      try {
+        await query(
+          `
+          DELETE FROM master_tasks
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [createdMasterTaskId]
+        );
+      } catch (cleanupError) {
+        console.error(
+          "[History POST Cleanup Error 2]",
+          cleanupError
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Daily assignment was not created.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // =====================================================
+    // GET CREATED RECORD
+    // =====================================================
+
+    const newRecord =
+      await getHistoryRecord(
+        assignmentId
+      );
+
+    return NextResponse.json(
+      {
+        success: true,
+        message:
+          "New row created successfully.",
+
+        data: newRecord,
+        record: newRecord,
+
+        assignment_id:
+          assignmentId,
+
+        // This is master_tasks.id
+        task_id:
+          createdMasterTaskId,
+
+        sequence_no:
+          sequenceNo,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error(
+      "[History POST Error]",
+      error
+    );
+
+    // =====================================================
+    // FINAL CLEANUP
+    // =====================================================
+
+    if (
+      createdMasterTaskId > 0
+    ) {
+      try {
+        await query(
+          `
+          DELETE FROM master_tasks
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [createdMasterTaskId]
+        );
+      } catch (cleanupError) {
+        console.error(
+          "[History POST Final Cleanup Error]",
+          cleanupError
+        );
+      }
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Failed to create new row.",
+        error:
+          process.env.NODE_ENV === "development"
+            ? error?.message
+            : undefined,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// =========================================================
+// PUT - UPDATE EXISTING ROW
+//
+// ADMIN:
+//   Can edit ANY employee.
+//
+// NORMAL USER:
+//   Can edit ONLY their own record.
+// =========================================================
 
 export async function PUT(request) {
   try {
-    // ========================================================
-    // AUTH
-    // ========================================================
-
     const auth =
       await authenticate(request);
 
@@ -860,56 +1145,31 @@ export async function PUT(request) {
       isAdmin,
     } = auth;
 
-    // ========================================================
-    // ADMIN ONLY
-    // ========================================================
-
-    if (!isAdmin) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Only admin can edit report records.",
-        },
-        {
-          status: 403,
-          headers: noCacheHeaders(),
-        }
-      );
-    }
-
-    // ========================================================
-    // BODY
-    // ========================================================
-
     let body;
 
     try {
       body = await request.json();
-    } catch (error) {
+    } catch {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Invalid JSON request body.",
+            "Invalid JSON body",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 400 }
       );
     }
 
-    // ========================================================
+    // =====================================================
     // ASSIGNMENT ID
-    // ========================================================
+    // =====================================================
 
-    const assignmentId = Number(
-      body?.assignment_id ??
-      body?.assignmentId ??
-      body?.daily_assignment_id ??
-      body?.id
-    );
+    const assignmentId =
+      Number(
+        body?.assignment_id ??
+          body?.assignmentId ??
+          body?.id
+      );
 
     if (
       !Number.isInteger(
@@ -921,62 +1181,82 @@ export async function PUT(request) {
         {
           success: false,
           message:
-            "Valid assignment_id is required.",
+            "Invalid assignment ID.",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 400 }
       );
     }
 
-    // ========================================================
-    // FIND ASSIGNMENT
-    // ========================================================
+    // =====================================================
+    // GET EXISTING ASSIGNMENT
+    // =====================================================
 
-    const assignmentRows =
+    const existingRows =
       await query(
         `
-          SELECT
-            id,
-            task_id,
-            employee_id,
-            assignment_date,
-            status,
-            comment,
-            is_completed
-          FROM daily_assignments
-          WHERE id = ?
-          LIMIT 1
+        SELECT
+          id,
+          task_id,
+          employee_id,
+          assignment_date,
+          status,
+          comment,
+          is_completed
+        FROM daily_assignments
+        WHERE id = ?
+        LIMIT 1
         `,
         [assignmentId]
       );
 
     if (
-      !Array.isArray(
-        assignmentRows
-      ) ||
-      assignmentRows.length === 0
+      !existingRows ||
+      existingRows.length === 0
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Assignment record not found.",
+            "History record not found.",
         },
-        {
-          status: 404,
-          headers: noCacheHeaders(),
-        }
+        { status: 404 }
       );
     }
 
-    const assignment =
-      assignmentRows[0];
+    const existing =
+      existingRows[0];
 
-    const taskId = Number(
-      assignment.task_id
-    );
+    // =====================================================
+    // OWNERSHIP SECURITY
+    //
+    // ADMIN:
+    //   Can edit anyone.
+    //
+    // NORMAL USER:
+    //   Can edit ONLY own record.
+    // =====================================================
+
+    if (
+      !isAdmin &&
+      Number(existing.employee_id) !==
+        Number(currentUserId)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You can only edit your own history records.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // =====================================================
+    // MASTER TASK ID
+    // =====================================================
+
+    const taskId =
+      Number(existing.task_id);
 
     if (
       !Number.isInteger(taskId) ||
@@ -986,36 +1266,228 @@ export async function PUT(request) {
         {
           success: false,
           message:
-            "This assignment does not have a valid task.",
+            "Invalid master task ID.",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 500 }
       );
     }
 
-    // ========================================================
-    // FIND MASTER TASK
-    // ========================================================
+    // =====================================================
+    // DATE
+    // =====================================================
+
+    let assignmentDate =
+      existing.assignment_date;
+
+    if (
+      body?.assignment_date !==
+        undefined ||
+      body?.assignmentDate !==
+        undefined ||
+      body?.date !== undefined
+    ) {
+      assignmentDate =
+        safeString(
+          body?.assignment_date ??
+            body?.assignmentDate ??
+            body?.date
+        );
+
+      if (
+        !validDate(
+          assignmentDate
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid date. Use YYYY-MM-DD.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // =====================================================
+    // EMPLOYEE
+    // =====================================================
+
+    let employeeId =
+      Number(existing.employee_id);
+
+    if (
+      body?.employee_id !==
+        undefined ||
+      body?.employeeId !==
+        undefined
+    ) {
+      employeeId =
+        Number(
+          body?.employee_id ??
+            body?.employeeId
+        );
+    }
+
+    if (
+      !Number.isInteger(
+        employeeId
+      ) ||
+      employeeId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid employee ID.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // NORMAL USER CANNOT TRANSFER OWN RECORD
+    // TO ANOTHER EMPLOYEE.
+    // =====================================================
+
+    if (
+      !isAdmin &&
+      employeeId !==
+        Number(currentUserId)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You cannot assign your history record to another employee.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // =====================================================
+    // VERIFY EMPLOYEE
+    // =====================================================
+
+    const employeeCheck =
+      await query(
+        `
+        SELECT
+          id
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [employeeId]
+      );
+
+    if (
+      !employeeCheck ||
+      employeeCheck.length === 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Selected employee does not exist.",
+        },
+        { status: 404 }
+      );
+    }
+
+    // =====================================================
+    // STATUS
+    // =====================================================
+
+    let status =
+      safeString(
+        existing.status
+      );
+
+    if (
+      body?.status !== undefined ||
+      body?.assignment_status !==
+        undefined
+    ) {
+      status =
+        normalizeStatus(
+          body?.status ??
+            body?.assignment_status
+        );
+
+      if (!status) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Status cannot be empty.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (status.length > 50) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Status must be 50 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // COMMENT
+    // =====================================================
+
+    let comment =
+      existing.comment || "";
+
+    if (
+      body?.comment !== undefined ||
+      body?.comments !== undefined
+    ) {
+      comment =
+        safeString(
+          body?.comment ??
+            body?.comments
+        );
+    }
+
+    if (comment.length > 5000) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Comment must be 5000 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =====================================================
+    // GET MASTER TASK
+    // =====================================================
 
     const taskRows =
       await query(
         `
-          SELECT
-            id,
-            name,
-            phone_number,
-            business_name
-          FROM master_tasks
-          WHERE id = ?
-          LIMIT 1
+        SELECT
+          id,
+          business_name,
+          name,
+          phone_number
+        FROM master_tasks
+        WHERE id = ?
+        LIMIT 1
         `,
         [taskId]
       );
 
     if (
-      !Array.isArray(taskRows) ||
+      !taskRows ||
       taskRows.length === 0
     ) {
       return NextResponse.json(
@@ -1024,890 +1496,226 @@ export async function PUT(request) {
           message:
             "Master task not found.",
         },
-        {
-          status: 404,
-          headers: noCacheHeaders(),
-        }
+        { status: 404 }
       );
     }
 
-    // ========================================================
-    // BODY FIELD HELPER
-    // ========================================================
+    let businessName =
+      taskRows[0]
+        .business_name || "";
 
-    const hasOwn = (key) =>
-      Object.prototype.hasOwnProperty.call(
-        body,
-        key
-      );
+    let contactName =
+      taskRows[0]
+        .name || "";
 
-    // ========================================================
-    // DATE
-    // ========================================================
+    let phoneNumber =
+      taskRows[0]
+        .phone_number || "";
 
-    let assignmentDate;
-
-    if (hasOwn("assignment_date")) {
-      assignmentDate =
-        cleanString(
-          body.assignment_date
-        );
-    } else if (
-      hasOwn("assignmentDate")
-    ) {
-      assignmentDate =
-        cleanString(
-          body.assignmentDate
-        );
-    } else if (
-      hasOwn("date")
-    ) {
-      assignmentDate =
-        cleanString(
-          body.date
-        );
-    }
+    // =====================================================
+    // BUSINESS UPDATE
+    // =====================================================
 
     if (
-      assignmentDate !== undefined
-    ) {
-      if (!assignmentDate) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Assignment date cannot be empty.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-
-      if (
-        !isValidDate(
-          assignmentDate
-        )
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Invalid assignment date. Use YYYY-MM-DD.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-    }
-
-    // ========================================================
-    // EMPLOYEE
-    // ========================================================
-
-    let employeeId;
-
-    if (hasOwn("employee_id")) {
-      employeeId = Number(
-        body.employee_id
-      );
-    } else if (
-      hasOwn("employeeId")
-    ) {
-      employeeId = Number(
-        body.employeeId
-      );
-    } else if (
-      hasOwn(
-        "assigned_employee_id"
-      )
-    ) {
-      employeeId = Number(
-        body.assigned_employee_id
-      );
-    }
-
-    if (
-      employeeId !== undefined
-    ) {
-      if (
-        !Number.isInteger(
-          employeeId
-        ) ||
-        employeeId <= 0
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Valid employee_id is required.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-
-      const employeeRows =
-        await query(
-          `
-            SELECT
-              id,
-              name,
-              role
-            FROM users
-            WHERE id = ?
-            LIMIT 1
-          `,
-          [employeeId]
-        );
-
-      if (
-        !Array.isArray(
-          employeeRows
-        ) ||
-        employeeRows.length === 0
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Selected employee was not found.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-    }
-
-    // ========================================================
-    // STATUS
-    // ========================================================
-
-    let status;
-
-    if (hasOwn("status")) {
-      status = cleanString(
-        body.status
-      );
-    } else if (
-      hasOwn("selected_status")
-    ) {
-      status = cleanString(
-        body.selected_status
-      );
-    } else if (
-      hasOwn("selectedStatus")
-    ) {
-      status = cleanString(
-        body.selectedStatus
-      );
-    }
-
-    if (status !== undefined) {
-      if (!status) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Status cannot be empty.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-
-      if (status.length > 100) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "Status is too long.",
-          },
-          {
-            status: 400,
-            headers:
-              noCacheHeaders(),
-          }
-        );
-      }
-    }
-
-    // ========================================================
-    // COMMENT
-    // ========================================================
-
-    let comment;
-
-    if (hasOwn("comment")) {
-      comment = cleanString(
-        body.comment
-      );
-    } else if (
-      hasOwn("comments")
-    ) {
-      comment = cleanString(
-        body.comments
-      );
-    } else if (
-      hasOwn("notes")
-    ) {
-      comment = cleanString(
-        body.notes
-      );
-    }
-
-    if (
-      comment !== undefined &&
-      comment.length > 5000
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Comment is too long. Maximum 5000 characters.",
-        },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
-      );
-    }
-
-    // ========================================================
-    // BUSINESS NAME
-    // ========================================================
-
-    let businessName;
-
-    if (
-      hasOwn("business_name")
+      body?.business_name !==
+        undefined ||
+      body?.businessName !==
+        undefined ||
+      body?.business !==
+        undefined
     ) {
       businessName =
-        cleanString(
-          body.business_name
-        );
-    } else if (
-      hasOwn("businessName")
-    ) {
-      businessName =
-        cleanString(
-          body.businessName
+        safeString(
+          body?.business_name ??
+            body?.businessName ??
+            body?.business
         );
     }
+
+    // =====================================================
+    // CONTACT UPDATE
+    // =====================================================
 
     if (
-      businessName !== undefined &&
-      businessName.length > 500
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Business name is too long.",
-        },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
-      );
-    }
-
-    // ========================================================
-    // CONTACT NAME
-    // ========================================================
-
-    let contactName;
-
-    if (hasOwn("name")) {
-      contactName =
-        cleanString(
-          body.name
-        );
-    } else if (
-      hasOwn("contactName")
+      body?.contact_name !==
+        undefined ||
+      body?.contactName !==
+        undefined ||
+      body?.name !== undefined ||
+      body?.contact !== undefined
     ) {
       contactName =
-        cleanString(
-          body.contactName
-        );
-    } else if (
-      hasOwn("contact_name")
-    ) {
-      contactName =
-        cleanString(
-          body.contact_name
+        safeString(
+          body?.contact_name ??
+            body?.contactName ??
+            body?.name ??
+            body?.contact
         );
     }
 
+    // =====================================================
+    // PHONE UPDATE
+    // =====================================================
+
     if (
-      contactName !== undefined &&
-      contactName.length > 500
+      body?.phone_number !==
+        undefined ||
+      body?.phoneNumber !==
+        undefined ||
+      body?.phone !== undefined
     ) {
+      phoneNumber =
+        safeString(
+          body?.phone_number ??
+            body?.phoneNumber ??
+            body?.phone
+        );
+    }
+
+    // =====================================================
+    // VALIDATION
+    // =====================================================
+
+    if (businessName.length > 150) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Contact name is too long.",
+            "Business name must be 150 characters or less.",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 400 }
       );
     }
 
-    // ========================================================
-    // PHONE
-    // ========================================================
-
-    let phone;
-
-    if (hasOwn("phone")) {
-      phone = cleanString(
-        body.phone
-      );
-    } else if (
-      hasOwn("phone_number")
-    ) {
-      phone = cleanString(
-        body.phone_number
-      );
-    } else if (
-      hasOwn("phoneNumber")
-    ) {
-      phone = cleanString(
-        body.phoneNumber
-      );
-    }
-
-    if (
-      phone !== undefined &&
-      phone.length > 100
-    ) {
+    if (contactName.length > 100) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Phone number is too long.",
+            "Contact name must be 100 characters or less.",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 400 }
       );
     }
 
-    // ========================================================
-    // CHECK EDITABLE FIELDS
-    // ========================================================
-
-    if (
-      assignmentDate === undefined &&
-      employeeId === undefined &&
-      status === undefined &&
-      comment === undefined &&
-      businessName === undefined &&
-      contactName === undefined &&
-      phone === undefined
-    ) {
+    if (!phoneNumber) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "No editable fields were provided.",
+            "Phone number is required.",
         },
-        {
-          status: 400,
-          headers: noCacheHeaders(),
-        }
+        { status: 400 }
       );
     }
 
-    // ========================================================
+    if (phoneNumber.length > 30) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Phone number must be 30 characters or less.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const isCompleted =
+      isCompletedStatus(status)
+        ? 1
+        : 0;
+
+    // =====================================================
     // UPDATE DAILY ASSIGNMENT
-    // ========================================================
+    // =====================================================
 
-    const assignmentUpdates = [];
-    const assignmentParams = [];
+    await query(
+      `
+      UPDATE daily_assignments
+      SET
+        employee_id = ?,
+        assignment_date = ?,
+        status = ?,
+        comment = ?,
+        is_completed = ?
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [
+        employeeId,
+        assignmentDate,
+        status,
+        comment || null,
+        isCompleted,
+        assignmentId,
+      ]
+    );
 
-    if (
-      assignmentDate !== undefined
-    ) {
-      assignmentUpdates.push(
-        "assignment_date = ?"
-      );
+    // =====================================================
+    // UPDATE MASTER TASK
+    //
+    // Only existing columns.
+    //
+    // sequence_no stays unchanged.
+    // pool_id stays unchanged.
+    // =====================================================
 
-      assignmentParams.push(
-        assignmentDate
-      );
-    }
+    await query(
+      `
+      UPDATE master_tasks
+      SET
+        task_date = ?,
+        business_name = ?,
+        name = ?,
+        phone_number = ?,
+        current_status = ?
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [
+        assignmentDate,
+        businessName || null,
+        contactName || null,
+        phoneNumber,
+        status,
+        taskId,
+      ]
+    );
 
-    if (
-      employeeId !== undefined
-    ) {
-      assignmentUpdates.push(
-        "employee_id = ?"
-      );
+    // =====================================================
+    // GET UPDATED RECORD
+    // =====================================================
 
-      assignmentParams.push(
-        employeeId
-      );
-    }
-
-    if (status !== undefined) {
-      assignmentUpdates.push(
-        "status = ?"
-      );
-
-      assignmentParams.push(
-        status
-      );
-
-      // ------------------------------------------------------
-      // AUTO COMPLETION
-      // ------------------------------------------------------
-
-      const normalizedStatus =
-        status
-          .trim()
-          .toLowerCase();
-
-      const completedStatuses = [
-        "completed",
-        "complete",
-        "done",
-      ];
-
-      const isCompleted =
-        completedStatuses.includes(
-          normalizedStatus
-        );
-
-      assignmentUpdates.push(
-        "is_completed = ?"
-      );
-
-      assignmentParams.push(
-        isCompleted ? 1 : 0
-      );
-    }
-
-    if (
-      comment !== undefined
-    ) {
-      assignmentUpdates.push(
-        "comment = ?"
-      );
-
-      assignmentParams.push(
-        comment || null
-      );
-    }
-
-    // ========================================================
-    // SAVE ASSIGNMENT
-    // ========================================================
-
-    if (
-      assignmentUpdates.length > 0
-    ) {
-      assignmentParams.push(
+    const updatedRecord =
+      await getHistoryRecord(
         assignmentId
       );
 
-      await query(
-        `
-          UPDATE daily_assignments
-          SET
-            ${assignmentUpdates.join(
-              ", "
-            )}
-          WHERE id = ?
-          LIMIT 1
-        `,
-        assignmentParams
-      );
-    }
-
-    // ========================================================
-    // UPDATE MASTER TASK
-    // ========================================================
-
-    const taskUpdates = [];
-    const taskParams = [];
-
-    if (
-      businessName !== undefined
-    ) {
-      taskUpdates.push(
-        "business_name = ?"
-      );
-
-      taskParams.push(
-        businessName || null
-      );
-    }
-
-    if (
-      contactName !== undefined
-    ) {
-      taskUpdates.push(
-        "name = ?"
-      );
-
-      taskParams.push(
-        contactName || null
-      );
-    }
-
-    if (phone !== undefined) {
-      taskUpdates.push(
-        "phone_number = ?"
-      );
-
-      taskParams.push(
-        phone || null
-      );
-    }
-
-    // ========================================================
-    // SAVE MASTER TASK
-    // ========================================================
-
-    if (
-      taskUpdates.length > 0
-    ) {
-      taskParams.push(taskId);
-
-      await query(
-        `
-          UPDATE master_tasks
-          SET
-            ${taskUpdates.join(
-              ", "
-            )}
-          WHERE id = ?
-          LIMIT 1
-        `,
-        taskParams
-      );
-    }
-
-    // ========================================================
-    // FETCH UPDATED RECORD
-    // ========================================================
-
-    const updatedRows =
-      await query(
-        `
-          SELECT
-
-            /* ==================================================
-               ASSIGNMENT
-            ================================================== */
-
-            da.id AS id,
-
-            da.id AS assignment_id,
-
-            da.id AS daily_assignment_id,
-
-            da.task_id AS assignment_task_id,
-
-            da.task_id AS assignmentTaskId,
-
-            da.employee_id AS employee_id,
-
-            da.employee_id AS employeeId,
-
-            da.employee_id AS assigned_employee_id,
-
-            da.employee_id AS assignedEmployeeId,
-
-            /* ==================================================
-               DATE
-            ================================================== */
-
-            da.assignment_date AS assignment_date,
-
-            da.assignment_date AS assignmentDate,
-
-            DATE(da.assignment_date) AS assignedDate,
-
-            DATE(da.assignment_date) AS assignmentDateOnly,
-
-            DATE(da.assignment_date) AS task_date,
-
-            DATE(da.assignment_date) AS taskDate,
-
-            DATE(da.assignment_date) AS date,
-
-            /* ==================================================
-               CREATED
-               updated_at REMOVED
-            ================================================== */
-
-            da.created_at AS created_at,
-
-            da.created_at AS createdAt,
-
-            /* ==================================================
-               STATUS
-            ================================================== */
-
-            da.status AS status,
-
-            da.status AS assignment_status,
-
-            da.status AS assignmentStatus,
-
-            da.status AS assignment_status_name,
-
-            da.status AS selected_status,
-
-            da.status AS selectedStatus,
-
-            da.status AS result,
-
-            da.status AS result_status,
-
-            da.status AS task_status,
-
-            da.status AS taskStatus,
-
-            da.status AS call_status,
-
-            da.status AS callStatus,
-
-            da.status AS disposition,
-
-            da.status AS outcome,
-
-            da.status AS current_status,
-
-            da.status AS selected_result,
-
-            /* ==================================================
-               COMMENT
-            ================================================== */
-
-            da.comment AS comment,
-
-            da.comment AS comments,
-
-            da.comment AS notes,
-
-            da.comment AS task_comment,
-
-            da.comment AS taskComment,
-
-            /* ==================================================
-               COMPLETION
-            ================================================== */
-
-            da.is_completed AS is_completed,
-
-            da.is_completed AS isCompleted,
-
-            /* ==================================================
-               MASTER TASK
-            ================================================== */
-
-            mt.id AS taskId,
-
-            mt.id AS task_id,
-
-            mt.id AS master_task_id,
-
-            mt.id AS masterTaskId,
-
-            mt.name AS name,
-
-            mt.name AS contactName,
-
-            mt.name AS contact_name,
-
-            mt.phone_number AS phone,
-
-            mt.phone_number AS phoneNumber,
-
-            mt.phone_number AS phone_number,
-
-            mt.business_name AS businessName,
-
-            mt.business_name AS business_name,
-
-            mt.current_status AS master_current_status,
-
-            mt.is_locked AS is_locked,
-
-            /* ==================================================
-               USER
-            ================================================== */
-
-            u.id AS staffId,
-
-            u.id AS staff_id,
-
-            u.id AS userId,
-
-            u.name AS assignedToName,
-
-            u.name AS assigned_to,
-
-            u.name AS employeeName,
-
-            u.name AS employee_name,
-
-            u.name AS staffName,
-
-            u.name AS staff_name,
-
-            u.name AS userName,
-
-            u.name AS user_name,
-
-            u.email AS staffEmail,
-
-            u.email AS employeeEmail,
-
-            u.email AS userEmail,
-
-            u.email AS email,
-
-            u.role AS staffRole,
-
-            u.role AS employeeRole,
-
-            u.role AS userRole
-
-          FROM daily_assignments da
-
-          LEFT JOIN master_tasks mt
-            ON da.task_id = mt.id
-
-          LEFT JOIN users u
-            ON da.employee_id = u.id
-
-          WHERE da.id = ?
-
-          LIMIT 1
-        `,
-        [assignmentId]
-      );
-
-    const updatedRecord =
-      Array.isArray(updatedRows) &&
-      updatedRows.length > 0
-        ? updatedRows[0]
-        : null;
-
-    // ========================================================
-    // RESPONSE
-    // ========================================================
-
-    return NextResponse.json(
-      {
-        success: true,
-
-        message:
-          "Report record updated successfully.",
-
-        data:
-          updatedRecord,
-
-        updated: {
-          assignment_id:
-            assignmentId,
-
-          task_id:
-            taskId,
-
-          employee_id:
-            employeeId ??
-            assignment.employee_id,
-
-          assignment_date:
-            assignmentDate ??
-            assignment.assignment_date ??
-            null,
-
-          status:
-            status ??
-            assignment.status ??
-            null,
-
-          comment:
-            comment ??
-            assignment.comment ??
-            null,
-
-          business_name:
-            businessName ??
-            taskRows[0]
-              ?.business_name ??
-            null,
-
-          name:
-            contactName ??
-            taskRows[0]?.name ??
-            null,
-
-          phone:
-            phone ??
-            taskRows[0]?.phone_number ??
-            null,
-
-          updated_by:
-            currentUserId,
-        },
-      },
-      {
-        status: 200,
-        headers: noCacheHeaders(),
-      }
-    );
+    return NextResponse.json({
+      success: true,
+      message:
+        "History updated successfully.",
+      data: updatedRecord,
+      record: updatedRecord,
+    });
   } catch (error) {
     console.error(
-      "ADMIN HISTORY PUT ERROR:",
+      "[History PUT Error]",
       error
     );
 
     return NextResponse.json(
       {
         success: false,
-
         message:
-          error?.message ||
-          "Failed to update report record.",
-
+          "Failed to update history.",
         error:
-          process.env.NODE_ENV ===
-          "development"
-            ? String(error)
+          process.env.NODE_ENV === "development"
+            ? error?.message
             : undefined,
       },
-      {
-        status: 500,
-        headers: {
-          "Cache-Control":
-            "no-store",
-        },
-      }
+      { status: 500 }
     );
   }
 }
+
